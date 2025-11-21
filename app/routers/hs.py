@@ -1,14 +1,39 @@
-from datetime import date, time, timedelta
+from datetime import date, time, timedelta, datetime
 from typing import List, Literal, Optional, Dict, Tuple
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
+
+from ..config.config import get_db
+from ..models import HSCalculationHS
+from ..schemas import HSCalculationReadHS
 
 
 router = APIRouter(
     prefix="/hs",
     tags=["Heures Supplémentaires HS"],
 )
+
+
+@router.get("/all", response_model=List[HSCalculationReadHS])
+def get_all_hs_calculations_HS(
+    db: Session = Depends(get_db),
+) -> List[HSCalculationReadHS]:
+    """
+    Endpoint API :
+    GET /hs/all
+
+    -> renvoie TOUS les enregistrements hs_calculations_HS
+       (triés du plus récent au plus ancien).
+    """
+    calculs_HS = (
+        db.query(HSCalculationHS)
+        .order_by(HSCalculationHS.created_at_HS.desc())
+        .all()
+    )
+    return calculs_HS
+
 
 
 # --------- 📌 Modèles Pydantic (avec suffixe HS) ---------
@@ -270,7 +295,7 @@ def calculer_heures_supplementaires_et_majorations_HS(
     )
 
 
-# --------- 🚀 Endpoint FastAPI ---------
+# --------- 🚀 Endpoints FastAPI ---------
 
 
 @router.post("/calculate", response_model=HSCalculationResultHS)
@@ -278,6 +303,47 @@ def calculate_hs_endpoint_HS(payload_HS: HSCalculationRequestHS) -> HSCalculatio
     """
     Endpoint API :
     POST /hs/calculate
+    -> calcule les HS mais ne sauvegarde pas en base
     """
     return calculer_heures_supplementaires_et_majorations_HS(payload_HS)
-    
+
+
+@router.post("/calculate-and-save", response_model=HSCalculationReadHS)
+def calculate_and_save_hs_endpoint_HS(
+    payload_HS: HSCalculationRequestHS,
+    db: Session = Depends(get_db),
+) -> HSCalculationReadHS:
+    """
+    Endpoint API :
+    POST /hs/calculate-and-save
+
+    1. Calcule les HS (comme /hs/calculate)
+    2. Sauvegarde le résumé mensuel dans hs_calculations_HS
+    3. Retourne l'enregistrement sauvegardé (avec id_HS)
+    """
+    result_HS = calculer_heures_supplementaires_et_majorations_HS(payload_HS)
+
+    now_HS = datetime.utcnow()
+
+    calc_db_HS = HSCalculationHS(
+        worker_id_HS=payload_HS.worker_id_HS,
+        mois_HS=payload_HS.mois_HS,
+        base_hebdo_heures_HS=payload_HS.base_hebdo_heures_HS,
+        total_HSNI_130_heures_HS=result_HS.total_HSNI_130_heures_HS,
+        total_HSI_130_heures_HS=result_HS.total_HSI_130_heures_HS,
+        total_HSNI_150_heures_HS=result_HS.total_HSNI_150_heures_HS,
+        total_HSI_150_heures_HS=result_HS.total_HSI_150_heures_HS,
+        total_HMNH_30_heures_HS=result_HS.total_HMNH_30_heures_HS,
+        total_HMNO_50_heures_HS=result_HS.total_HMNO_50_heures_HS,
+        total_HMD_40_heures_HS=result_HS.total_HMD_40_heures_HS,
+        total_HMJF_50_heures_HS=result_HS.total_HMJF_50_heures_HS,
+        payroll_run_id_HS=None,  # tu pourras le renseigner plus tard
+        created_at_HS=now_HS,
+        updated_at_HS=now_HS,
+    )
+
+    db.add(calc_db_HS)
+    db.commit()
+    db.refresh(calc_db_HS)
+
+    return calc_db_HS

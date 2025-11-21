@@ -1,6 +1,7 @@
-from sqlalchemy import Column, Integer, String, Float, Date, Boolean, ForeignKey
+from sqlalchemy import Column, Integer, String, Text, Time, Float, Date, DateTime, Boolean, ForeignKey
 from sqlalchemy.orm import relationship
 from .config.config import Base
+from datetime import datetime, date, time
 
 
 class TypeRegime(Base):
@@ -159,3 +160,107 @@ class PayrollRun(Base):
     employer_id = Column(Integer, ForeignKey("employers.id"))
     period = Column(String, index=True)
     generated_at = Column(Date)
+
+
+class HSCalculationHS(Base):
+    """
+    Résumé mensuel des heures supplémentaires pour un salarié.
+    Correspond à la table hs_calculations_HS.
+    """
+
+    __tablename__ = "hs_calculations_HS"
+
+    id_HS = Column(Integer, primary_key=True, index=True)
+
+    # Salarié concerné
+    worker_id_HS = Column(Integer, ForeignKey("workers.id"), nullable=False)
+
+    # Mois de paie : 'YYYY-MM'
+    mois_HS = Column(String(7), nullable=False)
+
+    # Base hebdomadaire utilisée pour le calcul (ex: 40, 44, 48)
+    base_hebdo_heures_HS = Column(Float, nullable=False, default=40.0)
+
+    # Totaux HS NI / I
+    total_HSNI_130_heures_HS = Column(Float, nullable=False, default=0.0)
+    total_HSI_130_heures_HS = Column(Float, nullable=False, default=0.0)
+    total_HSNI_150_heures_HS = Column(Float, nullable=False, default=0.0)
+    total_HSI_150_heures_HS = Column(Float, nullable=False, default=0.0)
+
+    # Totaux majorations
+    total_HMNH_30_heures_HS = Column(Float, nullable=False, default=0.0)
+    total_HMNO_50_heures_HS = Column(Float, nullable=False, default=0.0)
+    total_HMD_40_heures_HS = Column(Float, nullable=False, default=0.0)
+    total_HMJF_50_heures_HS = Column(Float, nullable=False, default=0.0)
+
+    # Lien éventuel avec un traitement de paie (run de paie)
+    payroll_run_id_HS = Column(Integer, ForeignKey("payroll_runs.id"), nullable=True)
+
+    # Audit
+    created_at_HS = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at_HS = Column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+    # Relation avec les lignes journalières HS
+    jours_HS = relationship(
+        "HSJourHS",
+        back_populates="calculation_HS",
+        cascade="all, delete-orphan",
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<HSCalculationHS id={self.id_HS} worker={self.worker_id_HS} "
+            f"mois={self.mois_HS}>"
+        )
+
+
+class HSJourHS(Base):
+    """
+    Détail jour par jour pour un calcul HS donné.
+    Correspond à la table hs_jours_HS.
+    """
+
+    __tablename__ = "hs_jours_HS"
+
+    id_HS = Column(Integer, primary_key=True, index=True)
+
+    # Référence au calcul HS mensuel
+    calculation_id_HS = Column(
+        Integer,
+        ForeignKey("hs_calculations_HS.id_HS"),
+        nullable=False,
+        index=True,
+    )
+
+    # Données d'entrée
+    date_HS = Column(Date, nullable=False)
+    type_jour_HS = Column(String(2), nullable=False)  # 'N' ou 'JF'
+    entree_HS = Column(Time, nullable=False)
+    sortie_HS = Column(Time, nullable=False)
+    type_nuit_HS = Column(String(1), nullable=True)  # None, 'H', 'O'
+
+    # Données calculées (en heures décimales)
+    duree_travail_totale_heures_HS = Column(Float, nullable=True)
+    duree_base_heures_HS = Column(Float, nullable=True)
+    hmnh_30_heures_HS = Column(Float, nullable=True)
+    hmno_50_heures_HS = Column(Float, nullable=True)
+    hmd_40_heures_HS = Column(Float, nullable=True)
+    hmjf_50_heures_HS = Column(Float, nullable=True)
+
+    # Semaine ISO, utile pour recontrôler la logique HS
+    iso_year_HS = Column(Integer, nullable=True)
+    iso_week_HS = Column(Integer, nullable=True)
+
+    # Commentaire libre (optionnel)
+    commentaire_HS = Column(Text, nullable=True)
+
+    # Relation vers le calcul mensuel
+    calculation_HS = relationship("HSCalculationHS", back_populates="jours_HS")
+
+    def __repr__(self) -> str:
+        return (
+            f"<HSJourHS id={self.id_HS} calc={self.calculation_id_HS} "
+            f"date={self.date_HS}>"
+        )

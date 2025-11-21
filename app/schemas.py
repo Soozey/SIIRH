@@ -1,6 +1,7 @@
 # backend/app/schemas.py
 from typing import Optional, List
 from pydantic import BaseModel
+from datetime import datetime, date, time
 
 
 # ==========================
@@ -149,3 +150,107 @@ class PayVarOut(PayVarIn):
 
     class Config:
         from_attributes = True
+
+
+# ==========================
+#   SCHEMAS HS (Heures Supplémentaires)
+#   Suffixe HS pour tout ce qui concerne ce module
+# ==========================
+
+
+class HSJourBaseHS(BaseModel):
+  """
+  Données d'une journée HS (côté API / lecture).
+  Correspond à une ligne de la table hs_jours_HS.
+  """
+
+  date_HS: date
+  type_jour_HS: str  # 'N' ou 'JF'
+  entree_HS: time
+  sortie_HS: time
+  type_nuit_HS: Optional[str] = None  # None, 'H' ou 'O'
+
+  # Champs calculés (en heures décimales)
+  duree_travail_totale_heures_HS: Optional[float] = None
+  duree_base_heures_HS: Optional[float] = None
+  hmnh_30_heures_HS: Optional[float] = None
+  hmno_50_heures_HS: Optional[float] = None
+  hmd_40_heures_HS: Optional[float] = None
+  hmjf_50_heures_HS: Optional[float] = None
+
+  # Semaine ISO (pour recontrôle)
+  iso_year_HS: Optional[int] = None
+  iso_week_HS: Optional[int] = None
+
+  commentaire_HS: Optional[str] = None
+
+
+class HSJourCreateHS(HSJourBaseHS):
+  """
+  Schéma utilisé si un jour HS est créé côté API.
+  En pratique, on créera surtout ces lignes en backend
+  à partir de la requête de calcul HS.
+  """
+
+  calculation_id_HS: int
+
+
+class HSJourReadHS(HSJourBaseHS):
+  """
+  Schéma de lecture d'une ligne hs_jours_HS.
+  """
+
+  id_HS: int
+  calculation_id_HS: int
+
+  class Config:
+    orm_mode = True
+
+
+class HSCalculationBaseHS(BaseModel):
+  """
+  Champs communs pour un calcul HS mensuel.
+  Correspond à la table hs_calculations_HS.
+  """
+
+  worker_id_HS: int
+  mois_HS: str  # 'YYYY-MM'
+  base_hebdo_heures_HS: float
+
+  total_HSNI_130_heures_HS: float
+  total_HSI_130_heures_HS: float
+  total_HSNI_150_heures_HS: float
+  total_HSI_150_heures_HS: float
+
+  total_HMNH_30_heures_HS: float
+  total_HMNO_50_heures_HS: float
+  total_HMD_40_heures_HS: float
+  total_HMJF_50_heures_HS: float
+
+
+class HSCalculationCreateHS(HSCalculationBaseHS):
+  """
+  Schéma pour créer un calcul HS en BDD.
+  On peut éventuellement l'enrichir avec des paramètres supplémentaires.
+  """
+
+  payroll_run_id_HS: Optional[int] = None
+
+
+class HSCalculationReadHS(HSCalculationBaseHS):
+  """
+  Schéma de lecture d'un calcul HS (résumé mensuel),
+  avec éventuellement les jours HS associés.
+  """
+
+  id_HS: int
+  payroll_run_id_HS: Optional[int] = None
+
+  created_at_HS: datetime
+  updated_at_HS: datetime
+
+  # Liste des jours HS rattachés à ce calcul
+  jours_HS: List[HSJourReadHS] = []
+
+  class Config:
+    orm_mode = True
