@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 # Import depuis config.py au lieu de db.py
 from .config.config import Base, engine, create_tables
 from . import models
+from .routers import employers, workers, variables, payroll, hs
 
 # Création des tables au démarrage
 create_tables()
@@ -34,3 +35,4 @@ app.include_router(workers.router)
 app.include_router(variables.router)
 app.include_router(payroll.router)
 app.include_router(type_regimes.router)
+app.include_router(hs.router)  # <= nouveau module HS

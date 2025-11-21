@@ -5,7 +5,7 @@ from sqlalchemy.orm import sessionmaker, declarative_base
 
 class Settings(BaseSettings):
     # Si un .env ou une variable d'environnement DATABASE_URL existent, ils priment.
-    DATABASE_URL: str = "postgresql+psycopg2://postgres:admindev007@127.0.0.1:5432/db_siirh_app"
+    DATABASE_URL: str = "postgresql+psycopg2://postgres:admin123@127.0.0.1:5432/db_siirh_app?client_encoding=utf8"
     JWT_SECRET: str = "change_me"
     JWT_ALGO: str = "HS256"
 
