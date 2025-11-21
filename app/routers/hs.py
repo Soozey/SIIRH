@@ -1,7 +1,7 @@
 from datetime import date, time, timedelta, datetime
 from typing import List, Literal, Optional, Dict, Tuple
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -33,6 +33,56 @@ def get_all_hs_calculations_HS(
         .all()
     )
     return calculs_HS
+
+
+@router.get("/all", response_model=List[HSCalculationReadHS])
+def get_all_hs_calculations_HS(
+    db: Session = Depends(get_db),
+) -> List[HSCalculationReadHS]:
+    """
+    Endpoint API :
+    GET /hs/all
+
+    -> renvoie TOUS les enregistrements hs_calculations_HS
+       triés du plus récent au plus ancien (created_at_HS desc).
+    """
+    calculs_HS = (
+        db.query(HSCalculationHS)
+        .order_by(HSCalculationHS.created_at_HS.desc())
+        .all()
+    )
+    return calculs_HS
+
+
+@router.delete("/{hs_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_hs_calculation_HS(
+    hs_id: int,
+    db: Session = Depends(get_db),
+) -> None:
+    """
+    Endpoint API :
+    DELETE /hs/{hs_id}
+
+    -> supprime un enregistrement hs_calculations_HS par son id_HS.
+    Retourne 204 NO CONTENT si tout se passe bien.
+    """
+
+    calc_HS = (
+        db.query(HSCalculationHS)
+        .filter(HSCalculationHS.id_HS == hs_id)
+        .first()
+    )
+
+    if calc_HS is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Calcul HS id_HS={hs_id} introuvable.",
+        )
+
+    db.delete(calc_HS)
+    db.commit()
+    # 204 -> pas de contenu à retourner
+    return
 
 
 
