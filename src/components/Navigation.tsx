@@ -3,7 +3,8 @@ import {
   BuildingOfficeIcon,
   UserGroupIcon,
   DocumentTextIcon,
-  ChartBarIcon
+  ChartBarIcon,
+  ClockIcon
 } from "@heroicons/react/24/outline";
 
 interface NavItem {
@@ -16,6 +17,7 @@ const navItems: NavItem[] = [
   { path: "/", label: "Employeurs", icon: BuildingOfficeIcon },
   { path: "/workers", label: "Travailleurs", icon: UserGroupIcon },
   { path: "/payroll", label: "Bulletin", icon: DocumentTextIcon },
+  { path: "/hs", label: "Heure Supplementaire", icon: ClockIcon },
 ];
 
 export default function Navigation() {

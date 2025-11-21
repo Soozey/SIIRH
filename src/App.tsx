@@ -4,6 +4,7 @@ import Employers from "./pages/Employers";
 import Workers from "./pages/Workers";
 import PayrollRun from "./pages/PayrollRun";
 import Payslip from "./pages/Payslip";
+import HeuresSupplementairesPageHS from "./pages/HeuresSupplementairesPageHS";
 
 export default function App() {
   return (
@@ -13,6 +14,7 @@ export default function App() {
         <Route path="/workers" element={<Workers />} />
         <Route path="/payroll" element={<PayrollRun />} />
         <Route path="/payslip/:workerId/:period" element={<Payslip />} />
+        <Route path="/hs" element={<HeuresSupplementairesPageHS />} />
       </Routes>
     </Layout>
   );
