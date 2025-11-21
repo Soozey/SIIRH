@@ -1,4 +1,4 @@
-// src/api/api.ts
+// src/api.ts
 import axios from "axios";
 
 // Instance axios commune pour tout le frontend
@@ -7,10 +7,19 @@ export const api = axios.create({
 });
 
 /**
- * Appelle le backend pour calculer les HS.
- * payloadHS doit respecter le modèle HSCalculationRequestHS côté backend.
+ * Appelle le backend pour CALCULER ET ENREGISTRER les HS.
+ * Utilise l'endpoint POST /hs/calculate-and-save
  */
 export async function calculateHSBackendHS(payloadHS: any) {
-  const response = await api.post("/hs/calculate", payloadHS);
-  return response.data;
+  const response = await api.post("/hs/calculate-and-save", payloadHS);
+  return response.data; // HSCalculationReadHS
+}
+
+/**
+ * Récupère TOUS les enregistrements HS en base.
+ * Utilise l'endpoint GET /hs/all
+ */
+export async function getAllHSCalculationsHS() {
+  const response = await api.get("/hs/all");
+  return response.data; // HSCalculationReadHS[]
 }
