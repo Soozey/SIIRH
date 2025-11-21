@@ -23,3 +23,11 @@ export async function getAllHSCalculationsHS() {
   const response = await api.get("/hs/all");
   return response.data; // HSCalculationReadHS[]
 }
+
+/**
+ * Supprime un enregistrement HS par son id_HS.
+ * Utilise l'endpoint DELETE /hs/{hs_id}
+ */
+export async function deleteHSCalculationHS(hsId: number) {
+  await api.delete(`/hs/${hsId}`);
+}
