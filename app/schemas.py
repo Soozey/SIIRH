@@ -1,6 +1,6 @@
 # backend/app/schemas.py
-from typing import Optional, List
-from pydantic import BaseModel
+from typing import Optional, List, Literal
+from pydantic import BaseModel, Field
 from datetime import datetime, date, time
 
 
@@ -254,3 +254,34 @@ class HSCalculationReadHS(HSCalculationBaseHS):
 
   class Config:
     orm_mode = True
+
+
+class AbsenceInput(BaseModel):
+    salaire_base: float = Field(..., description="Salaire de base mensuel")
+    salaire_horaire: float = Field(..., description="Salaire horaire de référence")
+
+    ABSM_J: float = 0.0   # Absence maladie en jours (informatif)
+    ABSM_H: float = 0.0   # Absence maladie en heures (informatif)
+    ABSNR_J: float = 0.0  # Absence non rémunérée en jours
+    ABSNR_H: float = 0.0  # Absence non rémunérée en heures
+    ABSMP: float = 0.0    # Mise à pied (jours)
+    ABS1_J: float = 0.0   # Autre absence 1 (jours)
+    ABS1_H: float = 0.0   # Autre absence 1 (heures)
+    ABS2_J: float = 0.0   # Autre absence 2 (jours)
+    ABS2_H: float = 0.0   # Autre absence 2 (heures)
+
+
+class AbsenceRubriqueResult(BaseModel):
+    code: str
+    label: str
+    unite: Literal["jour", "heure"]
+    nombre: float
+    base: float
+    montant_salarial: float
+
+
+class AbsenceCalculationResult(BaseModel):
+    salaire_journalier: float
+    salaire_horaire: float
+    rubriques: List[AbsenceRubriqueResult]
+    total_retenues_absence: float

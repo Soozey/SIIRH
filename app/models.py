@@ -106,7 +106,7 @@ class Worker(Base):
 
     employer = relationship("Employer", back_populates="workers")
     variables = relationship("PayVar", back_populates="worker")
-
+    absences = relationship("Absence", back_populates="worker")
 
 class PayVar(Base):
     __tablename__ = "payvars"
@@ -264,3 +264,37 @@ class HSJourHS(Base):
             f"<HSJourHS id={self.id_HS} calc={self.calculation_id_HS} "
             f"date={self.date_HS}>"
         )
+        
+        
+class Absence(Base):
+    __tablename__ = "absences"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    # 🔹 Lien avec le salarié (adapte le nom si ton modèle Worker s'appelle autrement)
+    worker_id = Column(Integer, ForeignKey("workers.id"), nullable=False)
+
+    # Exemple : mois au format "2025-10"
+    mois = Column(String, nullable=False)
+
+    # 🔹 Champs d'absences, mêmes codes que dans le calcul
+    ABSM_J = Column(Float, default=0.0)   # Absence maladie (jours) – info
+    ABSM_H = Column(Float, default=0.0)   # Absence maladie (heures) – info
+    ABSNR_J = Column(Float, default=0.0)  # Absence non rémunérée (jours)
+    ABSNR_H = Column(Float, default=0.0)  # Absence non rémunérée (heures)
+    ABSMP   = Column(Float, default=0.0)  # Mise à pied (jours)
+    ABS1_J  = Column(Float, default=0.0)  # Autre absence 1 (jours)
+    ABS1_H  = Column(Float, default=0.0)  # Autre absence 1 (heures)
+    ABS2_J  = Column(Float, default=0.0)  # Autre absence 2 (jours)
+    ABS2_H  = Column(Float, default=0.0)  # Autre absence 2 (heures)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(
+        DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow
+    )
+
+    # Relation vers le modèle Worker (si tu en as un)
+    worker = relationship("Worker", back_populates="absences")
+        
