@@ -21,7 +21,9 @@ export default function Payslip() {
     (async () => {
       setIsLoading(true);
       try {
-        const r = await api.get(`/payroll/preview`, { params: { worker_id: workerId, period } });
+        const r = await api.get(`/payroll/preview`, {
+          params: { worker_id: workerId, period }
+        });
         setData(r.data);
       } catch (error) {
         console.error("Erreur lors du chargement:", error);
@@ -32,18 +34,28 @@ export default function Payslip() {
   }, [workerId, period]);
 
   const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('fr-MG', {
-      style: 'currency',
-      currency: 'MGA',
+    return new Intl.NumberFormat("fr-MG", {
+      style: "currency",
+      currency: "MGA",
       minimumFractionDigits: 2
     }).format(amount);
   };
 
   const formatPeriod = (period: string) => {
-    const [year, month] = period.split('-');
+    const [year, month] = period.split("-");
     const monthNames = [
-      'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin',
-      'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'
+      "Janvier",
+      "Février",
+      "Mars",
+      "Avril",
+      "Mai",
+      "Juin",
+      "Juillet",
+      "Août",
+      "Septembre",
+      "Octobre",
+      "Novembre",
+      "Décembre"
     ];
     return `${monthNames[parseInt(month) - 1]} ${year}`;
   };
@@ -64,12 +76,19 @@ export default function Payslip() {
       <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
         <div className="text-center">
           <DocumentTextIcon className="h-16 w-16 text-gray-400 mx-auto mb-4" />
-          <h3 className="text-xl font-semibold text-gray-900 mb-2">Bulletin non trouvé</h3>
-          <p className="text-gray-600">Impossible de charger les données du bulletin.</p>
+          <h3 className="text-xl font-semibold text-gray-900 mb-2">
+            Bulletin non trouvé
+          </h3>
+          <p className="text-gray-600">
+            Impossible de charger les données du bulletin.
+          </p>
         </div>
       </div>
     );
   }
+
+  const worker = data.worker;
+  const employer = data.employer;
 
   return (
     <div className="min-h-screen bg-gray-50 p-4 md:p-6">
@@ -86,7 +105,10 @@ export default function Payslip() {
                   Bulletin de Paie
                 </h1>
                 <p className="text-blue-100 mt-1">
-                  {formatPeriod(period || '')} • Travailleur ID: {workerId}
+                  {period ? formatPeriod(period) : "Période non définie"} •{" "}
+                  {worker
+                    ? `${worker.prenom} ${worker.nom} (ID: ${worker.id})`
+                    : `Travailleur ID: ${workerId}`}
                 </p>
               </div>
             </div>
@@ -111,19 +133,17 @@ export default function Payslip() {
             <div className="space-y-2">
               <div>
                 <p className="font-semibold text-gray-900 text-lg">
-                  {data.employer?.raison_sociale}
+                  {employer?.raison_sociale || "Raison sociale indisponible"}
                 </p>
               </div>
-              {data.employer?.nif && (
+              {employer?.nif && (
                 <div className="flex items-center gap-2 text-gray-600">
                   <IdentificationIcon className="h-4 w-4" />
-                  <span>NIF: {data.employer.nif}</span>
+                  <span>NIF: {employer.nif}</span>
                 </div>
               )}
-              {data.employer?.adresse && (
-                <div className="text-gray-600 text-sm">
-                  {data.employer.adresse}
-                </div>
+              {employer?.adresse && (
+                <div className="text-gray-600 text-sm">{employer.adresse}</div>
               )}
             </div>
           </div>
@@ -136,22 +156,78 @@ export default function Payslip() {
               </div>
               <h2 className="text-lg font-bold text-gray-900">Salarié</h2>
             </div>
-            <div className="space-y-2">
-              <div>
-                <p className="font-semibold text-gray-900 text-lg">
-                  {data.worker?.prenom} {data.worker?.nom}
-                </p>
-              </div>
-              <div className="flex items-center gap-2 text-gray-600">
-                <IdentificationIcon className="h-4 w-4" />
-                <span>Matricule: {data.worker?.matricule}</span>
-              </div>
-              {data.worker?.secteur && (
-                <div className="inline-flex items-center gap-1 bg-gray-100 text-gray-700 px-2 py-1 rounded-full text-xs font-medium">
-                  Secteur: {data.worker.secteur}
+            {worker ? (
+              <div className="space-y-3 text-sm text-gray-800">
+                {/* Identité */}
+                <div>
+                  <p className="font-semibold text-gray-900 text-lg">
+                    {worker.prenom} {worker.nom}
+                  </p>
+                  <div className="flex items-center gap-2 text-gray-600 mt-1">
+                    <IdentificationIcon className="h-4 w-4" />
+                    <span>Matricule: {worker.matricule}</span>
+                  </div>
                 </div>
-              )}
-            </div>
+
+                {/* Coordonnées */}
+                <div>
+                  {worker.adresse && (
+                    <p>
+                      Adresse :{" "}
+                      <span className="font-medium">{worker.adresse}</span>
+                    </p>
+                  )}
+                  <p>
+                    Nombre d&apos;enfants :{" "}
+                    <span className="font-medium">
+                      {worker.nombre_enfant ?? 0}
+                    </span>
+                  </p>
+                </div>
+
+                {/* Données de travail */}
+                <div className="border-t border-gray-200 pt-2">
+                  <p className="text-gray-500 font-medium mb-1">
+                    Données de travail
+                  </p>
+                  <p>
+                    Horaire hebdomadaire :{" "}
+                    <span className="font-semibold">
+                      {worker.horaire_hebdo} h / semaine
+                    </span>
+                  </p>
+                  <p>
+                    VHM (valeur heure mensuelle) :{" "}
+                    <span className="font-semibold">
+                      {worker.vhm?.toLocaleString("fr-FR")} Ar
+                    </span>
+                  </p>
+                </div>
+
+                {/* Salaire de référence */}
+                <div className="border-t border-gray-200 pt-2">
+                  <p className="text-gray-500 font-medium mb-1">
+                    Salaire de référence
+                  </p>
+                  <p>
+                    Salaire de base :{" "}
+                    <span className="font-semibold">
+                      {formatCurrency(worker.salaire_base || 0)}
+                    </span>
+                  </p>
+                  <p>
+                    Salaire horaire :{" "}
+                    <span className="font-semibold">
+                      {formatCurrency(worker.salaire_horaire || 0)}
+                    </span>
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <p className="text-gray-600 text-sm">
+                Informations détaillées du salarié non disponibles.
+              </p>
+            )}
           </div>
         </div>
 
@@ -208,7 +284,9 @@ export default function Payslip() {
               <h3 className="font-semibold text-gray-900">Total Brut</h3>
             </div>
             <p className="text-2xl font-bold text-blue-600">
-              {data.totaux?.brut ? formatCurrency(data.totaux.brut) : formatCurrency(0)}
+              {data.totaux?.brut
+                ? formatCurrency(data.totaux.brut)
+                : formatCurrency(0)}
             </p>
           </div>
 
@@ -219,7 +297,9 @@ export default function Payslip() {
               <h3 className="font-semibold text-gray-900">Cotisations</h3>
             </div>
             <p className="text-2xl font-bold text-orange-600">
-              {data.totaux?.cotisations ? formatCurrency(data.totaux.cotisations) : formatCurrency(0)}
+              {data.totaux?.cotisations
+                ? formatCurrency(data.totaux.cotisations)
+                : formatCurrency(0)}
             </p>
           </div>
 
@@ -230,7 +310,9 @@ export default function Payslip() {
               <h3 className="font-semibold text-gray-900">IRSA</h3>
             </div>
             <p className="text-2xl font-bold text-purple-600">
-              {data.totaux?.irsa ? formatCurrency(data.totaux.irsa) : formatCurrency(0)}
+              {data.totaux?.irsa
+                ? formatCurrency(data.totaux.irsa)
+                : formatCurrency(0)}
             </p>
           </div>
 
@@ -241,7 +323,9 @@ export default function Payslip() {
               <h3 className="font-semibold text-gray-900">Net à Payer</h3>
             </div>
             <p className="text-2xl font-bold text-green-600">
-              {data.totaux?.net ? formatCurrency(data.totaux.net) : formatCurrency(0)}
+              {data.totaux?.net
+                ? formatCurrency(data.totaux.net)
+                : formatCurrency(0)}
             </p>
           </div>
         </div>
@@ -256,25 +340,33 @@ export default function Payslip() {
             <div>
               <p className="text-sm text-gray-600">Salaire Brut</p>
               <p className="font-semibold text-gray-900">
-                {data.totaux?.brut ? formatCurrency(data.totaux.brut) : formatCurrency(0)}
+                {data.totaux?.brut
+                  ? formatCurrency(data.totaux.brut)
+                  : formatCurrency(0)}
               </p>
             </div>
             <div>
               <p className="text-sm text-gray-600">Cotisations</p>
               <p className="font-semibold text-gray-900">
-                {data.totaux?.cotisations ? formatCurrency(data.totaux.cotisations) : formatCurrency(0)}
+                {data.totaux?.cotisations
+                  ? formatCurrency(data.totaux.cotisations)
+                  : formatCurrency(0)}
               </p>
             </div>
             <div>
               <p className="text-sm text-gray-600">IRSA</p>
               <p className="font-semibold text-gray-900">
-                {data.totaux?.irsa ? formatCurrency(data.totaux.irsa) : formatCurrency(0)}
+                {data.totaux?.irsa
+                  ? formatCurrency(data.totaux.irsa)
+                  : formatCurrency(0)}
               </p>
             </div>
             <div>
               <p className="text-sm text-gray-600">Net à Payer</p>
               <p className="font-semibold text-green-600">
-                {data.totaux?.net ? formatCurrency(data.totaux.net) : formatCurrency(0)}
+                {data.totaux?.net
+                  ? formatCurrency(data.totaux.net)
+                  : formatCurrency(0)}
               </p>
             </div>
           </div>
