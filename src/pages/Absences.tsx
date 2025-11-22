@@ -32,6 +32,22 @@ type AbsenceCalculationResult = {
   total_retenues_absence: number;
 };
 
+// 🔹 Adapté exactement à ton JSON /workers/{id}
+type Worker = {
+  id: number;
+  employer_id: number;
+  matricule: string;
+  nom: string;
+  prenom: string;
+  adresse: string;
+  nombre_enfant: number;
+  type_regime_id: number;
+  salaire_base: number;
+  salaire_horaire: number;
+  vhm: number;
+  horaire_hebdo: number;
+};
+
 const initialForm: AbsenceInput = {
   worker_id: 0,
   salaire_base: 0,
@@ -53,12 +69,52 @@ const Absences: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const [worker, setWorker] = useState<Worker | null>(null);
+  const [workerLoading, setWorkerLoading] = useState(false);
+  const [workerError, setWorkerError] = useState<string | null>(null);
+
+  // 🔹 Quand on modifie un input numérique (y compris worker_id)
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
     setForm((prev) => ({
       ...prev,
       [name]: value === "" ? 0 : Number(value),
     }));
+  };
+
+  // 🔹 Récupérer les infos d'un salarié à partir du worker_id
+  const fetchWorker = async (id: number) => {
+    if (!id || id <= 0) return;
+    setWorkerLoading(true);
+    setWorkerError(null);
+
+    try {
+      const response = await axios.get<Worker>(
+        `http://127.0.0.1:8000/workers/${id}`
+      );
+      const data = response.data;
+      setWorker(data);
+
+      // Pré-remplissage salaire_base et salaire_horaire si dispo
+      setForm((prev) => ({
+        ...prev,
+        salaire_base: data.salaire_base ?? prev.salaire_base,
+        salaire_horaire: data.salaire_horaire ?? prev.salaire_horaire,
+      }));
+    } catch (err) {
+      console.error(err);
+      setWorker(null);
+      setWorkerError("Impossible de récupérer le salarié (vérifie l'ID).");
+    } finally {
+      setWorkerLoading(false);
+    }
+  };
+
+  // 🔹 Quand on sort du champ worker_id, on va chercher le salarié
+  const handleWorkerBlur = () => {
+    if (form.worker_id && form.worker_id > 0) {
+      fetchWorker(form.worker_id);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -84,6 +140,8 @@ const Absences: React.FC = () => {
     setForm(initialForm);
     setResult(null);
     setError(null);
+    setWorker(null);
+    setWorkerError(null);
   };
 
   // Groupes de champs pour une meilleure organisation
@@ -153,9 +211,8 @@ const Absences: React.FC = () => {
             Calcul des Absences
           </h1>
           <p className="text-gray-600 max-w-2xl mx-auto">
-            Renseignez l&apos;ID du salarié, les informations de salaire et les
-            différentes absences pour calculer automatiquement les retenues sur
-            salaire.
+            Saisis l&apos;ID du salarié, récupère automatiquement ses infos, puis
+            renseigne les absences pour calculer les retenues sur salaire.
           </p>
         </div>
 
@@ -191,6 +248,11 @@ const Absences: React.FC = () => {
                           name={field.name}
                           value={form[field.name as keyof AbsenceInput]}
                           onChange={handleChange}
+                          onBlur={
+                            field.name === "worker_id"
+                              ? handleWorkerBlur
+                              : undefined
+                          }
                           className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
                           placeholder="0"
                         />
@@ -243,13 +305,13 @@ const Absences: React.FC = () => {
                 <button
                   type="button"
                   onClick={handleReset}
-                  className="px-6 py-3 border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 focus:ring-4 focus:ring-gray-200 transition-all duration-200"
+                  className="px-6 py-3 border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 focus:ring-4 focus:ring-gray-200 transition-all durée-200"
                 >
                   Réinitialiser
                 </button>
               </div>
 
-              {/* Message d'erreur */}
+              {/* Message d'erreur calcul */}
               {error && (
                 <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-lg">
                   <p className="text-red-700 flex items-center">
@@ -271,9 +333,111 @@ const Absences: React.FC = () => {
             </form>
           </div>
 
-          {/* Résultats */}
-          <div className="lg:col-span-1">
-            {result && (
+          {/* Colonne de droite : infos salarié + résultats */}
+          <div className="lg:col-span-1 space-y-4">
+            {/* Infos salarié */}
+            <div className="bg-white rounded-2xl shadow-lg p-6">
+              <h2 className="text-xl font-bold text-gray-900 mb-4">
+                Informations du salarié
+              </h2>
+
+              {workerLoading && (
+                <p className="text-sm text-gray-500">
+                  Chargement des informations du salarié...
+                </p>
+              )}
+
+              {workerError && (
+                <div className="mb-3 p-3 bg-red-50 border border-red-200 rounded">
+                  <p className="text-sm text-red-700">{workerError}</p>
+                </div>
+              )}
+
+              {!worker && !workerLoading && !workerError && (
+                <p className="text-sm text-gray-500">
+                  Saisis un ID de salarié et quitte le champ pour charger ses
+                  informations.
+                </p>
+              )}
+
+              {worker && (
+                <div className="text-sm text-gray-800 space-y-3">
+                  {/* Identité */}
+                  <div>
+                    <p className="font-semibold text-gray-900">
+                      {worker.prenom} {worker.nom}
+                    </p>
+                    <p className="text-gray-500">
+                      Matricule :{" "}
+                      <span className="font-medium">{worker.matricule}</span>
+                    </p>
+                  </div>
+
+                  {/* Coordonnées */}
+                  <div>
+                    <p>
+                      Adresse :{" "}
+                      <span className="font-medium">{worker.adresse}</span>
+                    </p>
+                    <p>
+                      Nombre d&apos;enfants :{" "}
+                      <span className="font-medium">
+                        {worker.nombre_enfant}
+                      </span>
+                    </p>
+                  </div>
+
+                  {/* Données de travail */}
+                  <div className="border-t border-gray-200 pt-2">
+                    <p className="text-gray-500 font-medium mb-1">
+                      Données de travail
+                    </p>
+                    <p>
+                      Horaire hebdomadaire :{" "}
+                      <span className="font-semibold">
+                        {worker.horaire_hebdo} h / semaine
+                      </span>
+                    </p>
+                    <p>
+                      VHM (valeur heure mensuelle) :{" "}
+                      <span className="font-semibold">
+                        {worker.vhm.toLocaleString("fr-FR")} Ar
+                      </span>
+                    </p>
+                  </div>
+
+                  {/* Salaire */}
+                  <div className="border-t border-gray-200 pt-2">
+                    <p className="text-gray-500 font-medium mb-1">
+                      Informations salariales
+                    </p>
+                    <p>
+                      Salaire de base :{" "}
+                      <span className="font-semibold">
+                        {worker.salaire_base.toLocaleString("fr-FR")} Ar
+                      </span>
+                    </p>
+                    <p>
+                      Salaire horaire :{" "}
+                      <span className="font-semibold">
+                        {worker.salaire_horaire.toLocaleString("fr-FR")} Ar
+                      </span>
+                    </p>
+                  </div>
+
+                  {/* Infos techniques */}
+                  <div className="border-t border-gray-200 pt-2 text-xs text-gray-500">
+                    <p>
+                      ID worker : {worker.id} | Employer ID :{" "}
+                      {worker.employer_id} | Régime : {worker.type_regime_id}
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Résultats du calcul */}
+            {result ? (
               <div className="bg-white rounded-2xl shadow-lg p-6 sticky top-8">
                 <h2 className="text-xl font-bold text-gray-900 mb-4">
                   Résultats du calcul
@@ -342,10 +506,7 @@ const Absences: React.FC = () => {
                   </div>
                 </div>
               </div>
-            )}
-
-            {/* Placeholder quand aucun résultat */}
-            {!result && (
+            ) : (
               <div className="bg-white rounded-2xl shadow-lg p-8 text-center">
                 <div className="w-16 h-16 mx-auto mb-4 bg-blue-100 rounded-full flex items-center justify-center">
                   <svg
