@@ -257,6 +257,10 @@ class HSCalculationReadHS(HSCalculationBaseHS):
 
 
 class AbsenceInput(BaseModel):
+    worker_id: int | None = Field(
+        default=None,
+        description="ID du salarié (worker) concerné par ces absences"
+    )
     salaire_base: float = Field(..., description="Salaire de base mensuel")
     salaire_horaire: float = Field(..., description="Salaire horaire de référence")
 
