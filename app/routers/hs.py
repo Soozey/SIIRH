@@ -106,6 +106,11 @@ class HSJourInputHS(BaseModel):
             "Laisser vide si pas de nuit."
         ),
     )
+    duree_pause_minutes_HS: int = Field(
+        60,
+        description="Durée de la pause en minutes (par défaut 60 = 1h)"
+    )
+
 
 
 class HSCalculationRequestHS(BaseModel):
@@ -214,31 +219,48 @@ def calculer_heures_supplementaires_et_majorations_HS(
             semaines_HS[semaine_key_HS] = _WeekAggHS()
         agg_HS = semaines_HS[semaine_key_HS]
 
+
+
         entree_td_HS = _time_to_td_HS(jour_HS.entree_HS)
         sortie_td_HS = _time_to_td_HS(jour_HS.sortie_HS)
 
-        # Pause auto : 1h si sortie > 12h
-        pause_td_HS = timedelta(hours=1) if sortie_td_HS > midi_td_HS else timedelta(0)
+        # 🌙 Détection du passage de minuit
+        # Si sortie < entrée, cela signifie qu'on a travaillé jusqu'au lendemain
+        # Exemple: 08:00 → 01:00 signifie 08:00 → 25:00 (01:00 le lendemain)
+        if sortie_td_HS < entree_td_HS:
+            sortie_td_HS += timedelta(hours=24)
+
+        # Pause configurable (en minutes, converti en timedelta)
+        pause_td_HS = timedelta(minutes=jour_HS.duree_pause_minutes_HS)
+
 
         # Dimanche ?
         is_sunday_HS = iso_dow_HS == 7
 
         # Durée de base (colonne F)
+        # ⚠️ PAUSE: Ne pas déduire la pause si sortie <= 12h (travail se termine le matin)
         if is_sunday_HS:
-            # Dimanche : F = D - C - E (mais servira surtout pour HMD)
-            duree_base_td_HS = sortie_td_HS - entree_td_HS - pause_td_HS
+            # Dimanche : F = D - C - E, mais pas de pause si sortie <= midi
+            if sortie_td_HS <= midi_td_HS:
+                duree_base_td_HS = sortie_td_HS - entree_td_HS  # Pas de pause
+            else:
+                duree_base_td_HS = sortie_td_HS - entree_td_HS - pause_td_HS
         else:
             # Autres jours : F = MIN(D,22h) - C - E
             sortie_limitee_td_HS = min(sortie_td_HS, limite_22h_HS)
-            duree_base_td_HS = sortie_limitee_td_HS - entree_td_HS - pause_td_HS
+            if sortie_td_HS <= midi_td_HS:
+                duree_base_td_HS = sortie_limitee_td_HS - entree_td_HS  # Pas de pause
+            else:
+                duree_base_td_HS = sortie_limitee_td_HS - entree_td_HS - pause_td_HS
 
         if duree_base_td_HS < timedelta(0):
             duree_base_td_HS = timedelta(0)
 
         # Heures de nuit après 22h (L et M)
+        # Excel: SI(D>=TEMPS(22;0;0);D-TEMPS(22;0;0);0)
         hmnh_td_jour_HS = timedelta(0)
         hmno_td_jour_HS = timedelta(0)
-        if jour_HS.type_jour_HS != "JF" and sortie_td_HS > limite_22h_HS:
+        if jour_HS.type_jour_HS != "JF" and sortie_td_HS >= limite_22h_HS:  # Changed > to >=
             duree_nuit_td_HS = sortie_td_HS - limite_22h_HS
             if jour_HS.type_nuit_HS == "H":
                 hmnh_td_jour_HS = duree_nuit_td_HS
@@ -247,7 +269,11 @@ def calculer_heures_supplementaires_et_majorations_HS(
 
         # Heures majorées jour férié (Q)
         if jour_HS.type_jour_HS == "JF":
-            hmjf_td_jour_HS = sortie_td_HS - entree_td_HS - pause_td_HS
+            # Même logique : pas de pause si sortie <= midi
+            if sortie_td_HS <= midi_td_HS:
+                hmjf_td_jour_HS = sortie_td_HS - entree_td_HS
+            else:
+                hmjf_td_jour_HS = sortie_td_HS - entree_td_HS - pause_td_HS
             if hmjf_td_jour_HS < timedelta(0):
                 hmjf_td_jour_HS = timedelta(0)
         else:
@@ -256,7 +282,12 @@ def calculer_heures_supplementaires_et_majorations_HS(
         # Heures majorées dimanche (O)
         hmd_td_jour_HS = timedelta(0)
         if is_sunday_HS and jour_HS.type_jour_HS != "JF":
-            duree_totale_jour_td_HS = sortie_td_HS - entree_td_HS - pause_td_HS
+            # Même logique de pause que pour duree_base : pas de pause si sortie <= midi
+            if sortie_td_HS <= midi_td_HS:
+                duree_totale_jour_td_HS = sortie_td_HS - entree_td_HS  # Pas de pause
+            else:
+                duree_totale_jour_td_HS = sortie_td_HS - entree_td_HS - pause_td_HS
+            
             if duree_totale_jour_td_HS < timedelta(0):
                 duree_totale_jour_td_HS = timedelta(0)
             # O = (D - C - E) - M (on enlève déjà les 50% nuit occasionnelle)
@@ -268,10 +299,17 @@ def calculer_heures_supplementaires_et_majorations_HS(
         total_HMJF_td_HS += hmjf_td_jour_HS
         total_HMD_td_HS += hmd_td_jour_HS
 
-        # ⛔ IMPORTANT : on n'ajoute au total hebdo HS que les jours normaux
-        # (hors dimanche et hors jours fériés)
+        # ⛔ RÈGLE CRITIQUE du prompt :
+        # "On ne compte pas parmi les heures supplémentaires les heures de travail 
+        # effectuées pendant les heures de nuit, heures de dimanches, heures pendant les jours fériés"
+        # 
+        # Donc pour le calcul des HS, on n'ajoute QUE les jours normaux (hors dimanche, hors JF)
+        # ET on n'ajoute QUE la durée AVANT 22h (duree_sans_nuit_HS)
         if (not is_sunday_HS) and (jour_HS.type_jour_HS != "JF"):
+            # UNIQUEMENT la durée de base (avant 22h) compte pour les HS
+            # Les heures de nuit (hmnh_HS et hmno_HS) NE comptent PAS pour les HS
             agg_HS.duree_sans_nuit_HS += duree_base_td_HS
+            # On garde les heures de nuit séparément pour les majorations
             agg_HS.hmnh_HS += hmnh_td_jour_HS
             agg_HS.hmno_HS += hmno_td_jour_HS
 
@@ -281,8 +319,10 @@ def calculer_heures_supplementaires_et_majorations_HS(
     total_H_150_td_HS = timedelta(0)
 
     for agg_HS in semaines_HS.values():
-        # Total semaine pour HS = jours normaux seulement
-        total_hebdo_td_HS = agg_HS.duree_sans_nuit_HS + agg_HS.hmnh_HS + agg_HS.hmno_HS
+        # ⛔ RÈGLE CRITIQUE : Les heures de nuit NE comptent PAS pour les HS
+        # Total semaine pour HS = UNIQUEMENT duree_sans_nuit_HS (avant 22h)
+        # On N'ajoute PAS hmnh_HS ni hmno_HS ici !
+        total_hebdo_td_HS = agg_HS.duree_sans_nuit_HS  # SANS les heures de nuit !
 
         if total_hebdo_td_HS <= base_hebdo_td_HS:
             hs_brut_td_HS = timedelta(0)
@@ -301,43 +341,57 @@ def calculer_heures_supplementaires_et_majorations_HS(
         total_H_130_td_HS += hs_130_semaine_td_HS
         total_H_150_td_HS += hs_150_semaine_td_HS
 
-    # --- Étape 3 : Répartition NI / Imposable sur le mois (S61,T61,U61,V61) ---
+    # --- Étape 3 : Répartition NI / Imposable sur le mois (ligne 61 Excel) ---
+    # Formules Excel exactes :
+    # H61 = somme des HS 130% de toutes les semaines
+    # I61 = somme des HS 150% de toutes les semaines
+    # S61 (HSNI 130%) = SI(H61>=20h; 20h; H61)
+    # T61 (HSI 130%) = H61 - S61
+    # U61 (HSNI 150%) = SI(S61<=20h; SI(H61+I61<20h; I61; 20h-S61); 0h)
+    # V61 (HSI 150%) = SI(S61=20h; I61; SI((I61-U61)<=0; 0; I61-U61))
 
     seuil_20h_td_HS = timedelta(hours=20)
-    H61_td_HS = total_H_130_td_HS  # total HS 130
-    I61_td_HS = total_H_150_td_HS  # total HS 150
+    H61_td_HS = total_H_130_td_HS  # total mensuel HS 130%
+    I61_td_HS = total_H_150_td_HS  # total mensuel HS 150%
 
-    # S61 : HSNI 130
-    HSNI_130_td_HS = min(H61_td_HS, seuil_20h_td_HS)
+    # S61 : HSNI 130% = SI(H61>=20h; 20h; H61)
+    if H61_td_HS >= seuil_20h_td_HS:
+        S61_HSNI_130_td_HS = seuil_20h_td_HS
+    else:
+        S61_HSNI_130_td_HS = H61_td_HS
 
-    # T61 : HSI 130
-    HSI_130_td_HS = H61_td_HS - HSNI_130_td_HS
+    # T61 : HSI 130% = H61 - S61
+    T61_HSI_130_td_HS = H61_td_HS - S61_HSNI_130_td_HS
 
-    # U61 : HSNI 150
-    if HSNI_130_td_HS <= seuil_20h_td_HS:
-        if H61_td_HS + I61_td_HS < seuil_20h_td_HS:
-            HSNI_150_td_HS = I61_td_HS
+    # U61 : HSNI 150% = SI(S61<=20h; SI(H61+I61<20h; I61; 20h-S61); 0h)
+    # CORRECTION: Utiliser <= au lieu de < pour le test H61+I61
+    if S61_HSNI_130_td_HS <= seuil_20h_td_HS:
+        if H61_td_HS + I61_td_HS <= seuil_20h_td_HS:  # Changed < to <=
+            U61_HSNI_150_td_HS = I61_td_HS
         else:
-            HSNI_150_td_HS = seuil_20h_td_HS - HSNI_130_td_HS
+            U61_HSNI_150_td_HS = seuil_20h_td_HS - S61_HSNI_130_td_HS
     else:
-        HSNI_150_td_HS = timedelta(0)
+        U61_HSNI_150_td_HS = timedelta(0)
 
-    # V61 : HSI 150
-    if HSNI_130_td_HS == seuil_20h_td_HS:
-        HSI_150_td_HS = I61_td_HS
+    # V61 : HSI 150% = SI(S61=20h; I61; SI((I61-U61)<=0; 0; I61-U61))
+    if S61_HSNI_130_td_HS == seuil_20h_td_HS:
+        V61_HSI_150_td_HS = I61_td_HS
     else:
-        reste_td_HS = I61_td_HS - HSNI_150_td_HS
-        HSI_150_td_HS = reste_td_HS if reste_td_HS > timedelta(0) else timedelta(0)
+        reste_150 = I61_td_HS - U61_HSNI_150_td_HS
+        if reste_150 <= timedelta(0):
+            V61_HSI_150_td_HS = timedelta(0)
+        else:
+            V61_HSI_150_td_HS = reste_150
 
     # --- Retour du résultat en heures décimales ---
 
     return HSCalculationResultHS(
         worker_id_HS=req_HS.worker_id_HS,
         mois_HS=req_HS.mois_HS,
-        total_HSNI_130_heures_HS=_td_to_hours_HS(HSNI_130_td_HS),
-        total_HSI_130_heures_HS=_td_to_hours_HS(HSI_130_td_HS),
-        total_HSNI_150_heures_HS=_td_to_hours_HS(HSNI_150_td_HS),
-        total_HSI_150_heures_HS=_td_to_hours_HS(HSI_150_td_HS),
+        total_HSNI_130_heures_HS=_td_to_hours_HS(S61_HSNI_130_td_HS),
+        total_HSI_130_heures_HS=_td_to_hours_HS(T61_HSI_130_td_HS),
+        total_HSNI_150_heures_HS=_td_to_hours_HS(U61_HSNI_150_td_HS),
+        total_HSI_150_heures_HS=_td_to_hours_HS(V61_HSI_150_td_HS),
         total_HMNH_30_heures_HS=_td_to_hours_HS(total_HMNH_td_HS),
         total_HMNO_50_heures_HS=_td_to_hours_HS(total_HMNO_td_HS),
         total_HMD_40_heures_HS=_td_to_hours_HS(total_HMD_td_HS),

@@ -26,6 +26,11 @@ Thumbs.db
 .env
 .flaskenv
 
+# Local runtime artifacts
+uploads/
+*.backup_*
+*.pre_*
+
 # FastAPI specific
 # If you are using a specific build directory for frontend, include it here
 # For example, if your frontend builds to a 'dist' directory:
