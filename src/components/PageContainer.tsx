@@ -1,4 +1,4 @@
-import { ReactNode } from "react";
+import type { ReactNode } from "react";
 
 interface PageContainerProps {
   children: ReactNode;
@@ -6,10 +6,10 @@ interface PageContainerProps {
   className?: string;
 }
 
-export default function PageContainer({ 
-  children, 
+export default function PageContainer({
+  children,
   maxWidth = "full",
-  className = "" 
+  className = ""
 }: PageContainerProps) {
   const maxWidthClasses = {
     sm: "max-w-sm",

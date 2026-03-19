@@ -1,17 +1,32 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { api } from "../api";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Dialog } from "@headlessui/react";
+import WorkCertificate from "../components/WorkCertificate";
+import EmploymentAttestation from "../components/EmploymentAttestation";
+import EmploymentContract from "../components/EmploymentContract";
+import ImportWorkersDialog from "../components/ImportWorkersDialog";
+import { CascadingOrganizationalSelect } from "../components/CascadingOrganizationalSelect";
+import { Skeleton } from "../components/ui/Skeleton";
+// ❌ SYSTÈME MATRICULE SUSPENDU - Ne pas utiliser
+// import { MatriculeWorkerSelect } from "../components/MatriculeWorkerSelect";
 import {
   PlusIcon,
   UserIcon,
-  BuildingOfficeIcon,
+  DocumentTextIcon,
+  ExclamationTriangleIcon,
   PencilIcon,
   TrashIcon,
   BriefcaseIcon,
   CurrencyDollarIcon,
   ClockIcon,
   IdentificationIcon,
-  TagIcon
+  TagIcon,
+  MagnifyingGlassIcon,
+  XMarkIcon,
+  ArrowPathIcon,
+  PrinterIcon,
+  BuildingOfficeIcon
 } from "@heroicons/react/24/outline";
 
 type TypeRegime = {
@@ -26,9 +41,27 @@ type Employer = {
   raison_sociale: string;
 };
 
+type PaginatedWorkersResponse = {
+  items: any[];
+  total: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+};
+
 export default function Workers() {
   const qc = useQueryClient();
   const [openModal, setOpenModal] = useState(false);
+  const [editingWorker, setEditingWorker] = useState<any | null>(null);
+
+  // NEW: Document Modal State
+  // NEW: Document Modal State
+  const [documentModalOpen, setDocumentModalOpen] = useState(false);
+  const [importModalOpen, setImportModalOpen] = useState(false); // NEW Import Modal State
+  const [selectedDocumentWorker, setSelectedDocumentWorker] = useState<any>(null);
+  // Type of document to show: 'certificate' | 'attestation' | 'contract'
+  const [documentType, setDocumentType] = useState<'certificate' | 'attestation' | 'contract'>('attestation');
+  const [bankModalOpen, setBankModalOpen] = useState(false);
 
   const { data: employers = [] } = useQuery({
     queryKey: ["employers"],
@@ -40,27 +73,149 @@ export default function Workers() {
     queryFn: async () => (await api.get("/type_regimes")).data as TypeRegime[]
   });
 
-  const { data: workers = [] } = useQuery({
-    queryKey: ["workers"],
-    queryFn: async () => (await api.get("/workers")).data
-  });
-
+  // Declare form state BEFORE using it in queries
   const [form, setForm] = useState({
-    employer_id: employers[0]?.id || 1,
+    employer_id: 1, // Fixed default value instead of employers[0]?.id || 1
     matricule: "",
     nom: "",
     prenom: "",
+    sexe: "",
+    situation_familiale: "",
+    date_naissance: "",
+    lieu_naissance: "",
     adresse: "",
+    telephone: "",
+    email: "",
+    cin: "",
+    cin_delivre_le: "",
+    cin_lieu: "",
+    cnaps_num: "",
     nombre_enfant: "",
-    type_regime_id: typeRegimes[0]?.id || 1, // Utilise type_regime_id au lieu de secteur
+    date_embauche: "",
+    nature_contrat: "CDI",
+    duree_essai_jours: 0,
+    date_fin_essai: "",
+    etablissement: "",
+    departement: "",
+    service: "",
+    unite: "",
+    indice: "",
+    valeur_point: 0,
+    secteur: "",
+    mode_paiement: "",
+    rib: "",
+    code_banque: "",
+    code_guichet: "",
+    compte_num: "",
+    cle_rib: "",
+    nom_guichet: "",
+    banque: "",
+    bic: "",
+    categorie_prof: "",
+    poste: "",
+    date_debauche: "",
+    type_sortie: "L",
+    groupe_preavis: 1,
+    jours_preavis_deja_faits: 0,
+    type_regime_id: 1, // Fixed default value instead of typeRegimes[0]?.id || 1
     salaire_base: 0,
     salaire_horaire: 0,
-    vhm: typeRegimes[0]?.vhm || 200, // VHM basée sur le type de régime
-    horaire_hebdo: 46
+    vhm: 200, // Fixed default value instead of typeRegimes[0]?.vhm || 200
+    horaire_hebdo: 40,
+    avantage_vehicule: 0,
+    avantage_logement: 0,
+    avantage_telephone: 0,
+    avantage_autres: 0,
+    taux_sal_cnaps_override: null as number | null,
+    taux_sal_smie_override: null as number | null,
+    taux_pat_cnaps_override: null as number | null,
+    taux_pat_smie_override: null as number | null,
+    taux_pat_fmfp_override: null as number | null,
+    solde_conge_initial: 0 as number | string,
   });
 
-  // Trouver le type de régime sélectionné
-  const selectedTypeRegime = typeRegimes.find(regime => regime.id === form.type_regime_id);
+  // Fetch organizational data for selected employer - NOUVEAU: Utilisation du système hiérarchique
+  const { data: organizationalData = { etablissements: [], departements: [], services: [], unites: [] } } = useQuery({
+    queryKey: ["organizationalData", form.employer_id],
+    queryFn: async () => {
+      if (!form.employer_id) return { etablissements: [], departements: [], services: [], unites: [] };
+      // Garder l'ancien système pour compatibilité temporaire
+      return (await api.get(`/employers/${form.employer_id}/organizational-data/workers`)).data;
+    },
+    enabled: !!form.employer_id && employers.length > 0
+  });
+
+  // Search State
+  const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const pageSize = 25;
+  
+  // NEW: Matricule-based worker selection state
+  const [selectedWorkerMatricule, setSelectedWorkerMatricule] = useState<string | null>(null);
+  const [selectedWorkerInfo, setSelectedWorkerInfo] = useState<any>(null);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(search);
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [search]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [debouncedSearch]);
+
+  const { data: workersResponse, isLoading: workersLoading } = useQuery({
+    queryKey: ["workers", debouncedSearch, page, pageSize],
+    queryFn: async () => (
+      await api.get("/workers/paginated", {
+        params: { q: debouncedSearch, page, page_size: pageSize }
+      })
+    ).data as PaginatedWorkersResponse
+  });
+  const workers = workersResponse?.items ?? [];
+  const totalWorkers = workersResponse?.total ?? 0;
+  const totalPages = workersResponse?.total_pages ?? 1;
+
+  // Multiselect State
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+
+  // Update form defaults when employers and typeRegimes are loaded
+  useEffect(() => {
+    if (employers.length > 0 && typeRegimes.length > 0) {
+      setForm(prevForm => ({
+        ...prevForm,
+        employer_id: prevForm.employer_id === 1 ? employers[0].id : prevForm.employer_id,
+        type_regime_id: prevForm.type_regime_id === 1 ? typeRegimes[0].id : prevForm.type_regime_id,
+        vhm: prevForm.vhm === 200 ? typeRegimes[0].vhm : prevForm.vhm
+      }));
+    }
+  }, [employers, typeRegimes]);
+
+  const toggleSelection = (id: number) => {
+    const newSelection = new Set(selectedIds);
+    if (newSelection.has(id)) {
+      newSelection.delete(id);
+    } else {
+      newSelection.add(id);
+    }
+    setSelectedIds(newSelection);
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === workers.length && workers.length > 0) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(workers.map((w: any) => w.id)));
+    }
+  };
+
+
+
+
+
+
 
   // Mettre à jour la VHM quand le type de régime change
   const handleTypeRegimeChange = (typeRegimeId: number) => {
@@ -73,31 +228,261 @@ export default function Workers() {
   };
 
   const create = useMutation({
-    mutationFn: async () => (await api.post("/workers", form)).data,
+    mutationFn: async () => {
+      // Sanitize form data
+      const sanitizedData = {
+        ...form,
+        nombre_enfant: form.nombre_enfant === "" ? 0 : parseInt(String(form.nombre_enfant)) || 0,
+        salaire_base: parseFloat(String(form.salaire_base)) || 0,
+        salaire_horaire: parseFloat(String(form.salaire_horaire)) || 0,
+        vhm: parseFloat(String(form.vhm)) || 200,
+        horaire_hebdo: parseFloat(String(form.horaire_hebdo)) || 40,
+        valeur_point: parseFloat(String(form.valeur_point)) || 0,
+        duree_essai_jours: parseInt(String(form.duree_essai_jours)) || 0,
+
+        // Dates
+        date_naissance: form.date_naissance || null,
+        date_embauche: form.date_embauche || null,
+        date_fin_essai: form.date_fin_essai || null,
+        cin_delivre_le: form.cin_delivre_le || null,
+        date_debauche: form.date_debauche || null,
+
+        avantage_vehicule: parseFloat(String(form.avantage_vehicule)) || 0,
+        avantage_logement: parseFloat(String(form.avantage_logement)) || 0,
+        avantage_telephone: parseFloat(String(form.avantage_telephone)) || 0,
+        avantage_autres: parseFloat(String(form.avantage_autres)) || 0,
+
+        type_sortie: form.type_sortie,
+        groupe_preavis: form.groupe_preavis ? parseInt(String(form.groupe_preavis)) : null,
+        jours_preavis_deja_faits: parseInt(String(form.jours_preavis_deja_faits)) || 0,
+
+        taux_sal_cnaps_override: form.taux_sal_cnaps_override !== null ? parseFloat(String(form.taux_sal_cnaps_override)) : null,
+        taux_sal_smie_override: form.taux_sal_smie_override !== null ? parseFloat(String(form.taux_sal_smie_override)) : null,
+        taux_pat_cnaps_override: form.taux_pat_cnaps_override !== null ? parseFloat(String(form.taux_pat_cnaps_override)) : null,
+        taux_pat_smie_override: form.taux_pat_smie_override !== null ? parseFloat(String(form.taux_pat_smie_override)) : null,
+        taux_pat_fmfp_override: form.taux_pat_fmfp_override !== null ? parseFloat(String(form.taux_pat_fmfp_override)) : null,
+        solde_conge_initial: parseFloat(String(form.solde_conge_initial)) || 0
+      };
+      return (await api.post("/workers", sanitizedData)).data;
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["workers"] });
       setOpenModal(false);
-      setForm({
-        employer_id: employers[0]?.id || 1,
-        matricule: "",
-        nom: "",
-        prenom: "",
-        adresse: "",
-        nombre_enfant: "",
-        type_regime_id: typeRegimes[0]?.id || 1,
-        salaire_base: 0,
-        salaire_horaire: 0,
-        vhm: typeRegimes[0]?.vhm || 200,
-        horaire_hebdo: 46
-      });
+      resetForm();
+    },
+    onError: (error: any) => {
+      console.error("Erreur lors de la création:", error);
+      
+      let errorMessage = "Erreur inconnue lors de la création du travailleur";
+
+      if (error.response) {
+        const data = error.response.data;
+        if (data?.detail && Array.isArray(data.detail)) {
+          // Pydantic validation error array
+          errorMessage = data.detail.map((e: any) => `${e.loc?.join('.')} : ${e.msg}`).join('\n');
+        } else if (data?.detail) {
+          errorMessage = String(data.detail);
+        } else if (data?.message) {
+          errorMessage = data.message;
+        }
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+
+      alert(`Erreur lors de la création du travailleur:\n${errorMessage}`);
     }
   });
+
+  const resetForm = () => {
+    setForm({
+      employer_id: employers.length > 0 ? employers[0].id : 1,
+      matricule: "",
+      nom: "",
+      prenom: "",
+      sexe: "",
+      situation_familiale: "",
+      date_naissance: "",
+      lieu_naissance: "",
+      adresse: "",
+      telephone: "",
+      email: "",
+      cin: "",
+      cin_delivre_le: "",
+      cin_lieu: "",
+      cnaps_num: "",
+      nombre_enfant: "",
+      date_embauche: "",
+      nature_contrat: "CDI",
+      duree_essai_jours: 0,
+      date_fin_essai: "",
+      etablissement: "",
+      departement: "",
+      service: "",
+      unite: "",
+      indice: "",
+      valeur_point: 0,
+      secteur: "",
+      mode_paiement: "",
+      rib: "",
+      code_banque: "",
+      code_guichet: "",
+      compte_num: "",
+      cle_rib: "",
+      nom_guichet: "",
+      banque: "",
+      bic: "",
+      categorie_prof: "",
+      poste: "",
+      date_debauche: "",
+      type_sortie: "L",
+      groupe_preavis: 1,
+      jours_preavis_deja_faits: 0,
+      type_regime_id: typeRegimes.length > 0 ? typeRegimes[0].id : 1,
+      salaire_base: 0,
+      salaire_horaire: 0,
+      vhm: typeRegimes.length > 0 ? typeRegimes[0].vhm : 200,
+      horaire_hebdo: 40,
+      avantage_vehicule: 0,
+      avantage_logement: 0,
+      avantage_telephone: 0,
+      avantage_autres: 0,
+      taux_sal_cnaps_override: null,
+      taux_sal_smie_override: null,
+      taux_pat_cnaps_override: null,
+      taux_pat_smie_override: null,
+      taux_pat_fmfp_override: null,
+      solde_conge_initial: 0
+    });
+    
+    // NEW: Reset matricule selection state
+    setSelectedWorkerMatricule(null);
+    setSelectedWorkerInfo(null);
+  };
+
+  const handleOpenDocument = (worker: any) => {
+    setSelectedDocumentWorker(worker);
+    // Default logic: Terminated -> Certificate, Active -> Attestation
+    if (worker.date_debauche) {
+      setDocumentType('certificate');
+    } else {
+      setDocumentType('attestation');
+    }
+    setDocumentModalOpen(true);
+  };
+
+
+  const deleteWorker = useMutation({
+    mutationFn: async (id: number) => await api.delete(`/workers/${id}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["workers"] });
+    }
+  });
+
+  const deleteBatch = useMutation({
+    mutationFn: async (ids: number[]) => await api.post("/workers/delete_batch", { ids }),
+    onSuccess: (data: any) => {
+      qc.invalidateQueries({ queryKey: ["workers"] });
+      alert(data.message || "Travailleurs supprimés avec succès.");
+      setSelectedIds(new Set()); // Clear selection
+    },
+    onError: () => {
+      alert("Erreur lors de la suppression de la sélection.");
+    }
+  });
+
+  const handleDeleteSelection = async () => {
+    if (selectedIds.size === 0) return;
+
+    if (window.confirm(`Êtes-vous sûr de vouloir supprimer ces ${selectedIds.size} travailleur(s) ?`)) {
+      deleteBatch.mutate(Array.from(selectedIds));
+    }
+  };
+
+  // Bulk Delete replaced by Selection Delete (kept logic if needed but user requested change)
+  // const handleDeleteAll = ... (removed/hidden)
+
+  const updateWorker = useMutation({
+    mutationFn: async () => {
+      if (!editingWorker?.id) {
+        throw new Error("Worker ID manquant");
+      }
+
+      // Sanitize form data: convert empty strings to proper values
+      // Important : Pydantic attend null et non "" pour les champs Optionnels (Date, Int, Float)
+      const sanitizedData = {
+        ...form,
+        nombre_enfant: form.nombre_enfant === "" ? 0 : parseInt(String(form.nombre_enfant)) || 0,
+        salaire_base: parseFloat(String(form.salaire_base)) || 0,
+        salaire_horaire: parseFloat(String(form.salaire_horaire)) || 0,
+        vhm: parseFloat(String(form.vhm)) || 200,
+        horaire_hebdo: parseFloat(String(form.horaire_hebdo)) || 40,
+        valeur_point: parseFloat(String(form.valeur_point)) || 0,
+        duree_essai_jours: parseInt(String(form.duree_essai_jours)) || 0,
+
+        // Dates
+        date_naissance: form.date_naissance || null,
+        date_embauche: form.date_embauche || null,
+        date_fin_essai: form.date_fin_essai || null,
+        cin_delivre_le: form.cin_delivre_le || null,
+        date_debauche: form.date_debauche || null,
+
+        avantage_vehicule: parseFloat(String(form.avantage_vehicule)) || 0,
+        avantage_logement: parseFloat(String(form.avantage_logement)) || 0,
+        avantage_telephone: parseFloat(String(form.avantage_telephone)) || 0,
+        avantage_autres: parseFloat(String(form.avantage_autres)) || 0,
+
+        taux_sal_cnaps_override: String(form.taux_sal_cnaps_override) === "" ? null : form.taux_sal_cnaps_override,
+        taux_sal_smie_override: String(form.taux_sal_smie_override) === "" ? null : form.taux_sal_smie_override,
+        taux_pat_cnaps_override: String(form.taux_pat_cnaps_override) === "" ? null : form.taux_pat_cnaps_override,
+        taux_pat_smie_override: String(form.taux_pat_smie_override) === "" ? null : form.taux_pat_smie_override,
+        taux_pat_fmfp_override: String(form.taux_pat_fmfp_override) === "" ? null : form.taux_pat_fmfp_override,
+        solde_conge_initial: parseFloat(String(form.solde_conge_initial)) || 0
+      };
+
+      return await api.put(`/workers/${editingWorker.id}`, sanitizedData);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["workers"] });
+      setOpenModal(false);
+      setEditingWorker(null);
+      resetForm();
+    },
+    onError: (error: any) => {
+      console.error("Erreur lors de la mise à jour:", error);
+      console.error("Détails de l'erreur:", JSON.stringify(error, null, 2));
+
+      let errorMessage = "Erreur inconnue";
+
+      if (error.response) {
+        // Erreur de réponse du serveur
+        const data = error.response.data;
+        if (data?.detail && Array.isArray(data.detail)) {
+          // Pydantic validation error array
+          errorMessage = data.detail.map((e: any) => `${e.loc?.join('.')} : ${e.msg}`).join('\n');
+        } else if (data?.detail) {
+          errorMessage = String(data.detail);
+        } else if (data?.message) {
+          errorMessage = data.message;
+        } else {
+          errorMessage = JSON.stringify(data);
+        }
+
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+
+      alert(`Erreur lors de la mise à jour:\n${errorMessage}`);
+    }
+  });
+
+
+
 
   const getSecteurColor = (typeRegimeId: number) => {
     const regime = typeRegimes.find(r => r.id === typeRegimeId);
     if (!regime) return "bg-gray-100 text-gray-800 border-gray-200";
-    
-    return regime.code === "agricole" 
+
+    return regime.code === "agricole"
       ? "bg-green-100 text-green-800 border-green-200"
       : "bg-blue-100 text-blue-800 border-blue-200";
   };
@@ -105,8 +490,8 @@ export default function Workers() {
   const getSecteurDot = (typeRegimeId: number) => {
     const regime = typeRegimes.find(r => r.id === typeRegimeId);
     if (!regime) return "bg-gray-500";
-    
-    return regime.code === "agricole" 
+
+    return regime.code === "agricole"
       ? "bg-green-500"
       : "bg-blue-500";
   };
@@ -127,10 +512,142 @@ export default function Workers() {
     return `${prenom?.[0] || ''}${nom?.[0] || ''}`.toUpperCase();
   };
 
+  // Calcul du préavis légal (JS Logic for Display)
+  const calculateLegalNotice = () => {
+    if (form.nature_contrat !== "CDI") return 0;
+
+    // Calc seniority
+    const start = form.date_embauche ? new Date(form.date_embauche) : null;
+    const end = form.date_debauche ? new Date(form.date_debauche) : new Date(); // Use today if no debug date? Or maybe 0.
+
+    if (!start) return 0;
+
+    const diffTime = Math.abs(end.getTime() - start.getTime());
+    const seniorityDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    // Note: B68 seems to be simple diff in days.
+
+    const S = seniorityDays;
+    const G = form.groupe_preavis;
+
+    if (S <= 0) return 0;
+
+    let days = 0;
+
+    if (G === 1) {
+      if (S < 8) days = 1;
+      else if (S < 90) days = 3;
+      else if (S < 365) days = 8;
+      else if (S <= 1825) days = 10 + 2 * Math.floor((S - 365) / 365);
+      else days = 30;
+    }
+    else if (G === 2) {
+      if (S < 8) days = 2;
+      else if (S < 90) days = 8;
+      else if (S < 365) days = 15;
+      else if (S <= 1825) days = 30 + 2 * Math.floor((S - 365) / 365);
+      else days = 45;
+    }
+    else if (G === 3) {
+      if (S < 8) days = 3;
+      else if (S < 90) days = 15;
+      else if (S < 365) days = 30;
+      else if (S <= 1825) days = 45 + 2 * Math.floor((S - 365) / 365);
+      else days = 60;
+    }
+    else if (G === 4) {
+      if (S < 8) days = 4;
+      else if (S < 90) days = 30;
+      else if (S < 365) days = 45;
+      else if (S <= 1825) days = 75 + 2 * Math.floor((S - 365) / 365);
+      else days = 90;
+    }
+    else if (G === 5) {
+      if (S < 8) days = 5;
+      else if (S < 90) days = 30;
+      else if (S < 365) days = 90;
+      else if (S <= 1825) days = 120 + 2 * Math.floor((S - 365) / 365);
+      else days = 180;
+    }
+
+    return days;
+  };
+
+  const legalNotice = calculateLegalNotice();
+  const noticeBalance = Math.max(0, legalNotice - form.jours_preavis_deja_faits);
+
+  // NEW: Homonym detection for worker list
+  const detectHomonyms = (workers: any[]) => {
+    const nameGroups: { [fullName: string]: any[] } = {};
+    
+    workers.forEach(worker => {
+      const fullName = `${worker.prenom} ${worker.nom}`.toLowerCase();
+      if (!nameGroups[fullName]) {
+        nameGroups[fullName] = [];
+      }
+      nameGroups[fullName].push(worker);
+    });
+
+    return Object.fromEntries(
+      Object.entries(nameGroups).filter(([_, workers]) => workers.length > 1)
+    );
+  };
+
+  const homonymGroups = detectHomonyms(workers);
+  const hasHomonyms = Object.keys(homonymGroups).length > 0;
+
+  // Function to check if a worker is a homonym
+  const isHomonym = (worker: any) => {
+    const fullName = `${worker.prenom} ${worker.nom}`.toLowerCase();
+    return homonymGroups[fullName]?.length > 1;
+  };
+
+  // --- AUTOMATIC RIB CALCULATION ---
+  const calculateRIBKey = (bank: string, branch: string, account: string) => {
+    if (!bank || !branch || !account) return "";
+    if (bank.length !== 5 || branch.length !== 5 || account.length !== 11) return "";
+
+    const convertToDigits = (s: string) => {
+      const map: { [key: string]: string } = {
+        'A': '1', 'J': '1',
+        'B': '2', 'K': '2', 'S': '2',
+        'C': '3', 'L': '3', 'T': '3',
+        'D': '4', 'M': '4', 'U': '4',
+        'E': '5', 'N': '5', 'V': '5',
+        'F': '6', 'O': '6', 'W': '6',
+        'G': '7', 'P': '7', 'X': '7',
+        'H': '8', 'Q': '8', 'Y': '8',
+        'I': '9', 'R': '9', 'Z': '9'
+      };
+      return s.toUpperCase().replace(/[A-Z]/g, char => map[char] || char);
+    };
+
+    try {
+      const b = convertToDigits(bank);
+      const g = convertToDigits(branch);
+      const c = convertToDigits(account);
+
+      // BigInt needed as (89*b + 15*g + 3*c) can be large
+      const val = BigInt(b) * 89n + BigInt(g) * 15n + BigInt(c) * 3n;
+      const key = 97n - (val % 97n);
+      return key.toString().padStart(2, '0');
+    } catch (e) {
+      return "";
+    }
+  };
+
+  useEffect(() => {
+    if (form.code_banque && form.code_guichet && form.compte_num) {
+      const key = calculateRIBKey(form.code_banque, form.code_guichet, form.compte_num);
+      if (key && key !== form.cle_rib) {
+        setForm(f => ({ ...f, cle_rib: key }));
+      }
+    }
+  }, [form.code_banque, form.code_guichet, form.compte_num]);
+
   return (
     <div className="min-h-screen bg-gray-50 p-4 md:p-6">
       {/* Header */}
-      <div className="bg-gradient-to-r from-blue-600 to-blue-700 rounded-2xl p-6 mb-6 shadow-lg">
+      <div className="bg-gradient-to-r from-blue-600 to-blue-700 rounded-2xl p-6 mb-6 shadow-lg print:hidden">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div className="flex items-center gap-4">
             <div className="p-3 bg-white/20 rounded-xl backdrop-blur-sm">
@@ -142,276 +659,588 @@ export default function Workers() {
               </h1>
               <p className="text-blue-100 mt-1">
                 {workers.length} travailleur(s) enregistré(s)
+                {hasHomonyms && (
+                  <span className="ml-2 inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-yellow-500/20 text-yellow-100 border border-yellow-400/30">
+                    <ExclamationTriangleIcon className="h-3 w-3 mr-1" />
+                    {Object.keys(homonymGroups).length} groupe(s) d'homonymes détecté(s)
+                  </span>
+                )}
               </p>
             </div>
+            <div className="rounded-xl bg-slate-900 px-4 py-3 text-right">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-400">Volume</div>
+              <div className="mt-1 text-lg font-semibold text-white">{totalWorkers}</div>
+              <div className="text-xs text-slate-400">page {page} / {totalPages}</div>
+            </div>
           </div>
-          <button
-            onClick={() => setOpenModal(true)}
-            className="inline-flex items-center gap-2 bg-white text-blue-600 hover:bg-gray-50 px-6 py-3 rounded-xl font-semibold shadow-lg transition-all duration-200 hover:shadow-xl transform hover:-translate-y-0.5"
-          >
-            <PlusIcon className="h-5 w-5" />
-            Nouveau Travailleur
-          </button>
+
+          {/* Search Bar - Enhanced with Matricule Support */}
+          <div className="flex-1 w-full md:max-w-md mx-0 md:mx-4">
+            <div className="relative group">
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                <MagnifyingGlassIcon className="h-5 w-5 text-blue-200 group-focus-within:text-white transition-colors" />
+              </div>
+              <input
+                type="text"
+                placeholder="Recherche par matricule, nom ou prénom"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="block w-full pl-10 pr-3 py-2 bg-white/10 border border-white/20 rounded-xl leading-5 text-white placeholder-blue-200 focus:outline-none focus:bg-white/20 focus:ring-2 focus:ring-white/50 focus:border-transparent transition-all sm:text-sm backdrop-blur-sm"
+              />
+            </div>
+          </div>
+          <div className="flex gap-3 w-full md:w-auto">
+            <button
+              onClick={() => setImportModalOpen(true)}
+              className="flex-1 md:flex-none inline-flex items-center justify-center gap-2 px-4 py-2 bg-white/20 hover:bg-white/30 text-white font-medium rounded-xl transition-all backdrop-blur-sm"
+            >
+              <DocumentTextIcon className="h-5 w-5" />
+              Importer Excel
+            </button>
+            {/* Bouton Supprimer Sélection */}
+            {selectedIds.size > 0 && (
+              <button
+                onClick={handleDeleteSelection}
+                className="flex-1 md:flex-none inline-flex items-center justify-center gap-2 px-4 py-2 bg-red-500 hover:bg-red-600 text-white font-medium rounded-xl transition-all shadow-lg animate-in fade-in zoom-in duration-200"
+              >
+                <TrashIcon className="h-5 w-5" />
+                Supprimer ({selectedIds.size})
+              </button>
+            )}
+            {/* Bouton Tout Supprimer (Discret ou caché) -> Caché car remplacé par sélection */}
+            {/* 
+            <button
+               // ...
+            >
+               Tout Supprimer
+            </button>
+            */}
+            <button
+              onClick={() => {
+                setEditingWorker(null);
+                setForm({
+                  employer_id: employers.length > 0 ? employers[0].id : 1,
+                  matricule: "",
+                  nom: "",
+                  prenom: "",
+                  sexe: "",
+                  situation_familiale: "",
+                  date_naissance: "",
+                  lieu_naissance: "",
+                  adresse: "",
+                  telephone: "",
+                  email: "",
+                  cin: "",
+                  cin_delivre_le: "",
+                  cin_lieu: "",
+                  cnaps_num: "",
+                  nombre_enfant: "",
+                  date_embauche: "",
+                  nature_contrat: "CDI",
+                  duree_essai_jours: 0,
+                  date_fin_essai: "",
+                  etablissement: "",
+                  departement: "",
+                  service: "",
+                  unite: "",
+                  indice: "",
+                  valeur_point: 0,
+                  secteur: "",
+                  mode_paiement: "",
+                  rib: "",
+                  banque: "",
+                  bic: "",
+                  categorie_prof: "",
+                  poste: "",
+                  date_debauche: "",
+                  type_sortie: "L",
+                  groupe_preavis: 1,
+                  jours_preavis_deja_faits: 0,
+                  type_regime_id: typeRegimes.length > 0 ? typeRegimes[0].id : 1,
+                  salaire_base: 0,
+                  salaire_horaire: 0,
+                  vhm: typeRegimes.length > 0 ? typeRegimes[0].vhm : 200,
+                  horaire_hebdo: 46,
+                  avantage_vehicule: 0,
+                  avantage_logement: 0,
+                  avantage_telephone: 0,
+                  avantage_autres: 0,
+                  taux_sal_cnaps_override: null,
+                  taux_sal_smie_override: null,
+                  taux_pat_cnaps_override: null,
+                  taux_pat_smie_override: null,
+                  taux_pat_fmfp_override: null,
+                  solde_conge_initial: 0,
+                  code_banque: "",
+                  code_guichet: "",
+                  compte_num: "",
+                  cle_rib: "",
+                  nom_guichet: ""
+                });
+                // NEW: Reset matricule selection
+                setSelectedWorkerMatricule(null);
+                setSelectedWorkerInfo(null);
+                setOpenModal(true);
+              }}
+              className="inline-flex items-center gap-2 bg-white text-blue-600 hover:bg-gray-50 px-6 py-3 rounded-xl font-semibold shadow-lg transition-all duration-200 hover:shadow-xl transform hover:-translate-y-0.5"
+            >
+              <PlusIcon className="h-5 w-5" />
+              Nouveau Travailleur
+            </button>
+          </div>
         </div>
       </div>
 
       {/* Modal */}
       {openModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto">
             {/* Header */}
             <div className="border-b border-gray-200 p-6">
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-blue-100 rounded-lg">
-                  <UserIcon className="h-6 w-6 text-blue-600" />
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-blue-100 rounded-lg">
+                    <UserIcon className="h-6 w-6 text-blue-600" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-bold text-gray-900">
+                      {editingWorker ? "Modifier Travailleur" : "Nouveau Travailleur"}
+                    </h2>
+                    <p className="text-gray-600 text-sm mt-1">
+                      {editingWorker ? "Modifier les informations du travailleur" : "Ajouter un nouveau travailleur au système"}
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <h2 className="text-xl font-bold text-gray-900">
-                    Nouveau Travailleur
-                  </h2>
-                  <p className="text-gray-600 text-sm mt-1">
-                    Ajouter un nouveau travailleur au système
-                  </p>
-                </div>
+                <button onClick={() => setOpenModal(false)} className="text-gray-400 hover:text-gray-500">
+                  <XMarkIcon className="h-6 w-6" />
+                </button>
               </div>
             </div>
 
             {/* Form */}
-            <div className="p-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* Employer Select */}
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Employeur
-                  </label>
-                  <select
-                    value={form.employer_id}
-                    onChange={(e) => setForm(f => ({ ...f, employer_id: Number(e.target.value) }))}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-                  >
-                    {employers.map((employer) => (
-                      <option key={employer.id} value={employer.id}>
-                        {employer.id} - {employer.raison_sociale}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Matricule */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Matricule
-                  </label>
-                  <input
-                    type="text"
-                    value={form.matricule}
-                    onChange={e => setForm(f => ({ ...f, matricule: e.target.value }))}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-                    placeholder="Entrez le matricule"
-                  />
-                </div>
-
-                {/* Type Régime (remplace Secteur) */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Type de Régime
-                  </label>
-                  <select
-                    value={form.type_regime_id}
-                    onChange={(e) => handleTypeRegimeChange(Number(e.target.value))}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-                  >
-                    {typeRegimes.map((regime) => (
-                      <option key={regime.id} value={regime.id}>
-                        {regime.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Nom */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Nom
-                  </label>
-                  <input
-                    type="text"
-                    value={form.nom}
-                    onChange={e => setForm(f => ({ ...f, nom: e.target.value }))}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-                    placeholder="Entrez le nom"
-                  />
-                </div>
-
-                {/* Prénom */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Prénom
-                  </label>
-                  <input
-                    type="text"
-                    value={form.prenom}
-                    onChange={e => setForm(f => ({ ...f, prenom: e.target.value }))}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-                    placeholder="Entrez le prénom"
-                  />
-                </div>
-
-                {/* Adresse */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Adresse
-                  </label>
-                  <input
-                    type="text"
-                    value={form.adresse}
-                    onChange={e => setForm(f => ({ ...f, adresse: e.target.value }))}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-                    placeholder="Adresse"
-                  />
-                </div>
-
-                {/* Nombre enfant */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Nombre enfant
-                  </label>
-                  <input
-                    type="number"
-                    value={form.nombre_enfant}
-                    onChange={e => setForm(f => ({ ...f, nombre_enfant: e.target.value }))}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-                    placeholder="Nombre enfant"
-                  />
-                </div>
-
-                {/* VHM (lecture seule) */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Valeur Horaire Mensuelle (VHM)
-                  </label>
-                  <div className="relative">
-                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                      <CurrencyDollarIcon className="h-5 w-5 text-gray-400" />
+            <div className="p-8 bg-slate-50/30">
+              <div className="space-y-8">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {/* Basic Info */}
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Société Employeur</label>
+                      <select value={form.employer_id} onChange={(e) => setForm(f => ({ ...f, employer_id: Number(e.target.value) }))} className="w-full px-3 py-2 border border-gray-300 rounded-lg">
+                        {employers.map((emp) => (
+                          <option key={emp.id} value={emp.id}>{emp.raison_sociale}</option>
+                        ))}
+                      </select>
                     </div>
-                    <input
-                      type="number"
-                      value={form.vhm}
-                      readOnly
-                      className="w-full pl-10 pr-4 py-3 border border-gray-300 bg-gray-50 rounded-xl text-gray-700"
-                    />
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Matricule</label>
+                        <input type="text" value={form.matricule} onChange={e => setForm(f => ({ ...f, matricule: e.target.value }))} className="w-full px-3 py-2 border border-gray-300 rounded-lg" />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Sexe</label>
+                        <select value={form.sexe} onChange={e => setForm(f => ({ ...f, sexe: e.target.value }))} className="w-full px-3 py-2 border border-gray-300 rounded-lg">
+                          <option value="">Sélectionner</option>
+                          <option value="M">Masculin</option>
+                          <option value="F">Féminin</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Nom</label>
+                        <input type="text" value={form.nom} onChange={e => setForm(f => ({ ...f, nom: e.target.value.toUpperCase() }))} className="w-full px-3 py-2 border border-gray-300 rounded-lg" />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Prénom</label>
+                        <input type="text" value={form.prenom} onChange={e => setForm(f => ({ ...f, prenom: e.target.value }))} className="w-full px-3 py-2 border border-gray-300 rounded-lg" />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Date de Naissance</label>
+                        <input type="date" value={form.date_naissance} onChange={e => setForm(f => ({ ...f, date_naissance: e.target.value }))} className="w-full px-3 py-2 border border-gray-300 rounded-lg" />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Lieu de Naissance</label>
+                        <input type="text" value={form.lieu_naissance} onChange={e => setForm(f => ({ ...f, lieu_naissance: e.target.value }))} className="w-full px-3 py-2 border border-gray-300 rounded-lg" />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Situation Familiale</label>
+                      <select value={form.situation_familiale} onChange={e => setForm(f => ({ ...f, situation_familiale: e.target.value }))} className="w-full px-3 py-2 border border-gray-300 rounded-lg">
+                        <option value="">Sélectionner</option>
+                        <option value="Célibataire">Célibataire</option>
+                        <option value="Marié(e)">Marié(e)</option>
+                        <option value="Divorcé(e)">Divorcé(e)</option>
+                        <option value="Veuf(ve)">Veuf(ve)</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Adresse</label>
+                      <input type="text" value={form.adresse} onChange={e => setForm(f => ({ ...f, adresse: e.target.value }))} className="w-full px-3 py-2 border border-gray-300 rounded-lg" />
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Numéro CIN</label>
+                        <input type="text" value={form.cin} onChange={e => setForm(f => ({ ...f, cin: e.target.value }))} className="w-full px-3 py-2 border border-gray-300 rounded-lg" />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Délivré le</label>
+                        <input type="date" value={form.cin_delivre_le} onChange={e => setForm(f => ({ ...f, cin_delivre_le: e.target.value }))} className="w-full px-3 py-2 border border-gray-300 rounded-lg" />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Lieu de délivrance CIN</label>
+                      <input type="text" value={form.cin_lieu} onChange={e => setForm(f => ({ ...f, cin_lieu: e.target.value }))} className="w-full px-3 py-2 border border-gray-300 rounded-lg" />
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Numéro CNaPS</label>
+                        <input type="text" value={form.cnaps_num} onChange={e => setForm(f => ({ ...f, cnaps_num: e.target.value }))} className="w-full px-3 py-2 border border-gray-300 rounded-lg" />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Mode de paiement</label>
+                        <select value={form.mode_paiement} onChange={e => setForm(f => ({ ...f, mode_paiement: e.target.value }))} className="w-full px-3 py-2 border border-gray-300 rounded-lg">
+                          <option value="Virement">Virement</option>
+                          <option value="Espèces">Espèces</option>
+                          <option value="Chèque">Chèque</option>
+                        </select>
+                      </div>
+                    </div>
                   </div>
-                  <p className="text-sm text-gray-500 mt-1">
-                    Basé sur le type de régime sélectionné
-                  </p>
+
+                  {/* Contract Info */}
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Date d'embauche</label>
+                      <input type="date" value={form.date_embauche} onChange={e => setForm(f => ({ ...f, date_embauche: e.target.value }))} className="w-full px-3 py-2 border border-gray-300 rounded-lg" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Nature du Contrat</label>
+                      <select value={form.nature_contrat} onChange={e => setForm(f => ({ ...f, nature_contrat: e.target.value }))} className="w-full px-3 py-2 border border-gray-300 rounded-lg">
+                        <option value="CDI">CDI</option>
+                        <option value="CDD">CDD</option>
+                      </select>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Durée Essai (jours)</label>
+                        <input type="number" value={form.duree_essai_jours} onChange={e => setForm(f => ({ ...f, duree_essai_jours: +e.target.value }))} className="w-full px-3 py-2 border border-gray-300 rounded-lg" />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Fin Essai</label>
+                        <input type="date" value={form.date_fin_essai} onChange={e => setForm(f => ({ ...f, date_fin_essai: e.target.value }))} className="w-full px-3 py-2 border border-gray-300 rounded-lg" />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Poste</label>
+                      <input type="text" value={form.poste} onChange={e => setForm(f => ({ ...f, poste: e.target.value }))} className="w-full px-3 py-2 border border-gray-300 rounded-lg" />
+                    </div>
+                    
+                    {/* Organizational Structure - NOUVEAU: Système hiérarchique avec cascade */}
+                    <div className="md:col-span-2">
+                      <div className="bg-blue-50 p-4 rounded-xl border border-blue-200">
+                        <h4 className="text-sm font-semibold text-blue-800 mb-3 flex items-center gap-2">
+                          <BuildingOfficeIcon className="h-4 w-4" />
+                          Structure Organisationnelle
+                        </h4>
+                        <CascadingOrganizationalSelect
+                          employerId={form.employer_id}
+                          value={{
+                            etablissement: form.etablissement ? Number(form.etablissement) : undefined,
+                            departement: form.departement ? Number(form.departement) : undefined,
+                            service: form.service ? Number(form.service) : undefined,
+                            unite: form.unite ? Number(form.unite) : undefined
+                          }}
+                          onChange={(values) => {
+                            setForm(f => ({
+                              ...f,
+                              etablissement: values.etablissement ? String(values.etablissement) : '',
+                              departement: values.departement ? String(values.departement) : '',
+                              service: values.service ? String(values.service) : '',
+                              unite: values.unite ? String(values.unite) : ''
+                            }));
+                          }}
+                        />
+                      </div>
+                    </div>
+
+                    {/* NEW: Matricule-based Worker Assignment for Organizational Changes */}
+                    {editingWorker && (
+                      <div className="md:col-span-2">
+                        <div className="bg-green-50 p-4 rounded-xl border border-green-200">
+                          {/* ❌ SYSTÈME MATRICULE SUSPENDU - Section désactivée
+                          <h4 className="text-sm font-semibold text-green-800 mb-3 flex items-center gap-2">
+                            <UserIcon className="h-4 w-4" />
+                            Affectation Organisationnelle par Matricule
+                          </h4>
+                          <p className="text-xs text-green-600 mb-3">
+                            Utilisez cette section pour affecter ce salarié à une nouvelle structure organisationnelle en utilisant son matricule.
+                          </p>
+                          <MatriculeWorkerSelect
+                            employerId={form.employer_id}
+                            value={selectedWorkerMatricule}
+                            onChange={(matricule, workerInfo) => {
+                              setSelectedWorkerMatricule(matricule);
+                              setSelectedWorkerInfo(workerInfo);
+                            }}
+                            placeholder="Rechercher par matricule ou nom pour affectation..."
+                            showMatricule={true}
+                            label="Salarié à affecter"
+                            className="mb-2"
+                          />
+                          {selectedWorkerInfo && selectedWorkerInfo.matricule !== form.matricule && (
+                            <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded-md">
+                              <p className="text-xs text-yellow-700">
+                                <strong>Attention:</strong> Vous avez sélectionné un salarié différent ({selectedWorkerInfo.full_name} - {selectedWorkerInfo.matricule}) 
+                                de celui en cours d'édition ({form.prenom} {form.nom} - {form.matricule}).
+                              </p>
+                            </div>
+                          )}
+                          */}
+                        </div>
+                      </div>
+                    )}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Catégorie Professionnelle</label>
+                      <input type="text" value={form.categorie_prof} onChange={e => setForm(f => ({ ...f, categorie_prof: e.target.value }))} className="w-full px-3 py-2 border border-gray-300 rounded-lg" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Type de Régime</label>
+                      <select value={form.type_regime_id} onChange={(e) => handleTypeRegimeChange(Number(e.target.value))} className="w-full px-3 py-2 border border-gray-300 rounded-lg">
+                        {typeRegimes.map((regime) => (
+                          <option key={regime.id} value={regime.id}>{regime.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Salaire de Base</label>
+                      <input type="number" value={form.salaire_base} onChange={e => setForm(f => ({ ...f, salaire_base: +e.target.value }))} className="w-full px-3 py-2 border border-gray-300 rounded-lg font-bold text-blue-600" />
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs font-medium text-gray-500 mb-1">VHM</label>
+                        <input type="number" value={form.vhm} readOnly className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-gray-500" />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-500 mb-1">Horaires Hebdo</label>
+                        <input type="number" value={form.horaire_hebdo} onChange={e => setForm(f => ({ ...f, horaire_hebdo: +e.target.value }))} className="w-full px-3 py-2 border border-gray-300 rounded-lg" />
+                      </div>
+                    </div>
+                  </div>
                 </div>
 
-                {/* Salaire de base */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Salaire de base
-                  </label>
-                  <div className="relative">
-                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                      <CurrencyDollarIcon className="h-5 w-5 text-gray-400" />
+                <button
+                  onClick={() => setBankModalOpen(true)}
+                  className="w-full flex items-center justify-center gap-3 py-4 bg-white border-2 border-dashed border-blue-200 text-blue-600 rounded-2xl font-bold hover:bg-blue-50 hover:border-blue-400 transition-all group"
+                >
+                  <CurrencyDollarIcon className="h-6 w-6" />
+                  <span>COORDONNÉES BANCAIRES</span>
+                </button>
+
+                {/* --- ADVANCED / OVERRIDES --- */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                  <div className="bg-amber-50 p-6 rounded-3xl border border-amber-100 flex flex-col gap-5">
+                    <h4 className="text-sm font-black text-amber-800 uppercase tracking-widest flex items-center gap-2">Avantages en Nature</h4>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-[10px] font-black text-amber-600 uppercase mb-1">Véhicule</label>
+                        <input type="number" value={form.avantage_vehicule} onChange={e => setForm(f => ({ ...f, avantage_vehicule: +e.target.value }))} className="w-full px-3 py-2 bg-white border border-amber-200 rounded-xl text-sm" />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-black text-amber-600 uppercase mb-1">Logement</label>
+                        <input type="number" value={form.avantage_logement} onChange={e => setForm(f => ({ ...f, avantage_logement: +e.target.value }))} className="w-full px-3 py-2 bg-white border border-amber-200 rounded-xl text-sm" />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-black text-amber-600 uppercase mb-1">Téléphone</label>
+                        <input type="number" value={form.avantage_telephone} onChange={e => setForm(f => ({ ...f, avantage_telephone: +e.target.value }))} className="w-full px-3 py-2 bg-white border border-amber-200 rounded-xl text-sm" />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-black text-amber-600 uppercase mb-1">Autres</label>
+                        <input type="number" value={form.avantage_autres} onChange={e => setForm(f => ({ ...f, avantage_autres: +e.target.value }))} className="w-full px-3 py-2 bg-white border border-amber-200 rounded-xl text-sm" />
+                      </div>
                     </div>
-                    <input
-                      type="number"
-                      value={form.salaire_base}
-                      onChange={e => setForm(f => ({ ...f, salaire_base: +e.target.value }))}
-                      className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-                    />
+                  </div>
+                  <div className="bg-indigo-50 p-6 rounded-3xl border border-indigo-100 flex flex-col gap-5">
+                    <h4 className="text-sm font-black text-indigo-800 uppercase tracking-widest">Surcharges de Taux</h4>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-[10px] font-black text-indigo-400 uppercase mb-1">CNaPS Sal. (%)</label>
+                        <input type="number" step="0.1" value={form.taux_sal_cnaps_override ?? ""} onChange={e => setForm(f => ({ ...f, taux_sal_cnaps_override: e.target.value === "" ? null : +e.target.value }))} className="w-full px-3 py-2 bg-white border border-indigo-200 rounded-xl text-sm" />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-black text-indigo-400 uppercase mb-1">SMIE Sal. (%)</label>
+                        <input type="number" step="0.1" value={form.taux_sal_smie_override ?? ""} onChange={e => setForm(f => ({ ...f, taux_sal_smie_override: e.target.value === "" ? null : +e.target.value }))} className="w-full px-3 py-2 bg-white border border-indigo-200 rounded-xl text-sm" />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-black text-indigo-400 uppercase mb-1">CNaPS Pat. (%)</label>
+                        <input type="number" step="0.1" value={form.taux_pat_cnaps_override ?? ""} onChange={e => setForm(f => ({ ...f, taux_pat_cnaps_override: e.target.value === "" ? null : +e.target.value }))} className="w-full px-3 py-2 bg-white border border-indigo-200 rounded-xl text-sm" />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-black text-indigo-400 uppercase mb-1">SMIE Pat. (%)</label>
+                        <input type="number" step="0.1" value={form.taux_pat_smie_override ?? ""} onChange={e => setForm(f => ({ ...f, taux_pat_smie_override: e.target.value === "" ? null : +e.target.value }))} className="w-full px-3 py-2 bg-white border border-indigo-200 rounded-xl text-sm" />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-black text-indigo-400 uppercase mb-1">FMFP Pat. (%)</label>
+                        <input type="number" step="0.1" value={form.taux_pat_fmfp_override ?? ""} onChange={e => setForm(f => ({ ...f, taux_pat_fmfp_override: e.target.value === "" ? null : +e.target.value }))} className="w-full px-3 py-2 bg-white border border-indigo-200 rounded-xl text-sm" />
+                      </div>
+                    </div>
                   </div>
                 </div>
 
-                {/* Salaire horaire */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Salaire horaire
-                  </label>
-                  <div className="relative">
-                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                      <CurrencyDollarIcon className="h-5 w-5 text-gray-400" />
+                {/* Historique & Sortie */}
+                {editingWorker && (
+                  <div className="pt-10 border-t-2 border-slate-100 grid grid-cols-1 md:grid-cols-2 gap-10">
+                    <div>
+                      <h3 className="text-lg font-black text-slate-800 mb-6 flex items-center gap-2">Historique</h3>
+                      <div className="space-y-4">
+                        {editingWorker.position_history?.map((h: any) => (
+                          <div key={h.id} className="p-4 bg-white rounded-2xl border border-slate-100 flex justify-between items-center group">
+                            <div>
+                              <p className="font-bold text-slate-700">{h.poste}</p>
+                              <p className="text-xs text-slate-400 font-medium">{new Date(h.start_date).toLocaleDateString()}</p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                    <input
-                      type="number"
-                      value={form.salaire_horaire}
-                      onChange={e => setForm(f => ({ ...f, salaire_horaire: +e.target.value }))}
-                      className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-                    />
-                  </div>
-                </div>
-
-                {/* Horaire hebdo */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Horaire hebdomadaire
-                  </label>
-                  <div className="relative">
-                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                      <ClockIcon className="h-5 w-5 text-gray-400" />
+                    <div className="bg-red-50/50 p-6 rounded-3xl border border-red-100 flex flex-col gap-6">
+                      <h3 className="text-lg font-black text-red-800">Clôture de Contrat</h3>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-[10px] font-black text-red-400 uppercase mb-1">Date Débauche</label>
+                          <input type="date" value={form.date_debauche} onChange={e => setForm(f => ({ ...f, date_debauche: e.target.value }))} className="w-full px-3 py-2 bg-white border border-red-100 rounded-xl" />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-black text-red-400 uppercase mb-1">Type de rupture</label>
+                          <select value={form.type_sortie} onChange={e => setForm(f => ({ ...f, type_sortie: e.target.value }))} className="w-full px-3 py-2 bg-white border border-red-100 rounded-xl">
+                            <option value="L">Licenciement</option>
+                            <option value="D">Démission</option>
+                            <option value="RC">Rupture Conv.</option>
+                          </select>
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-black text-red-400 uppercase mb-1">Groupe de Préavis (1-5)</label>
+                        <select value={form.groupe_preavis} onChange={e => setForm(f => ({ ...f, groupe_preavis: +e.target.value }))} className="w-full px-3 py-2 bg-white border border-red-100 rounded-xl">
+                          <option value={1}>Groupe 1</option>
+                          <option value={2}>Groupe 2</option>
+                          <option value={3}>Groupe 3</option>
+                          <option value={4}>Groupe 4</option>
+                          <option value={5}>Groupe 5</option>
+                        </select>
+                      </div>
+                      <div className="p-4 bg-white/60 rounded-2xl border border-red-100 flex flex-col gap-2">
+                        <div className="flex justify-between items-center text-xs">
+                          <span className="text-slate-400 font-black uppercase">Préavis Légal :</span>
+                          <span className="text-red-600 font-black italic">{legalNotice} Jours</span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-slate-400 text-xs font-black uppercase">Solde Préavis :</span>
+                          <span className="text-red-700 text-lg font-black">{noticeBalance} Jours</span>
+                        </div>
+                      </div>
                     </div>
-                    <input
-                      type="number"
-                      value={form.horaire_hebdo}
-                      onChange={e => setForm(f => ({ ...f, horaire_hebdo: +e.target.value }))}
-                      className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-                    />
                   </div>
-                </div>
+                )}
               </div>
-
-              {/* Aperçu du type de régime sélectionné */}
-              {selectedTypeRegime && (
-                <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-xl">
-                  <div className="flex items-center gap-2">
-                    <TagIcon className="h-4 w-4 text-blue-600" />
-                    <span className="text-sm font-medium text-blue-800">
-                      Régime sélectionné: <strong>{selectedTypeRegime.label}</strong> 
-                      (VHM: {formatCurrency(selectedTypeRegime.vhm)})
-                    </span>
-                  </div>
-                </div>
-              )}
             </div>
 
-            {/* Actions */}
-            <div className="border-t border-gray-200 p-6 bg-gray-50 rounded-b-2xl">
-              <div className="flex gap-3 justify-end">
-                <button
-                  onClick={() => setOpenModal(false)}
-                  className="px-6 py-3 border border-gray-300 text-gray-700 rounded-xl hover:bg-gray-50 transition-colors font-medium"
-                >
-                  Annuler
-                </button>
-                <button
-                  onClick={() => create.mutate()}
-                  disabled={create.isPending}
-                  className="inline-flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 font-medium"
-                >
-                  {create.isPending ? (
-                    <>
-                      <div className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                      Création...
-                    </>
-                  ) : (
-                    <>
-                      <PlusIcon className="h-5 w-5" />
-                      Créer le travailleur
-                    </>
-                  )}
+            {/* --- BANK DETAILS MODAL --- */}
+            <Dialog
+              open={bankModalOpen}
+              onClose={() => setBankModalOpen(false)}
+              className="relative z-[60]"
+            >
+              <div className="fixed inset-0 bg-black/40 backdrop-blur-sm" aria-hidden="true" />
+              <div className="fixed inset-0 flex items-center justify-center p-4">
+                <Dialog.Panel className="w-full max-w-2xl bg-white rounded-3xl shadow-2xl overflow-hidden border border-slate-100">
+                  <div className="bg-slate-50 px-8 py-6 border-b border-slate-100 flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 bg-blue-600 rounded-xl">
+                        <CurrencyDollarIcon className="h-6 w-6 text-white" />
+                      </div>
+                      <div>
+                        <Dialog.Title className="text-xl font-black text-slate-800 uppercase tracking-tight">Banque Salarié</Dialog.Title>
+                        <p className="text-slate-500 text-xs font-medium">Coordonnées bancaires et RIB du travailleur</p>
+                      </div>
+                    </div>
+                    <button onClick={() => setBankModalOpen(false)} className="text-slate-400 hover:text-slate-600">
+                      <XMarkIcon className="h-6 w-6" />
+                    </button>
+                  </div>
+
+                  <div className="p-8 space-y-8">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <div>
+                        <label className="block text-[10px] font-black text-blue-600 uppercase tracking-widest mb-2">Nom de la Banque</label>
+                        <input type="text" value={form.banque} onChange={e => setForm(f => ({ ...f, banque: e.target.value }))} className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl focus:ring-2 focus:ring-blue-500 transition-all font-semibold" placeholder="ex: BNI, BTM..." />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-black text-blue-600 uppercase tracking-widest mb-2">BIC / SWIFT</label>
+                        <input type="text" value={form.bic} onChange={e => setForm(f => ({ ...f, bic: e.target.value.toUpperCase() }))} className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl focus:ring-2 focus:ring-blue-500 transition-all font-mono font-bold" placeholder="XXXXXXXX" />
+                      </div>
+                    </div>
+
+                    <div className="bg-slate-50 p-6 rounded-3xl border border-slate-100">
+                      <div className="flex items-center gap-2 mb-6">
+                        <span className="h-1.5 w-1.5 rounded-full bg-blue-600 animate-pulse"></span>
+                        <h4 className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Détails du RIB (Calcul Automatique)</h4>
+                      </div>
+                      <div className="grid grid-cols-4 gap-4">
+                        <div className="col-span-1">
+                          <label className="block text-[9px] font-black text-slate-400 uppercase mb-2 text-center">Banque</label>
+                          <input type="text" maxLength={5} value={form.code_banque} onChange={e => setForm(f => ({ ...f, code_banque: e.target.value.replace(/\D/g, '') }))} className="w-full text-center py-3 bg-white border border-slate-100 rounded-xl font-mono font-black text-blue-600 text-lg shadow-sm" placeholder="00000" />
+                        </div>
+                        <div className="col-span-1">
+                          <label className="block text-[9px] font-black text-slate-400 uppercase mb-2 text-center">Guichet</label>
+                          <input type="text" maxLength={5} value={form.code_guichet} onChange={e => setForm(f => ({ ...f, code_guichet: e.target.value.replace(/\D/g, '') }))} className="w-full text-center py-3 bg-white border border-slate-100 rounded-xl font-mono font-black text-blue-600 text-lg shadow-sm" placeholder="00000" />
+                        </div>
+                        <div className="col-span-1">
+                          <label className="block text-[9px] font-black text-slate-400 uppercase mb-2 text-center">Compte</label>
+                          <input type="text" maxLength={11} value={form.compte_num} onChange={e => setForm(f => ({ ...f, compte_num: e.target.value.toUpperCase() }))} className="w-full text-center py-3 bg-white border border-slate-100 rounded-xl font-mono font-black text-blue-600 text-lg shadow-sm" placeholder="XXXXXXXXXXX" />
+                        </div>
+                        <div className="col-span-1">
+                          <label className="block text-[9px] font-black text-slate-400 uppercase mb-2 text-center">Clé</label>
+                          <input type="text" readOnly value={form.cle_rib} className="w-full text-center py-3 bg-blue-600 border-none rounded-xl font-mono font-black text-white text-lg shadow-lg shadow-blue-200" placeholder="00" />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="bg-slate-50 px-8 py-6 border-t border-slate-100 flex justify-end">
+                    <button
+                      onClick={() => setBankModalOpen(false)}
+                      className="px-12 py-4 bg-blue-600 text-white rounded-2xl font-black shadow-xl shadow-blue-100 hover:bg-blue-700 hover:-translate-y-1 transition-all active:scale-95"
+                    >
+                      TERMINER
+                    </button>
+                  </div>
+                </Dialog.Panel>
+              </div>
+            </Dialog>
+
+            {/* Footer */}
+            <div className="p-8 bg-white border-t border-slate-100 flex items-center justify-between sticky bottom-0 z-50 rounded-b-4xl">
+              <button onClick={() => setOpenModal(false)} className="px-8 py-3 text-slate-400 font-bold hover:text-slate-600 transition-all uppercase tracking-widest text-xs">
+                Annuler
+              </button>
+              <div className="flex gap-4">
+                <button onClick={() => { editingWorker ? updateWorker.mutate() : create.mutate() }} disabled={create.isPending || updateWorker.isPending} className="px-10 py-4 bg-blue-600 text-white rounded-2xl font-black shadow-2xl shadow-blue-200 hover:bg-blue-700 hover:-translate-y-1 transition-all flex items-center gap-3 disabled:bg-slate-300 disabled:shadow-none">
+                  {(create.isPending || updateWorker.isPending) ? <ArrowPathIcon className="h-5 w-5 animate-spin" /> : <PlusIcon className="h-5 w-5" />}
+                  {editingWorker ? "METTRE À JOUR" : "VALIDER L'INSCRIPTION"}
                 </button>
               </div>
             </div>
           </div>
         </div>
       )}
-
       {/* Workers List */}
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden print:hidden">
         {/* List Header */}
         <div className="border-b border-gray-200 p-6">
-          <div className="flex items-center gap-3">
+          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div className="flex items-center gap-3">
             <div className="p-2 bg-blue-100 rounded-lg">
               <UserIcon className="h-6 w-6 text-blue-600" />
             </div>
@@ -424,11 +1253,42 @@ export default function Workers() {
               </p>
             </div>
           </div>
+          </div>
         </div>
+
+        {/* Bulk Selection Header */}
+        {workers.length > 0 && (
+          <div className="px-6 py-2 bg-gray-50 border-b border-gray-200 flex items-center gap-3">
+            <input
+              type="checkbox"
+              className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              checked={workers.length > 0 && selectedIds.size === workers.length}
+              onChange={toggleSelectAll}
+              id="select-all-workers"
+            />
+            <label htmlFor="select-all-workers" className="text-sm text-gray-600 font-medium cursor-pointer">
+              Tout sélectionner ({selectedIds.size} sélectionné{selectedIds.size > 1 ? 's' : ''})
+            </label>
+          </div>
+        )}
 
         {/* List Content */}
         <div className="p-6">
-          {workers.length === 0 ? (
+          {workersLoading ? (
+            <div className="grid gap-4">
+              {[...Array(6)].map((_, index) => (
+                <div key={index} className="rounded-2xl border border-gray-200 bg-white p-4">
+                  <div className="flex items-center gap-4">
+                    <Skeleton className="h-12 w-12 rounded-xl" />
+                    <div className="flex-1 space-y-3">
+                      <Skeleton className="h-5 w-48" />
+                      <Skeleton className="h-4 w-full max-w-xl" />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : workers.length === 0 ? (
             <div className="text-center py-12">
               <UserIcon className="h-12 w-12 text-gray-400 mx-auto mb-4" />
               <h3 className="text-lg font-medium text-gray-900 mb-2">
@@ -453,6 +1313,19 @@ export default function Workers() {
                   className="flex items-center justify-between p-4 border border-gray-200 rounded-xl hover:border-blue-300 hover:shadow-md transition-all duration-200"
                 >
                   <div className="flex items-center gap-4 flex-1">
+                    {/* Checkbox */}
+                    <div className="flex-shrink-0">
+                      <input
+                        type="checkbox"
+                        className="h-5 w-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                        checked={selectedIds.has(worker.id)}
+                        onChange={(e) => {
+                          e.stopPropagation();
+                          toggleSelection(worker.id);
+                        }}
+                      />
+                    </div>
+
                     {/* Avatar */}
                     <div className="flex-shrink-0">
                       <div className="h-12 w-12 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl flex items-center justify-center text-white font-semibold text-sm">
@@ -463,19 +1336,25 @@ export default function Workers() {
                     {/* Info */}
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-3 mb-2 flex-wrap">
-                        <h3 className="text-lg font-semibold text-gray-900 truncate">
+                        <h3 className="text-lg font-semibold text-gray-900 truncate flex items-center gap-2">
                           {worker.prenom} {worker.nom}
+                          {isHomonym(worker) && (
+                            <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800 border border-yellow-200">
+                              <ExclamationTriangleIcon className="h-3 w-3 mr-1" />
+                              Homonyme
+                            </span>
+                          )}
                         </h3>
                         <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium border ${getSecteurColor(worker.type_regime_id)}`}>
                           <span className={`h-2 w-2 rounded-full ${getSecteurDot(worker.type_regime_id)}`}></span>
                           {getSecteurLabel(worker.type_regime_id)}
                         </span>
                       </div>
-                      
+
                       <div className="flex flex-wrap gap-4 text-sm text-gray-600">
                         <div className="flex items-center gap-1">
                           <IdentificationIcon className="h-4 w-4" />
-                          <span>Matricule: {worker.matricule}</span>
+                          <span className="font-medium">Matricule: {worker.matricule}</span>
                         </div>
                         <div className="flex items-center gap-1">
                           <CurrencyDollarIcon className="h-4 w-4" />
@@ -493,12 +1372,101 @@ export default function Workers() {
                     </div>
                   </div>
 
-                  {/* Actions */}
                   <div className="flex items-center gap-2 flex-shrink-0 ml-4">
-                    <button className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors">
+                    <button
+                      onClick={() => handleOpenDocument(worker)}
+                      className="p-2 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded-lg transition-colors"
+                      title="Documents administratifs"
+                    >
+                      <DocumentTextIcon className="h-5 w-5" />
+                    </button>
+                    <button
+                      onClick={() => {
+                        setEditingWorker(worker);
+                        // NEW: Set matricule selection for editing
+                        setSelectedWorkerMatricule(worker.matricule);
+                        setSelectedWorkerInfo({
+                          matricule: worker.matricule,
+                          full_name: `${worker.prenom} ${worker.nom}`,
+                          nom: worker.nom,
+                          prenom: worker.prenom,
+                          employer_id: worker.employer_id
+                        });
+                        setForm({
+                          employer_id: worker.employer_id || (employers.length > 0 ? employers[0].id : 1),
+                          matricule: worker.matricule || "",
+                          nom: worker.nom || "",
+                          prenom: worker.prenom || "",
+                          sexe: worker.sexe || "",
+                          situation_familiale: worker.situation_familiale || "",
+                          date_naissance: worker.date_naissance || "",
+                          lieu_naissance: worker.lieu_naissance || "",
+                          adresse: worker.adresse || "",
+                          telephone: worker.telephone || "",
+                          email: worker.email || "",
+                          cin: worker.cin || "",
+                          cin_delivre_le: worker.cin_delivre_le || "",
+                          cin_lieu: worker.cin_lieu || "",
+                          cnaps_num: worker.cnaps_num || "",
+                          nombre_enfant: worker.nombre_enfant || "",
+                          date_embauche: worker.date_embauche || "",
+                          nature_contrat: worker.nature_contrat || "CDI",
+                          duree_essai_jours: worker.duree_essai_jours || 0,
+                          date_fin_essai: worker.date_fin_essai || "",
+                          etablissement: worker.etablissement || "",
+                          departement: worker.departement || "",
+                          service: worker.service || "",
+                          unite: worker.unite || "",
+                          indice: worker.indice || "",
+                          valeur_point: worker.valeur_point || 0,
+                          secteur: worker.secteur || "",
+                          mode_paiement: worker.mode_paiement || "",
+                          rib: worker.rib || "",
+                          banque: worker.banque || "",
+                          bic: worker.bic || "",
+                          categorie_prof: worker.categorie_prof || "",
+                          poste: worker.poste || "",
+                          date_debauche: worker.date_debauche || "",
+                          type_sortie: worker.type_sortie || "L",
+                          groupe_preavis: worker.groupe_preavis || 1,
+                          jours_preavis_deja_faits: worker.jours_preavis_deja_faits || 0,
+                          type_regime_id: worker.type_regime_id || (typeRegimes.length > 0 ? typeRegimes[0].id : 1),
+                          salaire_base: worker.salaire_base || 0,
+                          salaire_horaire: worker.salaire_horaire || 0,
+                          vhm: worker.vhm || 200,
+                          horaire_hebdo: worker.horaire_hebdo || 46,
+                          avantage_vehicule: worker.avantage_vehicule || 0,
+                          avantage_logement: worker.avantage_logement || 0,
+                          avantage_telephone: worker.avantage_telephone || 0,
+                          avantage_autres: worker.avantage_autres || 0,
+                          taux_sal_cnaps_override: worker.taux_sal_cnaps_override ?? null,
+                          taux_sal_smie_override: worker.taux_sal_smie_override ?? null,
+                          taux_pat_cnaps_override: worker.taux_pat_cnaps_override ?? null,
+                          taux_pat_smie_override: worker.taux_pat_smie_override ?? null,
+                          taux_pat_fmfp_override: worker.taux_pat_fmfp_override ?? null,
+                          solde_conge_initial: worker.solde_conge_initial || 0,
+                          code_banque: worker.code_banque || "",
+                          code_guichet: worker.code_guichet || "",
+                          compte_num: worker.compte_num || "",
+                          cle_rib: worker.cle_rib || "",
+                          nom_guichet: worker.nom_guichet || ""
+                        });
+                        setOpenModal(true);
+                      }}
+                      className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                      title="Modifier"
+                    >
                       <PencilIcon className="h-5 w-5" />
                     </button>
-                    <button className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors">
+                    <button
+                      onClick={() => {
+                        if (window.confirm(`Êtes-vous sûr de vouloir supprimer ${worker.prenom} ${worker.nom} ?`)) {
+                          deleteWorker.mutate(worker.id);
+                        }
+                      }}
+                      className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                      title="Supprimer"
+                    >
                       <TrashIcon className="h-5 w-5" />
                     </button>
                   </div>
@@ -506,8 +1474,133 @@ export default function Workers() {
               ))}
             </div>
           )}
+          {!workersLoading && totalPages > 1 ? (
+            <div className="mt-6 flex flex-col gap-3 border-t border-gray-200 pt-6 text-sm text-gray-600 md:flex-row md:items-center md:justify-between">
+              <div>
+                Affichage de {(page - 1) * pageSize + 1} à {Math.min(page * pageSize, totalWorkers)} sur {totalWorkers} salariés
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPage((current) => Math.max(1, current - 1))}
+                  disabled={page === 1}
+                  className="rounded-xl border border-gray-300 px-4 py-2 font-medium text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Précédent
+                </button>
+                <div className="rounded-xl bg-slate-900 px-4 py-2 font-semibold text-white">
+                  {page} / {totalPages}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
+                  disabled={page >= totalPages}
+                  className="rounded-xl border border-gray-300 px-4 py-2 font-medium text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Suivant
+                </button>
+              </div>
+            </div>
+          ) : null}
         </div>
       </div>
+      {/* NEW: DOCUMENT MODAL */}
+      <Dialog
+        open={documentModalOpen}
+        onClose={() => setDocumentModalOpen(false)}
+        className="relative z-50"
+      >
+        {/* Fullscreen backdrop */}
+        <div className="fixed inset-0 bg-black/30" aria-hidden="true" />
+
+        {/* Fullscreen container for centering */}
+        <div className="fixed inset-0 flex items-center justify-center p-4">
+          <Dialog.Panel className="w-full max-w-5xl h-[90vh] bg-white rounded-xl shadow-2xl overflow-hidden flex flex-col print:shadow-none print:rounded-none print:h-auto print:overflow-visible print:bg-white print:max-w-none print:w-full">
+
+            {/* Header with Switcher - Hidden on Print */}
+            <div className="bg-white border-b border-gray-200 px-6 py-4 flex justify-between items-center flex-shrink-0 print:hidden">
+              <Dialog.Title className="text-lg font-bold text-gray-900">
+                Documents Administratifs - {selectedDocumentWorker?.prenom} {selectedDocumentWorker?.nom}
+              </Dialog.Title>
+
+              {/* Document Switcher */}
+              <div className="flex bg-gray-100 p-1 rounded-lg">
+                <button
+                  className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${documentType === 'attestation' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                  onClick={() => setDocumentType('attestation')}
+                >
+                  Attestation d'Emploi
+                </button>
+                <button
+                  className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${documentType === 'certificate' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                  onClick={() => setDocumentType('certificate')}
+                  disabled={!selectedDocumentWorker?.date_debauche}
+                  title={!selectedDocumentWorker?.date_debauche ? "Disponible uniquement pour les salariés débauchés" : ""}
+                >
+                  Certificat de Travail
+                  {!selectedDocumentWorker?.date_debauche && <span className="ml-2 text-xs text-gray-400">(N/A)</span>}
+                </button>
+                <button
+                  className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${documentType === 'contract' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                  onClick={() => setDocumentType('contract')}
+                >
+                  Contrat de Travail
+                </button>
+              </div>
+
+              <div className="flex gap-4">
+                <button
+                  onClick={() => setDocumentModalOpen(false)}
+                  className="text-gray-400 hover:text-gray-500 p-2"
+                >
+                  <span className="sr-only">Fermer</span>
+                  <XMarkIcon className="h-6 w-6" />
+                </button>
+              </div>
+            </div>
+
+            {/* Content Area */}
+            <div className="flex-1 overflow-auto bg-gray-100 p-4 print:bg-white print:p-0 print:overflow-visible">
+              {selectedDocumentWorker && (
+                <>
+                  {(() => {
+                    const currentEmployer = employers.find(e => e.id === selectedDocumentWorker.employer_id) || (employers.length > 0 ? employers[0] : null);
+                    return (
+                      <>
+                        {documentType === 'attestation' && (
+                          <EmploymentAttestation
+                            worker={selectedDocumentWorker}
+                            employer={currentEmployer}
+                            onClose={() => setDocumentModalOpen(false)}
+                          />
+                        )}
+                        {documentType === 'certificate' && (
+                          <WorkCertificate
+                            worker={selectedDocumentWorker}
+                            employer={currentEmployer}
+                            onClose={() => setDocumentModalOpen(false)}
+                          />
+                        )}
+                        {documentType === 'contract' && (
+                          <EmploymentContract
+                            worker={selectedDocumentWorker}
+                            employer={currentEmployer}
+                            onClose={() => setDocumentModalOpen(false)}
+                          />
+                        )}
+                      </>
+                    );
+                  })()}
+                </>
+              )}
+            </div>
+          </Dialog.Panel>
+        </div>
+      </Dialog>
+      <ImportWorkersDialog
+        isOpen={importModalOpen}
+        onClose={() => setImportModalOpen(false)}
+      />
     </div>
   );
 }

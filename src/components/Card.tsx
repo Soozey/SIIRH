@@ -1,4 +1,4 @@
-import { ReactNode } from "react";
+import type { ReactNode } from "react";
 
 interface CardProps {
   children: ReactNode;
@@ -7,11 +7,11 @@ interface CardProps {
   hover?: boolean;
 }
 
-export default function Card({ 
-  children, 
-  className = "", 
+export default function Card({
+  children,
+  className = "",
   padding = "md",
-  hover = false 
+  hover = false
 }: CardProps) {
   const paddingClasses = {
     none: "p-0",

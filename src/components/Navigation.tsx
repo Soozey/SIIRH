@@ -1,12 +1,19 @@
+import { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import {
+  Bars3Icon,
   BuildingOfficeIcon,
-  UserGroupIcon,
-  DocumentTextIcon,
+  CalendarIcon,
   ChartBarIcon,
   ClockIcon,
-  CalendarIcon
+  DocumentTextIcon,
+  PowerIcon,
+  UserGroupIcon,
+  XMarkIcon,
 } from "@heroicons/react/24/outline";
+
+import { useAuth } from "../contexts/AuthContext";
+
 
 interface NavItem {
   path: string;
@@ -17,13 +24,18 @@ interface NavItem {
 const navItems: NavItem[] = [
   { path: "/", label: "Employeurs", icon: BuildingOfficeIcon },
   { path: "/workers", label: "Travailleurs", icon: UserGroupIcon },
-  { path: "/payroll", label: "Bulletin", icon: DocumentTextIcon },
-  { path: "/hs", label: "Heure Supplementaire", icon: ClockIcon },
+  { path: "/payroll", label: "Paie", icon: DocumentTextIcon },
+  { path: "/hs", label: "Heures", icon: ClockIcon },
   { path: "/absences", label: "Absences", icon: CalendarIcon },
+  { path: "/leaves", label: "Congés", icon: CalendarIcon },
+  { path: "/reporting", label: "Reporting", icon: ChartBarIcon },
 ];
+
 
 export default function Navigation() {
   const location = useLocation();
+  const { session, logout } = useAuth();
+  const [mobileOpen, setMobileOpen] = useState(false);
 
   const isActive = (path: string) => {
     if (path === "/") {
@@ -33,88 +45,85 @@ export default function Navigation() {
   };
 
   return (
-    <nav className="bg-white shadow-lg border-b border-gray-200 sticky top-0 z-50">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex justify-between h-16">
-          <div className="flex items-center">
-            {/* Logo */}
-            <div className="flex-shrink-0 flex items-center">
-              <ChartBarIcon className="h-8 w-8 text-blue-600" />
-              <span className="ml-2 text-xl font-bold text-gray-900">SIRH Paie</span>
-            </div>
-            
-            {/* Navigation Items */}
-            <div className="hidden sm:ml-6 sm:flex sm:space-x-1">
-              {navItems.map((item) => {
-                const Icon = item.icon;
-                const active = isActive(item.path);
-                
-                return (
-                  <Link
-                    key={item.path}
-                    to={item.path}
-                    className={`inline-flex items-center px-3 py-2 rounded-md text-sm font-medium transition-all duration-200 ${
-                      active
-                        ? "bg-blue-100 text-blue-700 border-b-2 border-blue-600"
-                        : "text-gray-600 hover:text-gray-900 hover:bg-gray-100"
-                    }`}
-                  >
-                    <Icon className={`h-4 w-4 mr-2 ${active ? "text-blue-600" : "text-gray-400"}`} />
-                    {item.label}
-                  </Link>
-                );
-              })}
-            </div>
-          </div>
+    <>
+      <button
+        type="button"
+        onClick={() => setMobileOpen(true)}
+        className="fixed left-4 top-4 z-[70] rounded-2xl border border-slate-800 bg-slate-950/90 p-3 text-slate-100 shadow-xl md:hidden"
+      >
+        <Bars3Icon className="h-6 w-6" />
+      </button>
 
-          {/* Mobile menu button */}
-          <div className="sm:hidden flex items-center">
-            <button
-              type="button"
-              className="inline-flex items-center justify-center p-2 rounded-md text-gray-600 hover:text-gray-900 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500"
-              aria-controls="mobile-menu"
-              aria-expanded="false"
-            >
-              <span className="sr-only">Ouvrir le menu</span>
-              <svg
-                className="block h-6 w-6"
-                xmlns="http://www.w3.org/2000/svg"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                aria-hidden="true"
-              >
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-              </svg>
-            </button>
+      <div
+        className={`fixed inset-0 z-40 bg-slate-950/70 backdrop-blur-sm transition-opacity md:hidden ${mobileOpen ? "opacity-100" : "pointer-events-none opacity-0"}`}
+        onClick={() => setMobileOpen(false)}
+      />
+
+      <aside
+        className={`fixed inset-y-0 left-0 z-50 flex w-72 flex-col border-r border-white/10 bg-slate-950/90 p-5 shadow-2xl shadow-slate-950/50 backdrop-blur-xl transition-transform md:translate-x-0 ${
+          mobileOpen ? "translate-x-0" : "-translate-x-full"
+        }`}
+      >
+        <div className="mb-8 flex items-start justify-between gap-4">
+          <div>
+            <div className="inline-flex rounded-full border border-cyan-400/20 bg-cyan-400/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.28em] text-cyan-200">
+              SIIRH
+            </div>
+            <div className="mt-4 text-2xl font-semibold text-white">Pilotage RH</div>
+            <div className="mt-2 text-sm text-slate-400">Paie, dossiers, conformité et reporting.</div>
           </div>
+          <button
+            type="button"
+            onClick={() => setMobileOpen(false)}
+            className="rounded-2xl border border-white/10 p-2 text-slate-400 md:hidden"
+          >
+            <XMarkIcon className="h-5 w-5" />
+          </button>
         </div>
-      </div>
 
-      {/* Mobile menu */}
-      <div className="sm:hidden" id="mobile-menu">
-        <div className="px-2 pt-2 pb-3 space-y-1 bg-gray-50">
+        <nav className="space-y-2">
           {navItems.map((item) => {
             const Icon = item.icon;
             const active = isActive(item.path);
-            
+
             return (
               <Link
                 key={item.path}
                 to={item.path}
-                className={`flex items-center px-3 py-2 rounded-md text-base font-medium transition-colors ${
+                onClick={() => setMobileOpen(false)}
+                className={`group flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-medium transition ${
                   active
-                    ? "bg-blue-100 text-blue-700 border-l-4 border-blue-600"
-                    : "text-gray-600 hover:text-gray-900 hover:bg-gray-100"
+                    ? "bg-cyan-400 text-slate-950 shadow-lg shadow-cyan-500/20"
+                    : "text-slate-300 hover:bg-white/5 hover:text-white"
                 }`}
               >
-                <Icon className={`h-5 w-5 mr-3 ${active ? "text-blue-600" : "text-gray-400"}`} />
-                {item.label}
+                <Icon className={`h-5 w-5 ${active ? "text-slate-950" : "text-slate-500 group-hover:text-cyan-300"}`} />
+                <span>{item.label}</span>
               </Link>
             );
           })}
+        </nav>
+
+        <div className="mt-auto rounded-[1.75rem] border border-white/10 bg-white/5 p-4">
+          <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500">Session</div>
+          <div className="mt-3 text-sm font-semibold text-white">{session?.full_name || session?.username}</div>
+          <div className="mt-1 text-xs uppercase tracking-[0.2em] text-cyan-300">{session?.role_code}</div>
+          {session?.username ? (
+            <div className="mt-4 text-xs leading-5 text-slate-400">
+              Utilisateur: <span className="font-medium text-slate-200">{session.username}</span>
+            </div>
+          ) : null}
+
+          <button
+            type="button"
+            onClick={() => logout()}
+            className="mt-5 flex w-full items-center justify-center gap-2 rounded-2xl border border-white/10 bg-slate-900/80 px-4 py-3 text-sm font-semibold text-slate-200 transition hover:border-rose-400/30 hover:bg-rose-500/10 hover:text-rose-100"
+          >
+            <PowerIcon className="h-4 w-4" />
+            Fermer la session
+          </button>
         </div>
-      </div>
-    </nav>
+      </aside>
+    </>
   );
 }

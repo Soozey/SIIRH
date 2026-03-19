@@ -1,5 +1,6 @@
 import React, { useState } from "react";
-import axios from "axios";
+import { api } from "../api";
+import WorkerSearchSelect from "../components/WorkerSearchSelect";
 
 type AbsenceInput = {
   worker_id: number;           // ID du salarié
@@ -89,9 +90,7 @@ const Absences: React.FC = () => {
     setWorkerError(null);
 
     try {
-      const response = await axios.get<Worker>(
-        `http://127.0.0.1:8000/workers/${id}`
-      );
+      const response = await api.get<Worker>(`/workers/${id}`);
       const data = response.data;
       setWorker(data);
 
@@ -110,12 +109,6 @@ const Absences: React.FC = () => {
     }
   };
 
-  // 🔹 Quand on sort du champ worker_id, on va chercher le salarié
-  const handleWorkerBlur = () => {
-    if (form.worker_id && form.worker_id > 0) {
-      fetchWorker(form.worker_id);
-    }
-  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -123,10 +116,7 @@ const Absences: React.FC = () => {
     setError(null);
 
     try {
-      const response = await axios.post<AbsenceCalculationResult>(
-        "http://127.0.0.1:8000/absences/calcul",
-        form
-      );
+      const response = await api.post<AbsenceCalculationResult>("/absences/calcul", form);
       setResult(response.data);
     } catch (err) {
       console.error(err);
@@ -243,19 +233,25 @@ const Absences: React.FC = () => {
                         <label className="block text-sm font-medium text-gray-700 mb-2">
                           {field.label}
                         </label>
-                        <input
-                          type={field.type}
-                          name={field.name}
-                          value={form[field.name as keyof AbsenceInput]}
-                          onChange={handleChange}
-                          onBlur={
-                            field.name === "worker_id"
-                              ? handleWorkerBlur
-                              : undefined
-                          }
-                          className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
-                          placeholder="0"
-                        />
+                        {field.name === "worker_id" ? (
+                          <WorkerSearchSelect
+                            selectedId={form.worker_id || ""}
+                            onSelect={(id) => {
+                              const nid = Number(id);
+                              setForm(prev => ({ ...prev, worker_id: nid }));
+                              fetchWorker(nid);
+                            }}
+                          />
+                        ) : (
+                          <input
+                            type={field.type}
+                            name={field.name}
+                            value={form[field.name as keyof AbsenceInput]}
+                            onChange={handleChange}
+                            className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
+                            placeholder="0"
+                          />
+                        )}
                       </div>
                     ))}
                   </div>

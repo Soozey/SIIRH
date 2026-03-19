@@ -1,6 +1,9 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api } from "../api";
+import { api, updateEmployer, deleteEmployer } from "../api";
 import { useMemo, useState } from "react";
+import HierarchyManagerModalEnhanced from '../components/HierarchyManagerModalEnhanced';
+// Import temporairement supprimé pour éviter les erreurs
+// import HierarchicalOrganizationTree from '../components/HierarchicalOrganizationTree';
 import {
   PlusIcon,
   BuildingOfficeIcon,
@@ -24,16 +27,37 @@ type TypeRegime = {
 type Employer = {
   id: number;
   raison_sociale: string;
+  adresse?: string;
+  cnaps_num?: string;
   type_etab: "general" | "scolaire";
   taux_pat_cnaps: number;
+  plafond_cnaps_base: number;
   taux_pat_smie: number;
+  plafond_smie: number;
+  logo_path?: string;
   type_regime_id: number | null;
   type_regime?: TypeRegime;
+  // SME
+  sm_embauche?: number;
+  nif?: string;
+  stat?: string;
+  representant?: string;
+  rep_date_naissance?: string;
+  rep_cin_num?: string;
+  rep_cin_date?: string;
+  rep_cin_lieu?: string;
+  rep_adresse?: string;
+  rep_fonction?: string;
+  // Organizational lists
+  etablissements?: string[];
+  departements?: string[];
+  services?: string[];
+  unites?: string[];
 };
 
 export default function Employers() {
   const qc = useQueryClient();
-  
+
   // États pour les données
   const { data: employers, isLoading, error } = useQuery({
     queryKey: ["employers"],
@@ -46,15 +70,41 @@ export default function Employers() {
   });
 
   // État du formulaire
-  const [form, setForm] = useState({
+  const initialFormState = {
     raison_sociale: "",
+    adresse: "",
+    cnaps_num: "",
     type_etab: "general" as "general" | "scolaire",
     taux_pat_cnaps: 13,
+    plafond_cnaps_base: 0,
     taux_pat_smie: 0,
-    type_regime_id: typeRegimes?.[0]?.id || 1,
-  });
+    plafond_smie: 0,
+    logo_path: "",
+    type_regime_id: 1,
+    // SME
+    sm_embauche: 0,
+    nif: "",
+    stat: "",
+    representant: "",
+    rep_date_naissance: "",
+    rep_cin_num: "",
+    rep_cin_date: "",
+    rep_cin_lieu: "",
+    rep_adresse: "",
+    rep_fonction: "",
+    // Organizational lists
+    etablissements: [] as string[],
+    departements: [] as string[],
+    services: [] as string[],
+    unites: [] as string[],
+  };
 
+  const [form, setForm] = useState(initialFormState);
+  const [editingId, setEditingId] = useState<number | null>(null);
   const [showForm, setShowForm] = useState(false);
+  const [repModalOpen, setRepModalOpen] = useState(false);
+  const [showHierarchyManager, setShowHierarchyManager] = useState(false);
+  // const [logoFile, setLogoFile] = useState<File | null>(null); // Unused for now
 
   // Trouver le type de régime sélectionné pour l'aperçu VHM
   const selectedTypeRegime = useMemo(() => {
@@ -69,21 +119,145 @@ export default function Employers() {
 
   // Mutation pour créer un employeur
   const create = useMutation({
-    mutationFn: async () => (await api.post("/employers", form)).data,
+    mutationFn: async () => (await api.post("/employers", cleanFormData(form))).data,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["employers"] });
-      setForm({
-        raison_sociale: "",
-        type_etab: "general",
-        taux_pat_cnaps: 13,
-        taux_pat_smie: 0,
-        type_regime_id: typeRegimes?.[0]?.id || 1,
-      });
-      setShowForm(false);
+      resetForm();
     },
+    onError: (err: any) => {
+      alert("Erreur lors de la création: " + (err.response?.data?.detail || err.message));
+    }
   });
 
-  // Handlers
+  // Mutation pour mettre à jour
+  const update = useMutation({
+    mutationFn: async () => {
+      return await updateEmployer(editingId!, cleanFormData(form));
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["employers"] });
+      resetForm();
+    },
+    onError: (err: any) => {
+      console.error("Erreur complète:", err);
+      console.error("Response data:", err.response?.data);
+      console.error("Form data:", form);
+      
+      let errorMessage = "Erreur lors de la modification";
+      if (err.response?.data?.detail) {
+        if (typeof err.response.data.detail === 'string') {
+          errorMessage += ": " + err.response.data.detail;
+        } else {
+          errorMessage += ": " + JSON.stringify(err.response.data.detail);
+        }
+      } else if (err.message) {
+        errorMessage += ": " + err.message;
+      }
+      
+      alert(errorMessage);
+    }
+  });
+
+  // Mutation pour supprimer
+  const remove = useMutation({
+    mutationFn: async (id: number) => await deleteEmployer(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["employers"] });
+    },
+    onError: (err: any) => {
+      alert("Erreur lors de la suppression: " + (err.response?.data?.detail || err.message));
+    }
+  });
+
+  const resetForm = () => {
+    setForm({
+      raison_sociale: "",
+      adresse: "",
+      cnaps_num: "",
+      type_etab: "general",
+      taux_pat_cnaps: 13,
+      plafond_cnaps_base: 0,
+      taux_pat_smie: 0,
+      plafond_smie: 0,
+      logo_path: "",
+      type_regime_id: typeRegimes?.[0]?.id || 1,
+      // SME
+      sm_embauche: 0,
+      nif: "",
+      stat: "",
+      representant: "",
+      rep_date_naissance: "",
+      rep_cin_num: "",
+      rep_cin_date: "",
+      rep_cin_lieu: "",
+      rep_adresse: "",
+      rep_fonction: "",
+      // Organizational lists
+      etablissements: [],
+      departements: [],
+      services: [],
+      unites: [],
+    });
+    setEditingId(null);
+    setShowForm(false);
+    // setLogoFile(null); // Unused
+  }
+
+  // Fonction pour nettoyer les données avant l'envoi
+  const cleanFormData = (formData: typeof form) => {
+    const cleaned = { ...formData };
+    
+    // Convertir les chaînes vides en null pour les champs de date
+    if (cleaned.rep_date_naissance === "") {
+      cleaned.rep_date_naissance = null as any;
+    }
+    if (cleaned.rep_cin_date === "") {
+      cleaned.rep_cin_date = null as any;
+    }
+    
+    return cleaned;
+  };
+
+  const handleEdit = (employer: Employer) => {
+    setEditingId(employer.id);
+    setForm({
+      raison_sociale: employer.raison_sociale,
+      adresse: employer.adresse || "",
+      cnaps_num: employer.cnaps_num || "",
+      type_etab: employer.type_etab,
+      taux_pat_cnaps: employer.taux_pat_cnaps,
+      plafond_cnaps_base: employer.plafond_cnaps_base || 0,
+      taux_pat_smie: employer.taux_pat_smie,
+      plafond_smie: employer.plafond_smie || 0,
+      logo_path: employer.logo_path || "",
+      type_regime_id: employer.type_regime_id || (typeRegimes?.[0]?.id || 1),
+      sm_embauche: employer.sm_embauche || 0,
+      nif: employer.nif || "",
+      stat: employer.stat || "",
+      representant: employer.representant || "",
+      rep_date_naissance: employer.rep_date_naissance || "",
+      rep_cin_num: employer.rep_cin_num || "",
+      rep_cin_date: employer.rep_cin_date || "",
+      rep_cin_lieu: employer.rep_cin_lieu || "",
+      rep_adresse: employer.rep_adresse || "",
+      rep_fonction: employer.rep_fonction || "",
+      // Organizational lists - ensure they are arrays of strings
+      etablissements: Array.isArray(employer.etablissements) ? employer.etablissements : [],
+      departements: Array.isArray(employer.departements) ? employer.departements : [],
+      services: Array.isArray(employer.services) ? employer.services : [],
+      unites: Array.isArray(employer.unites) ? employer.unites : [],
+    });
+    setShowForm(true);
+    // Scroll to top
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleDelete = async (id: number) => {
+    if (confirm("Êtes-vous sûr de vouloir supprimer cet employeur ?")) {
+      remove.mutate(id);
+    }
+  };
+
   const handleChangeTypeEtab = (value: "general" | "scolaire") => {
     setForm((f) => ({
       ...f,
@@ -93,6 +267,18 @@ export default function Employers() {
   };
 
   const handleChangeTypeRegime = (regimeId: number) => {
+    if (editingId) {
+      const originalEmp = employers?.find(e => e.id === editingId);
+      if (originalEmp && originalEmp.type_regime_id !== regimeId) {
+        const confirmed = confirm(
+          "⚠️ ATTENTION : Changement de Régime détecté !\n\n" +
+          "Cette action va modifier la VHM et le salaire horaire de TOUS les salariés liés.\n" +
+          "C'est une décision structurante qui relève de la hiérarchie compétente.\n\n" +
+          "Êtes-vous certain de vouloir procéder à ce changement ?"
+        );
+        if (!confirmed) return;
+      }
+    }
     setForm((f) => ({ ...f, type_regime_id: regimeId }));
   };
 
@@ -104,7 +290,7 @@ export default function Employers() {
   };
 
   const getTypeEtabColor = (type: "general" | "scolaire") => {
-    return type === "scolaire" 
+    return type === "scolaire"
       ? "bg-purple-100 text-purple-800 border-purple-200"
       : "bg-blue-100 text-blue-800 border-blue-200";
   };
@@ -130,7 +316,10 @@ export default function Employers() {
           {/* Bouton d'ajout */}
           {!showForm && (
             <button
-              onClick={() => setShowForm(true)}
+              onClick={() => {
+                resetForm();
+                setShowForm(true);
+              }}
               className="inline-flex items-center gap-2 bg-blue-600 text-white hover:bg-blue-700 px-6 py-3 rounded-xl font-semibold shadow-lg transition-all duration-200 hover:shadow-xl transform hover:-translate-y-0.5"
             >
               <PlusIcon className="h-5 w-5" />
@@ -149,10 +338,10 @@ export default function Employers() {
                 </div>
                 <div>
                   <h2 className="text-xl font-bold text-gray-900">
-                    Nouvel Employeur
+                    {editingId ? "Modifier l'Employeur" : "Nouvel Employeur"}
                   </h2>
                   <p className="text-gray-600 text-sm mt-1">
-                    Ajouter un nouvel employeur au système
+                    {editingId ? "Modifier les informations de l'employeur" : "Ajouter un nouvel employeur au système"}
                   </p>
                 </div>
               </div>
@@ -161,7 +350,11 @@ export default function Employers() {
             <form
               onSubmit={(e) => {
                 e.preventDefault();
-                create.mutate();
+                if (editingId) {
+                  update.mutate();
+                } else {
+                  create.mutate();
+                }
               }}
               className="p-6"
             >
@@ -181,6 +374,120 @@ export default function Employers() {
                   />
                 </div>
 
+                {/* Adresse */}
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Adresse
+                  </label>
+                  <input
+                    type="text"
+                    value={form.adresse}
+                    onChange={(e) => setField("adresse", e.target.value)}
+                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+                    placeholder="Adresse complète de l'employeur"
+                  />
+                </div>
+
+                {/* Numéro CNaPS */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Numéro CNaPS
+                  </label>
+                  <input
+                    type="text"
+                    value={form.cnaps_num}
+                    onChange={(e) => setField("cnaps_num", e.target.value)}
+                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+                    placeholder="Ex: 123456789"
+                  />
+                </div>
+
+                {/* NIF */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    NIF
+                  </label>
+                  <input
+                    type="text"
+                    value={form.nif}
+                    onChange={(e) => setField("nif", e.target.value)}
+                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+                    placeholder="Numéro d'Identification Fiscale"
+                  />
+                </div>
+
+                {/* STAT */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    STAT
+                  </label>
+                  <input
+                    type="text"
+                    value={form.stat}
+                    onChange={(e) => setField("stat", e.target.value)}
+                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+                    placeholder="Numéro Statistique"
+                  />
+                </div>
+
+                {/* Représentant */}
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Représentant
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={form.representant}
+                      onChange={(e) => setField("representant", e.target.value)}
+                      className="flex-1 px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors bg-gray-50"
+                      placeholder="Nom du représentant légal"
+                      readOnly
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setRepModalOpen(true)}
+                      className="px-4 py-2 bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-300 rounded-xl font-medium transition-colors flex items-center gap-2"
+                    >
+                      <IdentificationIcon className="h-5 w-5" />
+                      Détails complets
+                    </button>
+                  </div>
+                </div>
+
+                {/* Logo Upload */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Logo de l'entreprise
+                  </label>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (file && editingId) {
+                        const formData = new FormData();
+                        formData.append("file", file);
+                        try {
+                          const res = await api.post(`/employers/${editingId}/logo`, formData, {
+                            headers: { "Content-Type": "multipart/form-data" }
+                          });
+                          setField("logo_path", res.data.logo_path);
+                          alert("Logo uploadé avec succès!");
+                        } catch (err: any) {
+                          alert("Erreur lors de l'upload: " + (err.response?.data?.detail || err.message));
+                        }
+                      } else if (file) {
+                        // setLogoFile(file); // Unused
+                      }
+                    }}
+                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+                  />
+                  {form.logo_path && (
+                    <p className="text-xs text-green-600 mt-1">Logo actuel: {form.logo_path}</p>
+                  )}
+                </div>
+
                 {/* Type établissement */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -190,30 +497,26 @@ export default function Employers() {
                     <button
                       type="button"
                       onClick={() => handleChangeTypeEtab("general")}
-                      className={`p-4 border-2 rounded-xl text-left transition-all duration-200 ${
-                        form.type_etab === "general"
-                          ? "border-blue-500 bg-blue-50 ring-2 ring-blue-200"
-                          : "border-gray-200 hover:border-gray-300"
-                      }`}
+                      className={`p-4 border-2 rounded-xl text-left transition-all duration-200 ${form.type_etab === "general"
+                        ? "border-blue-500 bg-blue-50 ring-2 ring-blue-200"
+                        : "border-gray-200 hover:border-gray-300"
+                        }`}
                     >
-                      <BuildingStorefrontIcon className={`h-6 w-6 mb-2 ${
-                        form.type_etab === "general" ? "text-blue-600" : "text-gray-400"
-                      }`} />
+                      <BuildingStorefrontIcon className={`h-6 w-6 mb-2 ${form.type_etab === "general" ? "text-blue-600" : "text-gray-400"
+                        }`} />
                       <div className="font-medium text-gray-900">Général</div>
                       <div className="text-sm text-gray-600 mt-1">Taux CNaPS: 13%</div>
                     </button>
                     <button
                       type="button"
                       onClick={() => handleChangeTypeEtab("scolaire")}
-                      className={`p-4 border-2 rounded-xl text-left transition-all duration-200 ${
-                        form.type_etab === "scolaire"
-                          ? "border-purple-500 bg-purple-50 ring-2 ring-purple-200"
-                          : "border-gray-200 hover:border-gray-300"
-                      }`}
+                      className={`p-4 border-2 rounded-xl text-left transition-all duration-200 ${form.type_etab === "scolaire"
+                        ? "border-purple-500 bg-purple-50 ring-2 ring-purple-200"
+                        : "border-gray-200 hover:border-gray-300"
+                        }`}
                     >
-                      <AcademicCapIcon className={`h-6 w-6 mb-2 ${
-                        form.type_etab === "scolaire" ? "text-purple-600" : "text-gray-400"
-                      }`} />
+                      <AcademicCapIcon className={`h-6 w-6 mb-2 ${form.type_etab === "scolaire" ? "text-purple-600" : "text-gray-400"
+                        }`} />
                       <div className="font-medium text-gray-900">Scolaire</div>
                       <div className="text-sm text-gray-600 mt-1">Taux CNaPS: 8%</div>
                     </button>
@@ -259,6 +562,28 @@ export default function Employers() {
                   </p>
                 </div>
 
+                {/* Plafond CNaPS Base */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Plafond CNaPS (Base)
+                  </label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                      <CurrencyDollarIcon className="h-5 w-5 text-gray-400" />
+                    </div>
+                    <input
+                      type="number"
+                      value={form.plafond_cnaps_base}
+                      onChange={(e) => setField("plafond_cnaps_base", +e.target.value)}
+                      placeholder="0 = Automatique (8 x SME)"
+                      className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+                    />
+                  </div>
+                  <p className="text-sm text-gray-500 mt-1">
+                    Laissez à 0 pour utiliser le calcul automatique (8 x SME)
+                  </p>
+                </div>
+
                 {/* Taux SMIE */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -276,7 +601,95 @@ export default function Employers() {
                     />
                   </div>
                 </div>
+
+                {/* Plafond SMIE */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Plafond SMIE (Ar)
+                  </label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                      <CurrencyDollarIcon className="h-5 w-5 text-gray-400" />
+                    </div>
+                    <input
+                      type="number"
+                      value={form.plafond_smie}
+                      onChange={(e) => setField("plafond_smie", +e.target.value)}
+                      placeholder="Laissez à 0 pour utiliser le Brut"
+                      className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+                    />
+                  </div>
+                  <p className="text-sm text-gray-500 mt-1">
+                    Laissez à 0 pour utiliser le Brut
+                  </p>
+                </div>
+
+                {/* SME */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    SME (Salaire Min. Embauche)
+                  </label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                      <CurrencyDollarIcon className="h-5 w-5 text-gray-400" />
+                    </div>
+                    <input
+                      type="number"
+                      value={form.sm_embauche}
+                      onChange={(e) => setField("sm_embauche", +e.target.value)}
+                      className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+                    />
+                  </div>
+                  <p className="text-sm text-gray-500 mt-1">
+                    Utilisé dans la constante SME
+                  </p>
+                </div>
               </div>
+
+              {/* Hierarchical Organizational Structure Section */}
+              <div className="mt-8 p-6 bg-gradient-to-r from-green-50 to-blue-50 border border-green-200 rounded-xl">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-semibold text-green-900 flex items-center gap-2">
+                    <BuildingOfficeIcon className="h-6 w-6" />
+                    Hiérarchie Organisationnelle
+                  </h3>
+                  {editingId && (
+                    <button
+                      type="button"
+                      onClick={() => setShowHierarchyManager(true)}
+                      className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                    >
+                      Gérer la Hiérarchie
+                    </button>
+                  )}
+                </div>
+                
+                <p className="text-green-700 mb-6">
+                  Définissez la structure hiérarchique de votre organisation avec des relations parent-enfant.
+                  Cette structure sera utilisée pour le filtrage en cascade dans tous les formulaires.
+                </p>
+                
+                {/* Aperçu de la hiérarchie */}
+                {editingId ? (
+                  <div className="bg-white rounded-lg p-4 border border-green-200">
+                    <h4 className="font-medium text-gray-900 mb-3">Aperçu de la hiérarchie actuelle :</h4>
+                    <div className="text-center py-8 text-gray-500">
+                      <div className="text-4xl mb-4">🏢</div>
+                      <p>Hiérarchie organisationnelle temporairement désactivée</p>
+                      <p className="text-sm mt-2">Employeur ID: {editingId}</p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="bg-white rounded-lg p-4 border border-green-200 text-center text-gray-500">
+                    <BuildingOfficeIcon className="h-12 w-12 mx-auto mb-4 text-gray-300" />
+                    <p>Sélectionnez un employeur pour voir sa hiérarchie organisationnelle.</p>
+                  </div>
+                )}
+              </div>
+
+
+
+
 
               {/* Aperçu VHM */}
               <div className="mt-6 p-4 bg-gradient-to-r from-blue-50 to-purple-50 border border-blue-200 rounded-xl">
@@ -286,7 +699,7 @@ export default function Employers() {
                       Valeur Horaire Moyenne (VHM)
                     </h3>
                     <p className="text-blue-700">
-                      {selectedTypeRegime 
+                      {selectedTypeRegime
                         ? `${selectedTypeRegime.label} → VHM = ${selectedTypeRegime.vhm}`
                         : "Sélectionnez un type de régime"
                       }
@@ -312,24 +725,24 @@ export default function Employers() {
               <div className="flex gap-3 mt-6 pt-6 border-t border-gray-200">
                 <button
                   type="submit"
-                  disabled={create.isPending || !form.raison_sociale}
+                  disabled={create.isPending || update.isPending || !form.raison_sociale}
                   className="inline-flex items-center gap-2 bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed px-6 py-3 rounded-xl font-medium transition-colors"
                 >
-                  {create.isPending ? (
+                  {create.isPending || update.isPending ? (
                     <>
                       <div className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                      Création...
+                      {editingId ? "Modification..." : "Création..."}
                     </>
                   ) : (
                     <>
                       <PlusIcon className="h-5 w-5" />
-                      Enregistrer
+                      {editingId ? "Mettre à jour" : "Enregistrer"}
                     </>
                   )}
                 </button>
                 <button
                   type="button"
-                  onClick={() => setShowForm(false)}
+                  onClick={resetForm}
                   className="px-6 py-3 border border-gray-300 text-gray-700 hover:bg-gray-50 rounded-xl font-medium transition-colors"
                 >
                   Annuler
@@ -337,7 +750,8 @@ export default function Employers() {
               </div>
             </form>
           </div>
-        )}
+        )
+        }
 
         {/* Liste des employeurs */}
         <div className="mt-8">
@@ -392,17 +806,33 @@ export default function Employers() {
                             </div>
                           </div>
                           <div className="flex gap-2">
-                            <button className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors">
+                            <a
+                              href={`/employers/${employer.id}/primes`}
+                              className="p-2 text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
+                              title="Gérer les Primes"
+                            >
+                              <CurrencyDollarIcon className="h-4 w-4" />
+                            </a>
+
+                            <button
+                              onClick={() => handleEdit(employer)}
+                              className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                              title="Modifier"
+                            >
                               <PencilIcon className="h-4 w-4" />
                             </button>
-                            <button className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors">
+                            <button
+                              onClick={() => handleDelete(employer.id)}
+                              className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                              title="Supprimer"
+                            >
                               <TrashIcon className="h-4 w-4" />
                             </button>
                           </div>
                         </div>
 
                         {/* Détails */}
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm mt-4">
                           <div className="flex items-center gap-2 text-gray-600">
                             <ChartBarIcon className="h-4 w-4" />
                             <span><strong>CNaPS:</strong> {employer.taux_pat_cnaps}%</span>
@@ -419,6 +849,15 @@ export default function Employers() {
                               <span><strong>VHM:</strong> {employer.type_regime.vhm}</span>
                             </div>
                           )}
+                          <div className="flex items-center gap-2 text-gray-600">
+                            <strong>NIF:</strong> {employer.nif || "-"}
+                          </div>
+                          <div className="flex items-center gap-2 text-gray-600">
+                            <strong>STAT:</strong> {employer.stat || "-"}
+                          </div>
+                          <div className="flex items-center gap-2 text-gray-600">
+                            <strong>Représentant:</strong> {employer.representant || "-"}
+                          </div>
                         </div>
                       </div>
 
@@ -445,7 +884,10 @@ export default function Employers() {
                 Commencez par ajouter votre premier employeur pour gérer vos établissements et leurs paramètres.
               </p>
               <button
-                onClick={() => setShowForm(true)}
+                onClick={() => {
+                  resetForm();
+                  setShowForm(true);
+                }}
                 className="inline-flex items-center gap-2 bg-blue-600 text-white hover:bg-blue-700 px-6 py-3 rounded-xl font-medium transition-colors"
               >
                 <PlusIcon className="h-5 w-5" />
@@ -454,7 +896,119 @@ export default function Employers() {
             </div>
           )}
         </div>
-      </div>
+
+      </div >
+
+      {/* Modal Représentant */}
+      {repModalOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-[60] backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
+            <div className="p-6 border-b border-gray-200 flex justify-between items-center bg-slate-50">
+              <div className="flex items-center gap-3">
+                <IdentificationIcon className="h-6 w-6 text-blue-600" />
+                <h3 className="text-xl font-bold text-gray-900">Détails du Représentant</h3>
+              </div>
+              <button onClick={() => setRepModalOpen(false)} className="text-gray-400 hover:text-gray-600 transition-colors">
+                <PlusIcon className="h-6 w-6 rotate-45" />
+              </button>
+            </div>
+            <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-gray-700 mb-1">Nom Complet</label>
+                <input
+                  type="text"
+                  value={form.representant}
+                  onChange={(e) => setField("representant", e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  placeholder="NOM et Prénoms"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Date de naissance</label>
+                <input
+                  type="date"
+                  value={form.rep_date_naissance}
+                  onChange={(e) => setField("rep_date_naissance", e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Fonction / Titre</label>
+                <input
+                  type="text"
+                  value={form.rep_fonction}
+                  onChange={(e) => setField("rep_fonction", e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  placeholder="ex: Gérant, DRH..."
+                />
+              </div>
+              <div className="md:col-span-2 border-t border-gray-100 pt-4 mt-2">
+                <h4 className="font-semibold text-slate-800 text-sm mb-3">Informations CIN</h4>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="col-span-2 md:col-span-1">
+                    <label className="block text-xs text-gray-500 mb-1">Numéro CIN</label>
+                    <input
+                      type="text"
+                      value={form.rep_cin_num}
+                      onChange={(e) => setField("rep_cin_num", e.target.value)}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">Délivré le</label>
+                    <input
+                      type="date"
+                      value={form.rep_cin_date}
+                      onChange={(e) => setField("rep_cin_date", e.target.value)}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div className="col-span-2">
+                    <label className="block text-xs text-gray-500 mb-1">Lieu de délivrance</label>
+                    <input
+                      type="text"
+                      value={form.rep_cin_lieu}
+                      onChange={(e) => setField("rep_cin_lieu", e.target.value)}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                </div>
+              </div>
+              <div className="md:col-span-2 border-t border-gray-100 pt-4 mt-2">
+                <label className="block text-sm font-medium text-gray-700 mb-1">Adresse Personnelle</label>
+                <input
+                  type="text"
+                  value={form.rep_adresse}
+                  onChange={(e) => setField("rep_adresse", e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  placeholder="Adresse complète"
+                />
+              </div>
+            </div>
+            <div className="p-6 bg-gray-50 border-t border-gray-200 flex justify-end">
+              <button
+                onClick={() => setRepModalOpen(false)}
+                className="px-6 py-2 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 transition-colors"
+              >
+                Terminer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Hierarchy Manager Modal */}
+      {showHierarchyManager && editingId !== null && (
+        <HierarchyManagerModalEnhanced
+          employerId={editingId}
+          isOpen={showHierarchyManager}
+          onClose={() => setShowHierarchyManager(false)}
+          onSave={() => {
+            // Refresh the organizational tree data
+            setShowHierarchyManager(false);
+          }}
+        />
+      )}
     </div>
   );
 }
