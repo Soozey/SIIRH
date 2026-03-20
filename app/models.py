@@ -988,3 +988,328 @@ class RequestWorkflow(Base):
 
     manager_actor = relationship("AppUser", foreign_keys=[manager_actor_user_id])
     rh_actor = relationship("AppUser", foreign_keys=[rh_actor_user_id])
+
+
+class RecruitmentJobPosting(Base):
+    __tablename__ = "recruitment_job_postings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    employer_id = Column(Integer, ForeignKey("employers.id"), nullable=False, index=True)
+    title = Column(String(255), nullable=False)
+    department = Column(String(255), nullable=True)
+    location = Column(String(255), nullable=True)
+    contract_type = Column(String(50), nullable=False, default="CDI")
+    status = Column(String(50), nullable=False, default="draft", index=True)
+    salary_range = Column(String(255), nullable=True)
+    description = Column(Text, nullable=True)
+    skills_required = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    employer = relationship("Employer", backref="recruitment_job_postings")
+
+
+class RecruitmentCandidate(Base):
+    __tablename__ = "recruitment_candidates"
+
+    id = Column(Integer, primary_key=True, index=True)
+    employer_id = Column(Integer, ForeignKey("employers.id"), nullable=False, index=True)
+    first_name = Column(String(120), nullable=False)
+    last_name = Column(String(120), nullable=False)
+    email = Column(String(255), nullable=False, index=True)
+    phone = Column(String(100), nullable=True)
+    education_level = Column(String(120), nullable=True)
+    experience_years = Column(Float, nullable=False, default=0.0)
+    source = Column(String(100), nullable=True)
+    status = Column(String(50), nullable=False, default="new", index=True)
+    summary = Column(Text, nullable=True)
+    cv_file_path = Column(String(500), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    employer = relationship("Employer", backref="recruitment_candidates")
+
+
+class RecruitmentApplication(Base):
+    __tablename__ = "recruitment_applications"
+
+    id = Column(Integer, primary_key=True, index=True)
+    job_posting_id = Column(Integer, ForeignKey("recruitment_job_postings.id", ondelete="CASCADE"), nullable=False, index=True)
+    candidate_id = Column(Integer, ForeignKey("recruitment_candidates.id", ondelete="CASCADE"), nullable=False, index=True)
+    stage = Column(String(50), nullable=False, default="applied", index=True)
+    score = Column(Float, nullable=True)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    job_posting = relationship("RecruitmentJobPosting", backref="applications")
+    candidate = relationship("RecruitmentCandidate", backref="applications")
+
+    __table_args__ = (
+        UniqueConstraint("job_posting_id", "candidate_id", name="uq_recruitment_job_candidate"),
+    )
+
+
+class TalentSkill(Base):
+    __tablename__ = "talent_skills"
+
+    id = Column(Integer, primary_key=True, index=True)
+    employer_id = Column(Integer, ForeignKey("employers.id"), nullable=False, index=True)
+    code = Column(String(100), nullable=False)
+    name = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)
+    scale_max = Column(Integer, nullable=False, default=5)
+    is_active = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    employer = relationship("Employer", backref="talent_skills")
+
+    __table_args__ = (
+        UniqueConstraint("employer_id", "code", name="uq_talent_skill_code"),
+    )
+
+
+class TalentEmployeeSkill(Base):
+    __tablename__ = "talent_employee_skills"
+
+    id = Column(Integer, primary_key=True, index=True)
+    worker_id = Column(Integer, ForeignKey("workers.id", ondelete="CASCADE"), nullable=False, index=True)
+    skill_id = Column(Integer, ForeignKey("talent_skills.id", ondelete="CASCADE"), nullable=False, index=True)
+    level = Column(Integer, nullable=False, default=1)
+    source = Column(String(100), nullable=False, default="manager")
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    worker = relationship("Worker", backref="talent_skill_levels")
+    skill = relationship("TalentSkill", backref="worker_levels")
+
+    __table_args__ = (
+        UniqueConstraint("worker_id", "skill_id", name="uq_talent_worker_skill"),
+    )
+
+
+class TalentTraining(Base):
+    __tablename__ = "talent_trainings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    employer_id = Column(Integer, ForeignKey("employers.id"), nullable=False, index=True)
+    title = Column(String(255), nullable=False)
+    provider = Column(String(255), nullable=True)
+    duration_hours = Column(Float, nullable=False, default=0.0)
+    mode = Column(String(100), nullable=True)
+    price = Column(Float, nullable=False, default=0.0)
+    objectives = Column(Text, nullable=True)
+    status = Column(String(50), nullable=False, default="draft", index=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    employer = relationship("Employer", backref="talent_trainings")
+
+
+class TalentTrainingSession(Base):
+    __tablename__ = "talent_training_sessions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    training_id = Column(Integer, ForeignKey("talent_trainings.id", ondelete="CASCADE"), nullable=False, index=True)
+    start_date = Column(Date, nullable=True)
+    end_date = Column(Date, nullable=True)
+    site = Column(String(255), nullable=True)
+    trainer = Column(String(255), nullable=True)
+    capacity = Column(Integer, nullable=True)
+    status = Column(String(50), nullable=False, default="planned", index=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    training = relationship("TalentTraining", backref="sessions")
+
+
+class SstIncident(Base):
+    __tablename__ = "sst_incidents"
+
+    id = Column(Integer, primary_key=True, index=True)
+    employer_id = Column(Integer, ForeignKey("employers.id"), nullable=False, index=True)
+    worker_id = Column(Integer, ForeignKey("workers.id"), nullable=True, index=True)
+    incident_type = Column(String(100), nullable=False)
+    severity = Column(String(50), nullable=False, default="medium", index=True)
+    status = Column(String(50), nullable=False, default="open", index=True)
+    occurred_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    location = Column(String(255), nullable=True)
+    description = Column(Text, nullable=False)
+    action_taken = Column(Text, nullable=True)
+    witnesses = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    employer = relationship("Employer", backref="sst_incidents")
+    worker = relationship("Worker", backref="sst_incidents")
+
+
+class RecruitmentLibraryItem(Base):
+    __tablename__ = "recruitment_library_items"
+
+    id = Column(Integer, primary_key=True, index=True)
+    employer_id = Column(Integer, ForeignKey("employers.id"), nullable=True, index=True)
+    category = Column(String(100), nullable=False, index=True)
+    label = Column(String(255), nullable=False)
+    normalized_key = Column(String(255), nullable=False, index=True)
+    description = Column(Text, nullable=True)
+    payload_json = Column(Text, nullable=True)
+    is_system = Column(Boolean, nullable=False, default=False)
+    is_active = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    employer = relationship("Employer", backref="recruitment_library_items")
+
+    __table_args__ = (
+        UniqueConstraint("employer_id", "category", "normalized_key", name="uq_recruitment_library_scope_key"),
+    )
+
+
+class RecruitmentJobProfile(Base):
+    __tablename__ = "recruitment_job_profiles"
+
+    id = Column(Integer, primary_key=True, index=True)
+    job_posting_id = Column(
+        Integer,
+        ForeignKey("recruitment_job_postings.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    manager_title = Column(String(255), nullable=True)
+    mission_summary = Column(Text, nullable=True)
+    main_activities_json = Column(Text, nullable=False, default="[]")
+    technical_skills_json = Column(Text, nullable=False, default="[]")
+    behavioral_skills_json = Column(Text, nullable=False, default="[]")
+    education_level = Column(String(255), nullable=True)
+    experience_required = Column(String(255), nullable=True)
+    languages_json = Column(Text, nullable=False, default="[]")
+    tools_json = Column(Text, nullable=False, default="[]")
+    certifications_json = Column(Text, nullable=False, default="[]")
+    salary_min = Column(Float, nullable=True)
+    salary_max = Column(Float, nullable=True)
+    working_hours = Column(String(255), nullable=True)
+    benefits_json = Column(Text, nullable=False, default="[]")
+    desired_start_date = Column(Date, nullable=True)
+    application_deadline = Column(Date, nullable=True)
+    publication_channels_json = Column(Text, nullable=False, default="[]")
+    classification = Column(String(255), nullable=True)
+    workflow_status = Column(String(50), nullable=False, default="draft", index=True)
+    validation_comment = Column(Text, nullable=True)
+    validated_by_user_id = Column(Integer, ForeignKey("app_users.id"), nullable=True)
+    validated_at = Column(DateTime, nullable=True)
+    assistant_source_json = Column(Text, nullable=False, default="{}")
+    interview_criteria_json = Column(Text, nullable=False, default="[]")
+    announcement_title = Column(String(255), nullable=True)
+    announcement_body = Column(Text, nullable=True)
+    announcement_status = Column(String(50), nullable=False, default="draft", index=True)
+    announcement_slug = Column(String(255), nullable=True)
+    announcement_share_pack_json = Column(Text, nullable=False, default="{}")
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    job_posting = relationship("RecruitmentJobPosting", backref="job_profile")
+    validated_by = relationship("AppUser")
+
+
+class RecruitmentCandidateAsset(Base):
+    __tablename__ = "recruitment_candidate_assets"
+
+    id = Column(Integer, primary_key=True, index=True)
+    candidate_id = Column(
+        Integer,
+        ForeignKey("recruitment_candidates.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    resume_original_name = Column(String(255), nullable=True)
+    resume_storage_path = Column(String(500), nullable=True)
+    attachments_json = Column(Text, nullable=False, default="[]")
+    raw_extract_text = Column(Text, nullable=True)
+    parsed_profile_json = Column(Text, nullable=False, default="{}")
+    parsing_status = Column(String(50), nullable=False, default="pending", index=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    candidate = relationship("RecruitmentCandidate", backref="candidate_asset")
+
+
+class RecruitmentInterview(Base):
+    __tablename__ = "recruitment_interviews"
+
+    id = Column(Integer, primary_key=True, index=True)
+    application_id = Column(
+        Integer,
+        ForeignKey("recruitment_applications.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    round_number = Column(Integer, nullable=False, default=1)
+    round_label = Column(String(100), nullable=False, default="Tour 1")
+    interview_type = Column(String(100), nullable=False, default="entretien")
+    scheduled_at = Column(DateTime, nullable=True, index=True)
+    interviewer_user_id = Column(Integer, ForeignKey("app_users.id"), nullable=True)
+    interviewer_name = Column(String(255), nullable=True)
+    status = Column(String(50), nullable=False, default="scheduled", index=True)
+    score_total = Column(Float, nullable=True)
+    scorecard_json = Column(Text, nullable=False, default="[]")
+    notes = Column(Text, nullable=True)
+    recommendation = Column(String(50), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    application = relationship("RecruitmentApplication", backref="interviews")
+    interviewer = relationship("AppUser")
+
+
+class RecruitmentDecision(Base):
+    __tablename__ = "recruitment_decisions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    application_id = Column(
+        Integer,
+        ForeignKey("recruitment_applications.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    shortlist_rank = Column(Integer, nullable=True, index=True)
+    decision_status = Column(String(50), nullable=False, default="pending", index=True)
+    decision_comment = Column(Text, nullable=True)
+    decided_by_user_id = Column(Integer, ForeignKey("app_users.id"), nullable=True)
+    decided_at = Column(DateTime, nullable=True)
+    converted_worker_id = Column(Integer, ForeignKey("workers.id"), nullable=True)
+    contract_draft_id = Column(Integer, ForeignKey("custom_contracts.id"), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    application = relationship("RecruitmentApplication", backref="decision")
+    decided_by = relationship("AppUser")
+    converted_worker = relationship("Worker")
+    contract_draft = relationship("CustomContract")
+
+
+class RecruitmentActivity(Base):
+    __tablename__ = "recruitment_activities"
+
+    id = Column(Integer, primary_key=True, index=True)
+    employer_id = Column(Integer, ForeignKey("employers.id"), nullable=False, index=True)
+    job_posting_id = Column(Integer, ForeignKey("recruitment_job_postings.id", ondelete="CASCADE"), nullable=True, index=True)
+    candidate_id = Column(Integer, ForeignKey("recruitment_candidates.id", ondelete="CASCADE"), nullable=True, index=True)
+    application_id = Column(Integer, ForeignKey("recruitment_applications.id", ondelete="CASCADE"), nullable=True, index=True)
+    interview_id = Column(Integer, ForeignKey("recruitment_interviews.id", ondelete="CASCADE"), nullable=True, index=True)
+    actor_user_id = Column(Integer, ForeignKey("app_users.id"), nullable=True, index=True)
+    event_type = Column(String(100), nullable=False, index=True)
+    visibility = Column(String(50), nullable=False, default="internal", index=True)
+    message = Column(Text, nullable=False)
+    payload_json = Column(Text, nullable=False, default="{}")
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+    employer = relationship("Employer")
+    job_posting = relationship("RecruitmentJobPosting")
+    candidate = relationship("RecruitmentCandidate")
+    application = relationship("RecruitmentApplication")
+    interview = relationship("RecruitmentInterview")
+    actor = relationship("AppUser")

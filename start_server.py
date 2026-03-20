@@ -1,35 +1,38 @@
 #!/usr/bin/env python3
 """
-Script pour démarrer le serveur SIIRH avec le référentiel de constantes
+Windows-friendly local launcher for the SIIRH backend.
 """
-import uvicorn
+
 import sys
-import os
+
+import uvicorn
+
 
 def main():
-    print("🚀 Démarrage du serveur SIIRH avec référentiel de constantes")
-    print("📊 Endpoints disponibles:")
-    print("  - http://localhost:8000/constants/payroll")
-    print("  - http://localhost:8000/constants/business") 
-    print("  - http://localhost:8000/constants/document-fields")
-    print("  - http://localhost:8000/constants/field-categories")
-    print("  - http://localhost:8000/constants/system-data")
-    print("  - http://localhost:8000/docs (Documentation Swagger)")
+    print("Demarrage du backend SIIRH")
+    print("Endpoints disponibles:")
+    print("  - http://127.0.0.1:8001/constants/payroll")
+    print("  - http://127.0.0.1:8001/constants/business")
+    print("  - http://127.0.0.1:8001/constants/document-fields")
+    print("  - http://127.0.0.1:8001/constants/field-categories")
+    print("  - http://127.0.0.1:8001/constants/system-data")
+    print("  - http://127.0.0.1:8001/docs")
     print()
-    
+
     try:
         uvicorn.run(
             "app.main:app",
             host="127.0.0.1",
-            port=8000,
-            reload=True,
-            log_level="info"
+            port=8001,
+            reload=False,
+            log_level="info",
         )
     except KeyboardInterrupt:
-        print("\n🛑 Serveur arrêté par l'utilisateur")
-    except Exception as e:
-        print(f"❌ Erreur lors du démarrage: {e}")
+        print("\nServeur arrete par l'utilisateur")
+    except Exception as exc:
+        print(f"Erreur lors du demarrage: {exc}")
         sys.exit(1)
+
 
 if __name__ == "__main__":
     main()

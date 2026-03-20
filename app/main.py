@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 # Import depuis config.py au lieu de db.py
 from .config.config import Base, engine, create_tables, settings
 from . import models
-from .routers import employers, workers, variables, payroll, hs, absences, payroll_hs_hm, type_regimes, primes, calendar, leaves, workers_import, reporting, custom_contracts, auth, generated_documents
+from .routers import employers, workers, variables, payroll, hs, absences, payroll_hs_hm, type_regimes, primes, calendar, leaves, workers_import, reporting, custom_contracts, auth, generated_documents, recruitment, talents, sst
 from .services.file_storage import get_upload_root
 from .security import seed_default_admin
 
@@ -67,6 +67,9 @@ app.include_router(leaves.router)
 app.include_router(reporting.router)
 app.include_router(auth.router)
 app.include_router(generated_documents.router)
+app.include_router(recruitment.router)
+app.include_router(talents.router)
+app.include_router(sst.router)
 
 # Import du nouveau router constants
 from .routers import constants

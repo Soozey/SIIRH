@@ -35,7 +35,7 @@ class Settings(BaseSettings):
     DEFAULT_ADMIN_USERNAME: str = "admin"
     DEFAULT_ADMIN_PASSWORD: str = "Admin123!"
     DOCUMENT_VERIFY_SECRET: str = "change_document_secret"
-    APP_PUBLIC_URL: str = "http://127.0.0.1:8000"
+    APP_PUBLIC_URL: str = "http://127.0.0.1:8001"
 
     def __init__(self, **values):
         super().__init__(**values)

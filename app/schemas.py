@@ -1082,3 +1082,490 @@ class ReportRequestValidated(BaseModel):
 
 
 ReportRequest = ReportRequestValidated
+
+
+class RecruitmentJobPostingBase(BaseModel):
+    employer_id: int
+    title: str
+    department: Optional[str] = None
+    location: Optional[str] = None
+    contract_type: str = "CDI"
+    status: str = "draft"
+    salary_range: Optional[str] = None
+    description: Optional[str] = None
+    skills_required: Optional[str] = None
+
+
+class RecruitmentJobPostingCreate(RecruitmentJobPostingBase):
+    pass
+
+
+class RecruitmentJobPostingUpdate(BaseModel):
+    title: Optional[str] = None
+    department: Optional[str] = None
+    location: Optional[str] = None
+    contract_type: Optional[str] = None
+    status: Optional[str] = None
+    salary_range: Optional[str] = None
+    description: Optional[str] = None
+    skills_required: Optional[str] = None
+
+
+class RecruitmentJobPostingOut(RecruitmentJobPostingBase):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class RecruitmentCandidateBase(BaseModel):
+    employer_id: int
+    first_name: str
+    last_name: str
+    email: str
+    phone: Optional[str] = None
+    education_level: Optional[str] = None
+    experience_years: float = 0.0
+    source: Optional[str] = None
+    status: str = "new"
+    summary: Optional[str] = None
+    cv_file_path: Optional[str] = None
+
+
+class RecruitmentCandidateCreate(RecruitmentCandidateBase):
+    pass
+
+
+class RecruitmentCandidateUpdate(BaseModel):
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    education_level: Optional[str] = None
+    experience_years: Optional[float] = None
+    source: Optional[str] = None
+    status: Optional[str] = None
+    summary: Optional[str] = None
+    cv_file_path: Optional[str] = None
+
+
+class RecruitmentCandidateOut(RecruitmentCandidateBase):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class RecruitmentApplicationBase(BaseModel):
+    job_posting_id: int
+    candidate_id: int
+    stage: str = "applied"
+    score: Optional[float] = None
+    notes: Optional[str] = None
+
+
+class RecruitmentApplicationCreate(RecruitmentApplicationBase):
+    pass
+
+
+class RecruitmentApplicationUpdate(BaseModel):
+    stage: Optional[str] = None
+    score: Optional[float] = None
+    notes: Optional[str] = None
+
+
+class RecruitmentApplicationOut(RecruitmentApplicationBase):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class RecruitmentLibraryItemBase(BaseModel):
+    employer_id: Optional[int] = None
+    category: str
+    label: str
+    description: Optional[str] = None
+    payload: Dict[str, Any] = Field(default_factory=dict)
+    is_active: bool = True
+
+
+class RecruitmentLibraryItemCreate(RecruitmentLibraryItemBase):
+    pass
+
+
+class RecruitmentLibraryItemUpdate(BaseModel):
+    label: Optional[str] = None
+    description: Optional[str] = None
+    payload: Optional[Dict[str, Any]] = None
+    is_active: Optional[bool] = None
+
+
+class RecruitmentLibraryItemOut(RecruitmentLibraryItemBase):
+    id: int
+    normalized_key: str
+    is_system: bool
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class RecruitmentJobAssistantRequest(BaseModel):
+    employer_id: Optional[int] = None
+    title: str = ""
+    department: str = ""
+    description: str = ""
+
+
+class RecruitmentJobAssistantOut(BaseModel):
+    probable_title: str
+    probable_department: str
+    mission_summary: str
+    main_activities: List[str] = Field(default_factory=list)
+    technical_skills: List[str] = Field(default_factory=list)
+    behavioral_skills: List[str] = Field(default_factory=list)
+    education_level: str = ""
+    experience_required: str = ""
+    languages: List[str] = Field(default_factory=list)
+    tools: List[str] = Field(default_factory=list)
+    certifications: List[str] = Field(default_factory=list)
+    interview_criteria: List[str] = Field(default_factory=list)
+    suggestion_sources: List[str] = Field(default_factory=list)
+
+
+class RecruitmentJobProfileBase(BaseModel):
+    manager_title: Optional[str] = None
+    mission_summary: Optional[str] = None
+    main_activities: List[str] = Field(default_factory=list)
+    technical_skills: List[str] = Field(default_factory=list)
+    behavioral_skills: List[str] = Field(default_factory=list)
+    education_level: Optional[str] = None
+    experience_required: Optional[str] = None
+    languages: List[str] = Field(default_factory=list)
+    tools: List[str] = Field(default_factory=list)
+    certifications: List[str] = Field(default_factory=list)
+    salary_min: Optional[float] = None
+    salary_max: Optional[float] = None
+    working_hours: Optional[str] = None
+    benefits: List[str] = Field(default_factory=list)
+    desired_start_date: Optional[date] = None
+    application_deadline: Optional[date] = None
+    publication_channels: List[str] = Field(default_factory=list)
+    classification: Optional[str] = None
+    workflow_status: str = "draft"
+    validation_comment: Optional[str] = None
+    assistant_source: Dict[str, Any] = Field(default_factory=dict)
+    interview_criteria: List[str] = Field(default_factory=list)
+    announcement_title: Optional[str] = None
+    announcement_body: Optional[str] = None
+    announcement_status: str = "draft"
+    announcement_share_pack: Dict[str, Any] = Field(default_factory=dict)
+
+
+class RecruitmentJobProfileUpsert(RecruitmentJobProfileBase):
+    pass
+
+
+class RecruitmentJobProfileOut(RecruitmentJobProfileBase):
+    id: int
+    job_posting_id: int
+    announcement_slug: Optional[str] = None
+    validated_by_user_id: Optional[int] = None
+    validated_at: Optional[datetime] = None
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class RecruitmentValidationIn(BaseModel):
+    approved: bool
+    comment: Optional[str] = None
+
+
+class RecruitmentAnnouncementOut(BaseModel):
+    title: str
+    slug: str
+    public_url: str
+    web_body: str
+    email_subject: str
+    email_body: str
+    facebook_text: str
+    linkedin_text: str
+    whatsapp_text: str
+    copy_text: str
+
+
+class RecruitmentCandidateAssetOut(BaseModel):
+    id: int
+    candidate_id: int
+    resume_original_name: Optional[str] = None
+    resume_storage_path: Optional[str] = None
+    attachments: List[Dict[str, Any]] = Field(default_factory=list)
+    raw_extract_text: Optional[str] = None
+    parsed_profile: Dict[str, Any] = Field(default_factory=dict)
+    parsing_status: str
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class RecruitmentCandidateUploadOut(BaseModel):
+    candidate: RecruitmentCandidateOut
+    asset: RecruitmentCandidateAssetOut
+    application_id: Optional[int] = None
+
+
+class RecruitmentInterviewBase(BaseModel):
+    round_number: int = 1
+    round_label: str = "Tour 1"
+    interview_type: str = "entretien"
+    scheduled_at: Optional[datetime] = None
+    interviewer_user_id: Optional[int] = None
+    interviewer_name: Optional[str] = None
+    status: str = "scheduled"
+    score_total: Optional[float] = None
+    scorecard: List[Dict[str, Any]] = Field(default_factory=list)
+    notes: Optional[str] = None
+    recommendation: Optional[str] = None
+
+
+class RecruitmentInterviewCreate(RecruitmentInterviewBase):
+    pass
+
+
+class RecruitmentInterviewUpdate(BaseModel):
+    round_number: Optional[int] = None
+    round_label: Optional[str] = None
+    interview_type: Optional[str] = None
+    scheduled_at: Optional[datetime] = None
+    interviewer_user_id: Optional[int] = None
+    interviewer_name: Optional[str] = None
+    status: Optional[str] = None
+    score_total: Optional[float] = None
+    scorecard: Optional[List[Dict[str, Any]]] = None
+    notes: Optional[str] = None
+    recommendation: Optional[str] = None
+
+
+class RecruitmentInterviewOut(RecruitmentInterviewBase):
+    id: int
+    application_id: int
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class RecruitmentDecisionIn(BaseModel):
+    shortlist_rank: Optional[int] = None
+    decision_status: str = "pending"
+    decision_comment: Optional[str] = None
+
+
+class RecruitmentDecisionOut(RecruitmentDecisionIn):
+    id: int
+    application_id: int
+    decided_by_user_id: Optional[int] = None
+    decided_at: Optional[datetime] = None
+    converted_worker_id: Optional[int] = None
+    contract_draft_id: Optional[int] = None
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class RecruitmentActivityOut(BaseModel):
+    id: int
+    employer_id: int
+    job_posting_id: Optional[int] = None
+    candidate_id: Optional[int] = None
+    application_id: Optional[int] = None
+    interview_id: Optional[int] = None
+    actor_user_id: Optional[int] = None
+    event_type: str
+    visibility: str
+    message: str
+    payload: Dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class RecruitmentConversionOut(BaseModel):
+    worker_id: int
+    contract_draft_id: Optional[int] = None
+    decision_id: int
+
+
+class TalentSkillBase(BaseModel):
+    employer_id: int
+    code: str
+    name: str
+    description: Optional[str] = None
+    scale_max: int = 5
+    is_active: bool = True
+
+
+class TalentSkillCreate(TalentSkillBase):
+    pass
+
+
+class TalentSkillUpdate(BaseModel):
+    code: Optional[str] = None
+    name: Optional[str] = None
+    description: Optional[str] = None
+    scale_max: Optional[int] = None
+    is_active: Optional[bool] = None
+
+
+class TalentSkillOut(TalentSkillBase):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class TalentEmployeeSkillBase(BaseModel):
+    worker_id: int
+    skill_id: int
+    level: int = 1
+    source: str = "manager"
+
+
+class TalentEmployeeSkillCreate(TalentEmployeeSkillBase):
+    pass
+
+
+class TalentEmployeeSkillUpdate(BaseModel):
+    level: Optional[int] = None
+    source: Optional[str] = None
+
+
+class TalentEmployeeSkillOut(TalentEmployeeSkillBase):
+    id: int
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class TalentTrainingBase(BaseModel):
+    employer_id: int
+    title: str
+    provider: Optional[str] = None
+    duration_hours: float = 0.0
+    mode: Optional[str] = None
+    price: float = 0.0
+    objectives: Optional[str] = None
+    status: str = "draft"
+
+
+class TalentTrainingCreate(TalentTrainingBase):
+    pass
+
+
+class TalentTrainingUpdate(BaseModel):
+    title: Optional[str] = None
+    provider: Optional[str] = None
+    duration_hours: Optional[float] = None
+    mode: Optional[str] = None
+    price: Optional[float] = None
+    objectives: Optional[str] = None
+    status: Optional[str] = None
+
+
+class TalentTrainingOut(TalentTrainingBase):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class TalentTrainingSessionBase(BaseModel):
+    training_id: int
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
+    site: Optional[str] = None
+    trainer: Optional[str] = None
+    capacity: Optional[int] = None
+    status: str = "planned"
+
+
+class TalentTrainingSessionCreate(TalentTrainingSessionBase):
+    pass
+
+
+class TalentTrainingSessionUpdate(BaseModel):
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
+    site: Optional[str] = None
+    trainer: Optional[str] = None
+    capacity: Optional[int] = None
+    status: Optional[str] = None
+
+
+class TalentTrainingSessionOut(TalentTrainingSessionBase):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class SstIncidentBase(BaseModel):
+    employer_id: int
+    worker_id: Optional[int] = None
+    incident_type: str
+    severity: str = "medium"
+    status: str = "open"
+    occurred_at: datetime
+    location: Optional[str] = None
+    description: str
+    action_taken: Optional[str] = None
+    witnesses: Optional[str] = None
+
+
+class SstIncidentCreate(SstIncidentBase):
+    pass
+
+
+class SstIncidentUpdate(BaseModel):
+    worker_id: Optional[int] = None
+    incident_type: Optional[str] = None
+    severity: Optional[str] = None
+    status: Optional[str] = None
+    occurred_at: Optional[datetime] = None
+    location: Optional[str] = None
+    description: Optional[str] = None
+    action_taken: Optional[str] = None
+    witnesses: Optional[str] = None
+
+
+class SstIncidentOut(SstIncidentBase):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True

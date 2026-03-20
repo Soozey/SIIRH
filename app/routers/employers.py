@@ -1,3 +1,5 @@
+from typing import Optional
+
 from math import ceil
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status

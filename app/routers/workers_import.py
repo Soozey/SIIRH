@@ -18,9 +18,9 @@ def get_workers_import_template(
     user: models.AppUser = Depends(require_roles(*WRITE_RH_ROLES)),
 ):
     """
-    GÃ©nÃ¨re un modÃ¨le Excel pour l'import des salariÃ©s.
+    Génère un modèle Excel pour l'import des salariés.
     """
-    # Create DataFrame with headers - Raison Sociale en premiÃ¨re colonne
+    # Create DataFrame with headers - Raison Sociale en première colonne
     headers = [
         "Raison Sociale", "Matricule", "Nom", "Prenom", "Sexe (M/F)", "Situation Familiale", 
         "Date de Naissance (JJ/MM/AAAA)", "Lieu de Naissance", "Date Embauche (JJ/MM/AAAA)", 
@@ -42,7 +42,7 @@ def get_workers_import_template(
         "Nom": "RAKOTO",
         "Prenom": "Jean",
         "Sexe (M/F)": "M",
-        "Situation Familiale": "MariÃ©(e)",
+        "Situation Familiale": "Marié(e)",
         "Date de Naissance (JJ/MM/AAAA)": "15/05/1985",
         "Lieu de Naissance": "Antananarivo",
         "Date Embauche (JJ/MM/AAAA)": "01/01/2024",
@@ -53,7 +53,7 @@ def get_workers_import_template(
         "Horaire Hebdo": 40,
         "Type Regime (Agricole/Non Agricole)": "Non Agricole",
         "Groupe de Preavis (1-5)": 2,
-        "Etablissement": "SiÃ¨ge Social",  # Exemple de structure organisationnelle
+        "Etablissement": "Siège Social",  # Exemple de structure organisationnelle
         "Departement": "Ressources Humaines",
         "Service": "Administration",
         "Unite": "Paie",
@@ -80,10 +80,10 @@ def get_workers_import_template(
 
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        df.to_excel(writer, index=False, sheet_name='SalariÃ©s')
+        df.to_excel(writer, index=False, sheet_name='Salariés')
         
         # Adjust column widths and format bank codes as text
-        worksheet = writer.sheets['SalariÃ©s']
+        worksheet = writer.sheets['Salariés']
         workbook = writer.book
         
         # Format pour forcer le texte sur les colonnes bancaires
@@ -97,31 +97,31 @@ def get_workers_import_template(
             if col in ["Code Banque", "Code Guichet", "Numero de Compte"]:
                 worksheet.set_column(i, i, column_len, text_format)
 
-        # Ajouter des listes dÃ©roulantes pour faciliter la saisie
+        # Ajouter des listes déroulantes pour faciliter la saisie
         # Trouver les indices des colonnes
         col_indices = {col: i for i, col in enumerate(df.columns)}
         
-        # DÃ©finir les options pour chaque liste dÃ©roulante
+        # Définir les options pour chaque liste déroulante
         dropdown_options = {
             "Sexe (M/F)": ["M", "F"],
-            "Situation Familiale": ["CÃ©libataire", "MariÃ©(e)", "DivorcÃ©(e)", "Veuf(ve)"],
+            "Situation Familiale": ["Célibataire", "Marié(e)", "Divorcé(e)", "Veuf(ve)"],
             "Nature du Contrat": ["CDI", "CDD"],
             "Type Regime (Agricole/Non Agricole)": ["Agricole", "Non Agricole"],
-            "Mode de Paiement": ["Virement", "EspÃ¨ces", "ChÃ¨que"],
+            "Mode de Paiement": ["Virement", "Espèces", "Chèque"],
             "Groupe de Preavis (1-5)": [1, 2, 3, 4, 5]
         }
         
-        # Appliquer les validations de donnÃ©es (listes dÃ©roulantes)
+        # Appliquer les validations de données (listes déroulantes)
         for col_name, options in dropdown_options.items():
             if col_name in col_indices:
                 col_idx = col_indices[col_name]
-                # Convertir les options en chaÃ®ne pour xlsxwriter
+                # Convertir les options en chaîne pour xlsxwriter
                 if col_name == "Groupe de Preavis (1-5)":
                     options_str = [str(x) for x in options]
                 else:
                     options_str = options
                 
-                # Appliquer la validation sur les lignes 2 Ã  1000 (ligne 1 = en-tÃªtes)
+                # Appliquer la validation sur les lignes 2 à 1000 (ligne 1 = en-têtes)
                 worksheet.data_validation(1, col_idx, 1000, col_idx, {
                     'validate': 'list',
                     'source': options_str,
@@ -130,22 +130,22 @@ def get_workers_import_template(
                     'error_message': f'Veuillez choisir une valeur dans la liste: {", ".join(options_str)}'
                 })
         
-        # Ajouter des commentaires explicatifs sur les colonnes avec listes dÃ©roulantes
+        # Ajouter des commentaires explicatifs sur les colonnes avec listes déroulantes
         comment_format = workbook.add_format({'font_color': 'blue', 'italic': True})
         
         comments = {
-            "Sexe (M/F)": "Cliquez sur la flÃ¨che pour choisir: M (Masculin) ou F (FÃ©minin)",
-            "Situation Familiale": "Cliquez sur la flÃ¨che pour choisir parmi les options disponibles",
-            "Nature du Contrat": "Cliquez sur la flÃ¨che pour choisir: CDI ou CDD",
-            "Type Regime (Agricole/Non Agricole)": "Cliquez sur la flÃ¨che pour choisir le type de rÃ©gime",
-            "Mode de Paiement": "Cliquez sur la flÃ¨che pour choisir le mode de paiement",
-            "Groupe de Preavis (1-5)": "Cliquez sur la flÃ¨che pour choisir le groupe (1=minimum, 5=maximum)"
+            "Sexe (M/F)": "Cliquez sur la flèche pour choisir: M (Masculin) ou F (Féminin)",
+            "Situation Familiale": "Cliquez sur la flèche pour choisir parmi les options disponibles",
+            "Nature du Contrat": "Cliquez sur la flèche pour choisir: CDI ou CDD",
+            "Type Regime (Agricole/Non Agricole)": "Cliquez sur la flèche pour choisir le type de régime",
+            "Mode de Paiement": "Cliquez sur la flèche pour choisir le mode de paiement",
+            "Groupe de Preavis (1-5)": "Cliquez sur la flèche pour choisir le groupe (1=minimum, 5=maximum)"
         }
         
         for col_name, comment_text in comments.items():
             if col_name in col_indices:
                 col_idx = col_indices[col_name]
-                # Ajouter un commentaire Ã  la cellule d'en-tÃªte
+                # Ajouter un commentaire à la cellule d'en-tête
                 worksheet.write_comment(0, col_idx, comment_text, {'width': 300, 'height': 60})
 
     output.seek(0)
@@ -165,10 +165,10 @@ def import_workers(
     user: models.AppUser = Depends(require_roles(*WRITE_RH_ROLES)),
 ):
     """
-    Importe une liste de salariÃ©s depuis un fichier Excel.
+    Importe une liste de salariés depuis un fichier Excel.
     """
     if not file.filename.endswith('.xlsx'):
-        raise HTTPException(400, "Le fichier doit Ãªtre au format Excel (.xlsx)")
+        raise HTTPException(400, "Le fichier doit être au format Excel (.xlsx)")
         
     try:
         content = file.file.read()
@@ -189,21 +189,21 @@ def import_workers(
         updated_count = 0
         errors = []
         
-        # Pre-fetch regimes to map "Type RÃ©gime" text to ID
+        # Pre-fetch regimes to map "Type Régime" text to ID
         regimes = db.query(models.TypeRegime).all()
         print(f"Available regimes: {[(r.id, r.code, r.label) for r in regimes]}")
         
         # Default fallback
         default_regime = next((r for r in regimes if r.code == "non_agricole"), regimes[0]) if regimes else None
         if not default_regime:
-            raise HTTPException(400, "Aucun rÃ©gime configurÃ© dans le systÃ¨me.")
+            raise HTTPException(400, "Aucun régime configuré dans le système.")
         
         # Get all employers to map Name -> ID
         all_employers = db.query(models.Employer).all()
         print(f"Available employers: {[(e.id, e.raison_sociale) for e in all_employers]}")
         
         if not all_employers:
-             raise HTTPException(400, "Aucun employeur configurÃ© dans le systÃ¨me.")
+             raise HTTPException(400, "Aucun employeur configuré dans le système.")
              
         # Normalize employer names for easier matching
         employer_map = {e.raison_sociale.lower().strip(): e for e in all_employers}
@@ -238,7 +238,7 @@ def import_workers(
                         continue
                     if not update_existing:
                         skipped_count += 1
-                        errors.append(f"Ligne {index+2}: Matricule {matricule} existe dÃ©jÃ . (IgnorÃ©)")
+                        errors.append(f"Ligne {index+2}: Matricule {matricule} existe déjà. (Ignoré)")
                         print(f"Skipping existing worker: {matricule}")
                         continue
                     else:
@@ -290,7 +290,7 @@ def import_workers(
                             except:
                                 print(f"Warning: Invalid date fin essai format for {matricule}")
 
-                # Parse date CIN delivrÃ© le
+                # Parse date CIN delivré le
                 cin_delivre_le = None
                 raw_cin_delivre_le = row.get("CIN Delivre le (JJ/MM/AAAA)")
                 if pd.notna(raw_cin_delivre_le):
@@ -335,7 +335,7 @@ def import_workers(
                         print(f"Found employer: {target_employer.raison_sociale}")
                     else:
                         print(f"Employer '{employer_name}' not found, using default: {default_employer.raison_sociale}")
-                        errors.append(f"Ligne {index+2}: Employeur '{employer_name}' inconnu, utilisation de l'employeur par dÃ©faut.")
+                        errors.append(f"Ligne {index+2}: Employeur '{employer_name}' inconnu, utilisation de l'employeur par défaut.")
                 
                 if not can_manage_worker(db, user, employer_id=target_employer.id):
                     errors.append(
@@ -367,9 +367,9 @@ def import_workers(
                 duree_essai_jours = safe_int(row.get("Duree Essai (jours)", 0))
                 groupe_preavis = safe_int(row.get("Groupe de Preavis (1-5)", 1))
                 
-                # Validation du groupe de prÃ©avis (doit Ãªtre entre 1 et 5)
+                # Validation du groupe de préavis (doit être entre 1 et 5)
                 if groupe_preavis < 1 or groupe_preavis > 5:
-                    groupe_preavis = 1  # Valeur par dÃ©faut
+                    groupe_preavis = 1  # Valeur par défaut
                 
                 # String fields with safe conversion
                 def safe_str(val, default=""):
@@ -593,4 +593,5 @@ def import_workers(
     except Exception as e:
         print(f"General error: {str(e)}")
         raise HTTPException(500, f"Erreur lors du traitement du fichier: {str(e)}")
+
 

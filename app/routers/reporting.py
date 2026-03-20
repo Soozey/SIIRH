@@ -52,46 +52,46 @@ def _build_report_filters(request: schemas.ReportRequest) -> Dict[str, Optional[
 
 def get_dynamic_journal_columns(employer_id: int, db: Session) -> List[str]:
     """
-    GÃ©nÃ¨re dynamiquement les colonnes pour l'Ã‰tat de paie en incluant 
-    toutes les primes dÃ©finies pour l'employeur.
+    Génère dynamiquement les colonnes pour l'État de paie en incluant
+    toutes les primes définies pour l'employeur.
     """
-    # Colonnes de base (identitÃ© et salaire)
+    # Colonnes de base (identité et salaire)
     base_columns = [
         "matricule", "nom", "prenom", "cin", "cnaps_num", "date_embauche", "poste", "categorie_prof",
-        "mode_paiement", "nombre_enfant", "etablissement", "departement", "service", "unite",  # Champs organisationnels ajoutÃ©s
+        "mode_paiement", "nombre_enfant", "etablissement", "departement", "service", "unite",  # Champs organisationnels ajoutés
         "salaire_base", "vhm"
     ]
     
-    # Colonnes de gains (salaire et heures) - SANS les primes fixes supprimÃ©es
+    # Colonnes de gains (salaire et heures) - SANS les primes fixes supprimées
     gains_columns = [
         "Salaire de base",
         "HS Non Imposable 130%", "HS Imposable 130%", "HS Non Imposable 150%", "HS Imposable 150%",
-        "Heures MajorÃ©es Nuit Hab. 30%", "Heures MajorÃ©es Nuit Occ. 50%",
-        "Heures MajorÃ©es Dimanche 40%", "Heures MajorÃ©es Jours FÃ©riÃ©s 50%"
+        "Heures Majorées Nuit Hab. 30%", "Heures Majorées Nuit Occ. 50%",
+        "Heures Majorées Dimanche 40%", "Heures Majorées Jours Fériés 50%"
     ]
     
-    # RÃ©cupÃ©rer dynamiquement les primes de l'employeur
+    # Récupérer dynamiquement les primes de l'employeur
     employer_primes = db.query(models.Prime).filter(
         models.Prime.employer_id == employer_id,
         models.Prime.is_active == True
     ).order_by(models.Prime.label).all()
     
-    # Ajouter les primes dynamiques (dÃ©placÃ©es aprÃ¨s Maj. JF 50%)
+    # Ajouter les primes dynamiques (déplacées après Maj. JF 50%)
     dynamic_primes = [prime.label for prime in employer_primes]
     
     # Colonnes d'avantages en nature
     avantages_columns = [
-        "Avantage en nature vÃ©hicule", "Avantage en nature logement", "Avantage en nature tÃ©lÃ©phone"
+        "Avantage en nature véhicule", "Avantage en nature logement", "Avantage en nature téléphone"
     ]
     
-    # Colonnes de totaux et charges (avec rÃ©organisation)
+    # Colonnes de totaux et charges (avec réorganisation)
     totals_columns = [
         "brut_total",
         "Cotisation CNaPS", "Cotisation SMIE", 
-        "Charges salariales",  # DÃ©placÃ© juste aprÃ¨s SMIE SalariÃ©
+        "Charges salariales",  # Déplacé juste après SMIE Salarié
         "Total CNaPS", "Total SMIE", 
         "IRSA", 
-        "Avance sur salaire", "Avance sur salaire (quinzaine)", "Autres DÃ©ductions",
+        "Avance sur salaire", "Avance sur salaire (quinzaine)", "Autres Déductions",
         "net_a_payer",
         "CNaPS Patronal", "SMIE Patronal", "FMFP Patronal", "Charges patronales",
         "cout_total_employeur"
@@ -101,21 +101,21 @@ def get_dynamic_journal_columns(employer_id: int, db: Session) -> List[str]:
     return base_columns + gains_columns + dynamic_primes + avantages_columns + totals_columns
 
 
-# Liste des colonnes standards pour un Ã‰tat de Paie exhaustif (version statique pour compatibilitÃ©)
+# Liste des colonnes standards pour un État de paie exhaustif (version statique pour compatibilité)
 STANDARD_JOURNAL_COLUMNS = [
     "matricule", "nom", "prenom", "cin", "cnaps_num", "date_embauche", "poste", "categorie_prof",
-    "mode_paiement", "nombre_enfant", "etablissement", "departement", "service", "unite",  # Champs organisationnels ajoutÃ©s
+    "mode_paiement", "nombre_enfant", "etablissement", "departement", "service", "unite",  # Champs organisationnels ajoutés
     "salaire_base", "vhm", "Salaire de base",
     "HS Non Imposable 130%", "HS Imposable 130%", "HS Non Imposable 150%", "HS Imposable 150%",
-    "Heures MajorÃ©es Nuit Hab. 30%", "Heures MajorÃ©es Nuit Occ. 50%",
-    "Heures MajorÃ©es Dimanche 40%", "Heures MajorÃ©es Jours FÃ©riÃ©s 50%",
-    # Primes dynamiques seront insÃ©rÃ©es ici par get_dynamic_journal_columns
-    "Avantage en nature vÃ©hicule", "Avantage en nature logement", "Avantage en nature tÃ©lÃ©phone",
+    "Heures Majorées Nuit Hab. 30%", "Heures Majorées Nuit Occ. 50%",
+    "Heures Majorées Dimanche 40%", "Heures Majorées Jours Fériés 50%",
+    # Primes dynamiques seront insérées ici par get_dynamic_journal_columns
+    "Avantage en nature véhicule", "Avantage en nature logement", "Avantage en nature téléphone",
     "brut_total",
     "Cotisation CNaPS", "Cotisation SMIE", "Charges salariales",
     "Total CNaPS", "Total SMIE", 
     "IRSA", 
-    "Avance sur salaire", "Avance sur salaire (quinzaine)", "Autres DÃ©ductions",
+    "Avance sur salaire", "Avance sur salaire (quinzaine)", "Autres Déductions",
     "net_a_payer",
     "CNaPS Patronal", "SMIE Patronal", "FMFP Patronal", "Charges patronales", "cout_total_employeur"
 ]
@@ -133,22 +133,22 @@ def get_report_metadata(
         _ensure_reporting_scope(db, user, employer_id)
         fields = []
         
-        # --- IdentitÃ© ---
+        # --- Identité ---
         identity_fields = [
-            ("matricule", "Matricule"), ("nom", "Nom"), ("prenom", "PrÃ©nom"),
+            ("matricule", "Matricule"), ("nom", "Nom"), ("prenom", "Prénom"),
             ("sexe", "Sexe"), ("adresse", "Adresse"), ("email", "Email"),
-            ("telephone", "TÃ©lÃ©phone"), ("cin", "CIN"), ("date_naissance", "Date Naissance"),
-            ("date_embauche", "Date Embauche"), ("poste", "Poste"), ("categorie_prof", "CatÃ©gorie Professionnelle"),
+            ("telephone", "Téléphone"), ("cin", "CIN"), ("date_naissance", "Date Naissance"),
+            ("date_embauche", "Date Embauche"), ("poste", "Poste"), ("categorie_prof", "Catégorie Professionnelle"),
             ("nature_contrat", "Nature Contrat"), ("mode_paiement", "Mode de Paiement"),
-            ("cnaps_num", "NÂ° CNaPS"), ("nombre_enfant", "Nombre d'enfants Ã  charge")
+            ("cnaps_num", "N° CNaPS"), ("nombre_enfant", "Nombre d'enfants à charge")
         ]
         for fid, label in identity_fields:
-            fields.append(schemas.ReportField(id=fid, label=label, category="IdentitÃ©"))
+            fields.append(schemas.ReportField(id=fid, label=label, category="Identité"))
 
         # --- Structure Organisationnelle ---
         organizational_fields = [
-            ("etablissement", "Ã‰tablissement"), ("departement", "DÃ©partement"), 
-            ("service", "Service"), ("unite", "UnitÃ©")
+            ("etablissement", "Établissement"), ("departement", "Département"),
+            ("service", "Service"), ("unite", "Unité")
         ]
         for fid, label in organizational_fields:
             fields.append(schemas.ReportField(id=fid, label=label, category="Structure Organisationnelle"))
@@ -166,14 +166,14 @@ def get_report_metadata(
             ("Salaire de base", "Salaire de base"),
             ("HS Non Imposable 130%", "HSNI 130%"), ("HS Imposable 130%", "HSI 130%"),
             ("HS Non Imposable 150%", "HSNI 150%"), ("HS Imposable 150%", "HSI 150%"),
-            ("Heures MajorÃ©es Nuit Hab. 30%", "Maj. Nuit 30%"),
-            ("Heures MajorÃ©es Nuit Occ. 50%", "Maj. Nuit 50%"),
-            ("Heures MajorÃ©es Dimanche 40%", "Maj. Dimanche 40%"),
-            ("Heures MajorÃ©es Jours FÃ©riÃ©s 50%", "Maj. JF 50%"),
-            # Primes fixes supprimÃ©es : Prime fixe, Prime variable, 13Ã¨me mois, Allocation familiale
-            ("Avantage en nature vÃ©hicule", "Avantage VÃ©hicule"),
+            ("Heures Majorées Nuit Hab. 30%", "Maj. Nuit 30%"),
+            ("Heures Majorées Nuit Occ. 50%", "Maj. Nuit 50%"),
+            ("Heures Majorées Dimanche 40%", "Maj. Dimanche 40%"),
+            ("Heures Majorées Jours Fériés 50%", "Maj. JF 50%"),
+            # Primes fixes supprimées : Prime fixe, Prime variable, 13ème mois, Allocation familiale
+            ("Avantage en nature véhicule", "Avantage Véhicule"),
             ("Avantage en nature logement", "Avantage Logement"),
-            ("Avantage en nature tÃ©lÃ©phone", "Avantage TÃ©lÃ©phone"),
+            ("Avantage en nature téléphone", "Avantage Téléphone"),
             ("Autres avantages en natures", "Autres Avantages")
         ]
         
@@ -186,11 +186,11 @@ def get_report_metadata(
 
         # --- Retenues ---
         deduction_fields = [
-            ("Cotisation CNaPS", "CNaPS SalariÃ©"), ("Cotisation SMIE", "SMIE SalariÃ©"),
+            ("Cotisation CNaPS", "CNaPS Salarié"), ("Cotisation SMIE", "SMIE Salarié"),
             ("IRSA", "IRSA"), ("Avance sur salaire", "Avance sur salaire"),
             ("Avance sur salaire (quinzaine)", "Avance Quinzaine"),
-            ("Avance spÃ©ciale (mensuelle)", "Avance SpÃ©ciale"),
-            ("Autres DÃ©ductions", "Autres DÃ©ductions")
+            ("Avance spéciale (mensuelle)", "Avance Spéciale"),
+            ("Autres Déductions", "Autres Déductions")
         ]
         for fid, label in deduction_fields:
             fields.append(schemas.ReportField(id=fid, label=label, category="Retenues"))
@@ -203,21 +203,21 @@ def get_report_metadata(
         for fid, label in patronal_fields:
             fields.append(schemas.ReportField(id=fid, label=label, category="Charges Patronales"))
 
-        # --- RÃ©sultats ---
+        # --- Résultats ---
         result_fields = [
             ("brut_total", "TOTAL BRUT"), 
             ("Total CNaPS", "Total CNaPS (Sal. + Pat.)"), 
             ("Total SMIE", "Total SMIE (Sal. + Pat.)"),
             ("Charges salariales", "Total Charges Salariales"),
-            ("net_a_payer", "NET Ã€ PAYER"),
-            ("cout_total_employeur", "COÃ›T TOTAL EMPLOYEUR")
+            ("net_a_payer", "NET À PAYER"),
+            ("cout_total_employeur", "COÛT TOTAL EMPLOYEUR")
         ]
         for fid, label in result_fields:
-            fields.append(schemas.ReportField(id=fid, label=label, category="RÃ©sultats"))
+            fields.append(schemas.ReportField(id=fid, label=label, category="Résultats"))
 
         # --- Autres ---
         other_fields = [
-            ("DAYSWORK", "Jours TravaillÃ©s"), ("leave_balance", "Solde CongÃ©s")
+            ("DAYSWORK", "Jours Travaillés"), ("leave_balance", "Solde Congés")
         ]
         for fid, label in other_fields:
             fields.append(schemas.ReportField(id=fid, label=label, category="Autres"))
@@ -343,10 +343,10 @@ def get_full_report_data(
                                     elif col_id == "Total CNaPS":
                                         cnaps_sal = abs(float(preview["totaux"].get("cotisations_salariales", 0) or 0))
                                         cnaps_pat = float(preview["totaux"].get("cotisations_patronales", 0) or 0)
-                                        # Approximation: CNaPS reprÃ©sente gÃ©nÃ©ralement la majoritÃ© des cotisations
+                                        # Approximation: CNaPS représente généralement la majorité des cotisations
                                         aggregated_values[col_id] += (cnaps_sal + cnaps_pat)
                                     elif col_id == "Total SMIE":
-                                        # Calculer SMIE total Ã  partir des lignes spÃ©cifiques
+                                        # Calculer SMIE total à partir des lignes spécifiques
                                         smie_sal = 0.0
                                         smie_pat = 0.0
                                         for line in preview.get("lines", []):
@@ -431,7 +431,7 @@ def get_journal_columns(
     user: models.AppUser = Depends(require_roles(*REPORTING_ROLES)),
 ):
     """
-    Retourne les colonnes dynamiques pour l'Ã‰tat de paie d'un employeur spÃ©cifique.
+    Retourne les colonnes dynamiques pour l'État de paie d'un employeur spécifique.
     """
     try:
         _ensure_reporting_scope(db, user, employer_id)
@@ -453,7 +453,7 @@ def export_journal(
     user: models.AppUser = Depends(require_roles(*REPORTING_ROLES))
 ):
     try:
-        # Utiliser les colonnes dynamiques basÃ©es sur les primes de l'employeur
+        # Utiliser les colonnes dynamiques basées sur les primes de l'employeur
         _ensure_reporting_scope(db, user, employer_id)
         dynamic_columns = get_dynamic_journal_columns(employer_id, db)
         
@@ -479,7 +479,7 @@ def generate_excel_response(data: List[Dict], employer_id: int, period: str, db:
         if is_journal:
             # Utiliser l'ordre dynamique correct au lieu de STANDARD_JOURNAL_COLUMNS
             dynamic_columns = get_dynamic_journal_columns(employer_id, db)
-            # Filtrer seulement les colonnes qui existent dans les rÃ©sultats
+            # Filtrer seulement les colonnes qui existent dans les résultats
             cols = [c for c in dynamic_columns if c in df.columns]
             # Ajouter les colonnes restantes qui ne sont pas dans dynamic_columns
             remaining_cols = [c for c in df.columns if not c.startswith("_") and c not in cols]
@@ -497,13 +497,13 @@ def generate_excel_response(data: List[Dict], employer_id: int, period: str, db:
             
             worksheet = writer.sheets['Paie']
             
-            # Identifier les colonnes numÃ©riques pour le formatage
+            # Identifier les colonnes numériques pour le formatage
             numeric_columns = [
                 'salaire_base', 'Salaire de base', 'brut_total', 
                 'HS Non Imposable 130%', 'HS Imposable 130%', 'HS Non Imposable 150%', 'HS Imposable 150%',
-                'Heures MajorÃ©es Nuit Hab. 30%', 'Heures MajorÃ©es Nuit Occ. 50%',
-                'Heures MajorÃ©es Dimanche 40%', 'Heures MajorÃ©es Jours FÃ©riÃ©s 50%',
-                'Avantage en nature vÃ©hicule', 'Avantage en nature logement', 'Avantage en nature tÃ©lÃ©phone',
+                'Heures Majorées Nuit Hab. 30%', 'Heures Majorées Nuit Occ. 50%',
+                'Heures Majorées Dimanche 40%', 'Heures Majorées Jours Fériés 50%',
+                'Avantage en nature véhicule', 'Avantage en nature logement', 'Avantage en nature téléphone',
                 'Cotisation CNaPS', 'CNaPS Patronal', 'Total CNaPS',
                 'Cotisation SMIE', 'SMIE Patronal', 'Total SMIE', 
                 'Charges salariales', 'Charges patronales',
@@ -516,7 +516,7 @@ def generate_excel_response(data: List[Dict], employer_id: int, period: str, db:
                 col_letter = chr(65 + (i % 26)) if i < 26 else chr(65 + (i // 26 - 1)) + chr(65 + (i % 26))
                 worksheet.column_dimensions[col_letter].width = min(max_len, 40)
                 
-                # Appliquer le formatage numÃ©rique avec 2 dÃ©cimales pour les colonnes monÃ©taires
+                # Appliquer le formatage numérique avec 2 décimales pour les colonnes monétaires
                 original_col_name = None
                 # Trouver le nom original de la colonne avant renommage
                 for orig_name, mapped_name in col_mapping.items():
@@ -524,17 +524,17 @@ def generate_excel_response(data: List[Dict], employer_id: int, period: str, db:
                         original_col_name = orig_name
                         break
                 
-                # VÃ©rifier si c'est une colonne numÃ©rique (montant)
+                # Vérifier si c'est une colonne numérique (montant)
                 is_numeric = (original_col_name and (
                     original_col_name in numeric_columns or 
                     'Prime' in original_col_name or 
-                    '13Ã¨me' in original_col_name or 
+                    '13ème' in original_col_name or 
                     'Avantage' in original_col_name
-                )) or any(keyword in col.lower() for keyword in ['prime', '13Ã¨me', 'avantage', 'salaire', 'brut', 'cnaps', 'smie', 'irsa', 'avance', 'net', 'charges', 'coÃ»t'])
+                )) or any(keyword in col.lower() for keyword in ['prime', '13ème', 'avantage', 'salaire', 'brut', 'cnaps', 'smie', 'irsa', 'avance', 'net', 'charges', 'coût'])
                 
                 if is_numeric:
-                    # Appliquer le format numÃ©rique avec 2 dÃ©cimales
-                    for row_num in range(2, len(df) + 2):  # Commencer Ã  la ligne 2 (aprÃ¨s l'en-tÃªte)
+                    # Appliquer le format numérique avec 2 décimales
+                    for row_num in range(2, len(df) + 2):  # Commencer à la ligne 2 (après l'en-tête)
                         cell = worksheet[f'{col_letter}{row_num}']
                         cell.number_format = '#,##0.00'
 
@@ -548,4 +548,5 @@ def generate_excel_response(data: List[Dict], employer_id: int, period: str, db:
     except Exception as e:
         logger.error(f"Error in generate_excel_response: {e}")
         raise
+
 

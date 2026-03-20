@@ -22,6 +22,7 @@ def sanitize_filename_part(value: str) -> str:
 def save_upload_file(file_obj, *, filename: str, upload_dir: Optional[str] = None) -> str:
     target_root = get_upload_root(upload_dir)
     target_path = target_root / filename
+    target_path.parent.mkdir(parents=True, exist_ok=True)
 
     with target_path.open("wb") as buffer:
         shutil.copyfileobj(file_obj, buffer)

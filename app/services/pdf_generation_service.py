@@ -142,3 +142,37 @@ def build_report_pdf(
     _draw_lines(pdf, table_lines, start_y=730)
     pdf.save()
     return output.getvalue()
+
+
+def build_recruitment_announcement_pdf(
+    title: str,
+    subtitle: str,
+    body: str,
+) -> bytes:
+    verification_code = _verification_payload("recruitment_announcement", f"{title}:{subtitle}")
+    output = BytesIO()
+    pdf = canvas.Canvas(output, pagesize=A4)
+    pdf.setTitle(title)
+    _draw_watermark(pdf, "SIIRH RECRUITMENT")
+    _draw_qr(pdf, verification_code)
+
+    pdf.setFont("Helvetica-Bold", 18)
+    pdf.drawString(40, 800, title[:70])
+    pdf.setFont("Helvetica", 11)
+    pdf.drawString(40, 782, subtitle[:90])
+    pdf.drawString(40, 766, f"Verification: {verification_code[:20]}...")
+
+    plain_text = re.sub(r"<[^>]+>", " ", body or "")
+    plain_text = plain_text.replace("\r", "\n")
+    lines = []
+    for raw_line in plain_text.split("\n"):
+        clean_line = re.sub(r"\s+", " ", raw_line).strip()
+        if not clean_line:
+            lines.append("")
+            continue
+        chunks = [clean_line[i:i + 105] for i in range(0, len(clean_line), 105)]
+        lines.extend(chunks)
+
+    _draw_lines(pdf, lines or [""], start_y=730)
+    pdf.save()
+    return output.getvalue()
