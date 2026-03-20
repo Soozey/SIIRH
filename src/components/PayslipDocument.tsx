@@ -307,7 +307,7 @@ export default function PayslipDocument({ data, showPrintButton = false }: Props
                         {employer.logo_path && (
                             <div className="flex-shrink-0 w-24 h-16 flex items-center justify-center">
                                 <img
-                                    src={`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}${employer.logo_path}`}
+                                    src={`${import.meta.env.VITE_API_URL || 'http://127.0.0.1:8001'}${employer.logo_path}`}
                                     alt="Logo"
                                     className="max-w-full max-h-full object-contain"
                                 />

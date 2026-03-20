@@ -7,7 +7,7 @@
 
 export const API_CONFIG = {
   // Utiliser 127.0.0.1 pour de meilleures performances sur Windows
-  baseURL: import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000',
+  baseURL: import.meta.env.VITE_API_URL || 'http://127.0.0.1:8001',
   timeout: 10000, // 10 secondes
   headers: {
     'Content-Type': 'application/json',

@@ -68,7 +68,7 @@ export default function EmploymentAttestation({ worker, employer, onClose }: Pro
                     {employer?.logo_path && (
                         <div className="ml-4 w-32 h-20 flex items-center justify-end">
                             <img
-                                src={`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}${employer.logo_path}`}
+                                src={`${import.meta.env.VITE_API_URL || 'http://127.0.0.1:8001'}${employer.logo_path}`}
                                 alt="Logo"
                                 className="max-w-full max-h-full object-contain"
                             />

@@ -1,13 +1,20 @@
 import { useState } from "react";
+import type { ComponentType } from "react";
 import { Link, useLocation } from "react-router-dom";
 import {
+  AcademicCapIcon,
   Bars3Icon,
+  BriefcaseIcon,
   BuildingOfficeIcon,
   CalendarIcon,
   ChartBarIcon,
+  ClipboardDocumentListIcon,
   ClockIcon,
-  DocumentTextIcon,
+  ExclamationTriangleIcon,
+  HomeIcon,
   PowerIcon,
+  ShieldCheckIcon,
+  Squares2X2Icon,
   UserGroupIcon,
   XMarkIcon,
 } from "@heroicons/react/24/outline";
@@ -18,16 +25,23 @@ import { useAuth } from "../contexts/AuthContext";
 interface NavItem {
   path: string;
   label: string;
-  icon: React.ComponentType<{ className?: string }>;
+  icon: ComponentType<{ className?: string }>;
 }
 
 const navItems: NavItem[] = [
-  { path: "/", label: "Employeurs", icon: BuildingOfficeIcon },
+  { path: "/", label: "Accueil", icon: HomeIcon },
+  { path: "/recruitment", label: "Recrutement", icon: BriefcaseIcon },
+  { path: "/contracts", label: "Contrats", icon: ClipboardDocumentListIcon },
+  { path: "/employers", label: "Employeurs", icon: BuildingOfficeIcon },
   { path: "/workers", label: "Travailleurs", icon: UserGroupIcon },
-  { path: "/payroll", label: "Paie", icon: DocumentTextIcon },
+  { path: "/organization", label: "Organisation", icon: Squares2X2Icon },
+  { path: "/payroll", label: "Paie", icon: ClipboardDocumentListIcon },
   { path: "/hs", label: "Heures", icon: ClockIcon },
   { path: "/absences", label: "Absences", icon: CalendarIcon },
-  { path: "/leaves", label: "Congés", icon: CalendarIcon },
+  { path: "/leaves", label: "Conges", icon: CalendarIcon },
+  { path: "/declarations", label: "Declarations", icon: ExclamationTriangleIcon },
+  { path: "/talents", label: "Talents", icon: AcademicCapIcon },
+  { path: "/sst", label: "SST", icon: ShieldCheckIcon },
   { path: "/reporting", label: "Reporting", icon: ChartBarIcon },
 ];
 
@@ -60,7 +74,7 @@ export default function Navigation() {
       />
 
       <aside
-        className={`fixed inset-y-0 left-0 z-50 flex w-72 flex-col border-r border-white/10 bg-slate-950/90 p-5 shadow-2xl shadow-slate-950/50 backdrop-blur-xl transition-transform md:translate-x-0 ${
+        className={`fixed inset-y-0 left-0 z-50 flex w-72 flex-col overflow-hidden border-r border-white/10 bg-slate-950/90 p-5 shadow-2xl shadow-slate-950/50 backdrop-blur-xl transition-transform md:translate-x-0 ${
           mobileOpen ? "translate-x-0" : "-translate-x-full"
         }`}
       >
@@ -70,7 +84,9 @@ export default function Navigation() {
               SIIRH
             </div>
             <div className="mt-4 text-2xl font-semibold text-white">Pilotage RH</div>
-            <div className="mt-2 text-sm text-slate-400">Paie, dossiers, conformité et reporting.</div>
+            <div className="mt-2 text-sm text-slate-400">
+              Recrutement, contrats, paie, talents, SST et reporting.
+            </div>
           </div>
           <button
             type="button"
@@ -81,7 +97,7 @@ export default function Navigation() {
           </button>
         </div>
 
-        <nav className="space-y-2">
+        <nav className="flex-1 space-y-2 overflow-y-auto pr-1">
           {navItems.map((item) => {
             const Icon = item.icon;
             const active = isActive(item.path);
@@ -104,7 +120,7 @@ export default function Navigation() {
           })}
         </nav>
 
-        <div className="mt-auto rounded-[1.75rem] border border-white/10 bg-white/5 p-4">
+        <div className="mt-6 rounded-[1.75rem] border border-white/10 bg-white/5 p-4">
           <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500">Session</div>
           <div className="mt-3 text-sm font-semibold text-white">{session?.full_name || session?.username}</div>
           <div className="mt-1 text-xs uppercase tracking-[0.2em] text-cyan-300">{session?.role_code}</div>

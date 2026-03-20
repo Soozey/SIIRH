@@ -45,7 +45,7 @@ export default function Reporting() {
     const [filterService, setFilterService] = useState("");
     const [filterUnite, setFilterUnite] = useState("");
     
-    // DonnÃ©es organisationnelles pour les filtres en cascade
+    // Données organisationnelles pour les filtres en cascade
     const [orgData, setOrgData] = useState<OrganizationalData>({
         etablissements: [],
         departements: [],
@@ -58,7 +58,7 @@ export default function Reporting() {
     const [isGenerating, setIsGenerating] = useState(false);
     const [isExporting, setIsExporting] = useState(false);
     const [isExportingPdf, setIsExportingPdf] = useState(false);
-    const [activeCategory, setActiveCategory] = useState<string>("IdentitÃ©");
+    const [activeCategory, setActiveCategory] = useState<string>("Identité");
 
     // NEW: Matricule-based search and filtering
     const [matriculeSearch, setMatriculeSearch] = useState("");
@@ -88,11 +88,11 @@ export default function Reporting() {
             api.get(`/reporting/metadata`, { params: { employer_id: selectedEmployerId } })
                 .then(res => {
                     setAvailableFields(res.data.fields);
-                    // SÃ©lection par dÃ©faut Ã©tendue pour un aperÃ§u plus complet avec matricules
+                    // Sélection par défaut étendue pour un aperçu plus complet avec matricules
                     if (selectedFields.length === 0) {
                         const defaults = res.data.fields.filter((f: Field) =>
                             [
-                                // IdentitÃ© de base avec matricule
+                                // Identité de base avec matricule
                                 "matricule", "nom", "prenom", "poste",
                                 // Salaire de base
                                 "salaire_base", "Salaire de base",
@@ -100,13 +100,13 @@ export default function Reporting() {
                                 "HS Non Imposable 130%", "HS Imposable 130%", "HS Non Imposable 150%", "HS Imposable 150%",
                                 // Retenues principales
                                 "Cotisation CNaPS", "Cotisation SMIE", "IRSA",
-                                // RÃ©sultats essentiels
+                                // Résultats essentiels
                                 "brut_total", "net_a_payer", "cout_total_employeur"
                             ].includes(f.id)
                         );
                         setSelectedFields(defaults);
                         
-                        // VÃ©rifier si le matricule est disponible dans les champs
+                        // Vérifier si le matricule est disponible dans les champs
                         const hasMatricule = defaults.some((f: Field) => f.id === "matricule");
                         setShowMatriculeColumn(hasMatricule);
                     }
@@ -116,7 +116,7 @@ export default function Reporting() {
         }
     }, [selectedEmployerId]);
 
-    // Charger les donnÃ©es organisationnelles quand l'employeur change
+    // Charger les données organisationnelles quand l'employeur change
     useEffect(() => {
         if (!selectedEmployerId) return;
         
@@ -126,8 +126,8 @@ export default function Reporting() {
                 const response = await api.get(`/employers/${selectedEmployerId}/organizational-data/workers`);
                 setOrgData(response.data);
             } catch (error) {
-                console.error('Erreur chargement donnÃ©es organisationnelles:', error);
-                // RÃ©initialiser les donnÃ©es en cas d'erreur
+                console.error('Erreur chargement données organisationnelles:', error);
+                // Réinitialiser les données en cas d'erreur
                 setOrgData({
                     etablissements: [],
                     departements: [],
@@ -140,14 +140,14 @@ export default function Reporting() {
         };
 
         fetchOrgData();
-        // RÃ©initialiser les filtres quand l'employeur change
+        // Réinitialiser les filtres quand l'employeur change
         setFilterEtab("");
         setFilterDept("");
         setFilterService("");
         setFilterUnite("");
     }, [selectedEmployerId]);
 
-    // Charger les donnÃ©es filtrÃ©es quand les filtres changent (filtrage en cascade)
+    // Charger les données filtrées quand les filtres changent (filtrage en cascade)
     useEffect(() => {
         if (!selectedEmployerId) return;
         
@@ -162,19 +162,19 @@ export default function Reporting() {
                     params
                 });
                 
-                // Mettre Ã  jour seulement les niveaux infÃ©rieurs
+                // Mettre à jour seulement les niveaux inférieurs
                 setOrgData(prevData => ({
-                    etablissements: prevData.etablissements, // Garder la liste complÃ¨te des Ã©tablissements
+                    etablissements: prevData.etablissements, // Garder la liste complète des établissements
                     departements: filterEtab ? response.data.departements : prevData.departements,
                     services: (filterEtab || filterDept) ? response.data.services : prevData.services,
                     unites: (filterEtab || filterDept || filterService) ? response.data.unites : prevData.unites
                 }));
             } catch (error) {
-                console.error('Erreur chargement donnÃ©es filtrÃ©es:', error);
+                console.error('Erreur chargement données filtrées:', error);
             }
         };
 
-        // DÃ©clencher le filtrage seulement si au moins un filtre est appliquÃ©
+        // Déclencher le filtrage seulement si au moins un filtre est appliqué
         if (filterEtab || filterDept || filterService) {
             fetchFilteredData();
         }
@@ -184,20 +184,20 @@ export default function Reporting() {
         switch (field) {
             case 'etablissement':
                 setFilterEtab(value);
-                // RÃ©initialiser les filtres infÃ©rieurs
+                // Réinitialiser les filtres inférieurs
                 setFilterDept("");
                 setFilterService("");
                 setFilterUnite("");
                 break;
             case 'departement':
                 setFilterDept(value);
-                // RÃ©initialiser les filtres infÃ©rieurs
+                // Réinitialiser les filtres inférieurs
                 setFilterService("");
                 setFilterUnite("");
                 break;
             case 'service':
                 setFilterService(value);
-                // RÃ©initialiser les filtres infÃ©rieurs
+                // Réinitialiser les filtres inférieurs
                 setFilterUnite("");
                 break;
             case 'unite':
@@ -256,7 +256,7 @@ export default function Reporting() {
             }
         } catch (e) {
             console.error(e);
-            alert("Erreur lors de la gÃ©nÃ©ration du rapport");
+            alert("Erreur lors de la génération du rapport");
         } finally {
             setIsGenerating(false);
         }
@@ -426,7 +426,7 @@ export default function Reporting() {
                         </div>
                         <div>
                             <h1 className="text-3xl font-bold text-white tracking-tight">Reporting Dynamique</h1>
-                            <p className="text-blue-100 mt-1 text-lg">Construisez vos rapports personnalisÃ©s sur mesure</p>
+                            <p className="text-blue-100 mt-1 text-lg">Construisez vos rapports personnalisés sur mesure</p>
                         </div>
                     </div>
                 </div>
@@ -441,7 +441,7 @@ export default function Reporting() {
                             Configuration
                         </h2>
 
-                        {/* Employeur & PÃ©riode */}
+                        {/* Employeur & Période */}
                         <div className="space-y-4">
                             <div>
                                 <label className="block text-sm font-semibold text-slate-700 mb-2">Employeur</label>
@@ -461,7 +461,7 @@ export default function Reporting() {
 
                             <div className="grid grid-cols-2 gap-3">
                                 <div>
-                                    <label className="block text-sm font-semibold text-slate-700 mb-2">DÃ©but</label>
+                                    <label className="block text-sm font-semibold text-slate-700 mb-2">Début</label>
                                     <input
                                         type="month"
                                         value={startPeriod}
@@ -499,15 +499,15 @@ export default function Reporting() {
                                 </div>
                             ) : (
                                 <div className="space-y-3">
-                                    {/* Ã‰tablissement */}
+                                    {/* Etablissement */}
                                     <div>
-                                        <label className="block text-xs font-semibold text-slate-500 mb-1">Ã‰tablissement</label>
+                                        <label className="block text-xs font-semibold text-slate-500 mb-1">Etablissement</label>
                                         <select
                                             value={filterEtab}
                                             onChange={(e) => handleOrganizationalFilterChange('etablissement', e.target.value)}
                                             className="glass-input w-full px-3 py-2 text-sm"
                                         >
-                                            <option value="">Tous les Ã©tablissements</option>
+                                            <option value="">Tous les établissements</option>
                                             {orgData.etablissements.map((item, index) => (
                                                 <option key={index} value={item}>
                                                     {item}
@@ -516,13 +516,13 @@ export default function Reporting() {
                                         </select>
                                     </div>
 
-                                    {/* DÃ©partement */}
+                                    {/* Département */}
                                     <div>
                                         <label className="block text-xs font-semibold text-slate-500 mb-1">
-                                            DÃ©partement
+                                            Département
                                             {filterEtab && (
                                                 <span className="text-xs text-blue-600 ml-1">
-                                                    (filtrÃ© par {filterEtab})
+                                                    (filtré par {filterEtab})
                                                 </span>
                                             )}
                                         </label>
@@ -536,8 +536,8 @@ export default function Reporting() {
                                         >
                                             <option value="">
                                                 {!filterEtab 
-                                                    ? 'SÃ©lectionnez d\'abord un Ã©tablissement' 
-                                                    : 'Tous les dÃ©partements'
+                                                    ? 'Sélectionnez d\'abord un établissement' 
+                                                    : 'Tous les départements'
                                                 }
                                             </option>
                                             {orgData.departements.map((item, index) => (
@@ -548,7 +548,7 @@ export default function Reporting() {
                                         </select>
                                         {!filterEtab && (
                                             <p className="text-xs text-gray-500 mt-1">
-                                                SÃ©lectionnez un Ã©tablissement pour voir les dÃ©partements
+                                                Sélectionnez un établissement pour voir les départements
                                             </p>
                                         )}
                                     </div>
@@ -559,7 +559,7 @@ export default function Reporting() {
                                             Service
                                             {(filterEtab || filterDept) && (
                                                 <span className="text-xs text-blue-600 ml-1">
-                                                    (filtrÃ© par {[filterEtab, filterDept].filter(Boolean).join(' â†’ ')})
+                                                    (filtre par {[filterEtab, filterDept].filter(Boolean).join(" -> ")})
                                                 </span>
                                             )}
                                         </label>
@@ -573,7 +573,7 @@ export default function Reporting() {
                                         >
                                             <option value="">
                                                 {!filterEtab && !filterDept
-                                                    ? 'SÃ©lectionnez d\'abord un niveau supÃ©rieur' 
+                                                    ? 'Sélectionnez d\'abord un niveau supérieur' 
                                                     : 'Tous les services'
                                                 }
                                             </option>
@@ -585,18 +585,18 @@ export default function Reporting() {
                                         </select>
                                         {!filterEtab && !filterDept && (
                                             <p className="text-xs text-gray-500 mt-1">
-                                                SÃ©lectionnez un niveau supÃ©rieur pour voir les services
+                                                Sélectionnez un niveau supérieur pour voir les services
                                             </p>
                                         )}
                                     </div>
 
-                                    {/* UnitÃ© */}
+                                    {/* Unité */}
                                     <div>
                                         <label className="block text-xs font-semibold text-slate-500 mb-1">
-                                            UnitÃ©
+                                            Unité
                                             {(filterEtab || filterDept || filterService) && (
                                                 <span className="text-xs text-blue-600 ml-1">
-                                                    (filtrÃ© par {[filterEtab, filterDept, filterService].filter(Boolean).join(' â†’ ')})
+                                                    (filtre par {[filterEtab, filterDept, filterService].filter(Boolean).join(" -> ")})
                                                 </span>
                                             )}
                                         </label>
@@ -610,8 +610,8 @@ export default function Reporting() {
                                         >
                                             <option value="">
                                                 {!filterEtab && !filterDept && !filterService
-                                                    ? 'SÃ©lectionnez d\'abord un niveau supÃ©rieur' 
-                                                    : 'Toutes les unitÃ©s'
+                                                    ? 'Sélectionnez d\'abord un niveau supérieur' 
+                                                    : 'Toutes les unités'
                                                 }
                                             </option>
                                             {orgData.unites.map((item, index) => (
@@ -622,12 +622,12 @@ export default function Reporting() {
                                         </select>
                                         {!filterEtab && !filterDept && !filterService && (
                                             <p className="text-xs text-gray-500 mt-1">
-                                                SÃ©lectionnez un niveau supÃ©rieur pour voir les unitÃ©s
+                                                Sélectionnez un niveau supérieur pour voir les unités
                                             </p>
                                         )}
                                     </div>
 
-                                    {/* Bouton de rÃ©initialisation des filtres */}
+                                    {/* Bouton de réinitialisation des filtres */}
                                     {(filterEtab || filterDept || filterService || filterUnite) && (
                                         <div className="pt-2">
                                             <button
@@ -657,7 +657,7 @@ export default function Reporting() {
                             
                             {/* Matricule Search */}
                             <div>
-                                <label className="block text-xs font-semibold text-slate-500 mb-1">Matricule spÃ©cifique</label>
+                                <label className="block text-xs font-semibold text-slate-500 mb-1">Matricule spécifique</label>
                                 <div className="relative">
                                     <IdentificationIcon className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
                                     <input
@@ -679,7 +679,7 @@ export default function Reporting() {
                                         type="text"
                                         value={workerNameSearch}
                                         onChange={(e) => setWorkerNameSearch(e.target.value)}
-                                        placeholder="Nom ou prÃ©nom du salariÃ©..."
+                                        placeholder="Nom ou prénom du salarié..."
                                         className="glass-input w-full pl-9 pr-3 py-2 text-sm"
                                     />
                                 </div>
@@ -732,10 +732,10 @@ export default function Reporting() {
                             
                             <div className="bg-blue-50 p-3 rounded-lg">
                                 <p className="text-xs text-blue-700 mb-2 font-medium">
-                                    ðŸ’¡ Astuce : Utilisez la recherche par matricule ou nom ci-dessus pour retrouver l'historique complet d'un salariÃ©, mÃªme si son nom a changÃ©.
+                                    Astuce : utilisez la recherche par matricule ou nom ci-dessus pour retrouver l'historique complet d'un salarié, même si son nom a changé.
                                 </p>
                                 <p className="text-xs text-blue-600">
-                                    Les matricules garantissent la continuitÃ© de l'historique lors des changements de nom (mariage, correction, etc.).
+                                    Les matricules garantissent la continuité de l'historique lors des changements de nom (mariage, correction, etc.).
                                 </p>
                             </div>
                         </div>
@@ -748,7 +748,7 @@ export default function Reporting() {
                                 className="w-full btn-primary py-3 rounded-xl font-semibold flex items-center justify-center gap-2 shadow-lg disabled:opacity-50"
                             >
                                 {isGenerating ? <ArrowPathIcon className="h-5 w-5 animate-spin" /> : <EyeIcon className="h-5 w-5" />}
-                                GÃ©nÃ©rer l'aperÃ§u
+                                Générer l'aperçu
                             </button>
                             <button
                                 onClick={handleExportExcel}
@@ -776,7 +776,7 @@ export default function Reporting() {
                         {/* Library of fields */}
                         <div className="glass-card overflow-hidden flex flex-col h-[600px]">
                             <div className="bg-slate-50 p-4 border-b border-slate-200">
-                                <h3 className="font-bold text-slate-800">BibliothÃ¨que de Variables</h3>
+                                <h3 className="font-bold text-slate-800">Bibliothèque de Variables</h3>
                             </div>
                             <div className="flex flex-1 overflow-hidden">
                                 {/* Vertical Tabs for Categories */}
@@ -822,19 +822,19 @@ export default function Reporting() {
                         {/* Selected Fields */}
                         <div className="glass-card flex flex-col h-[600px]">
                             <div className="bg-blue-50 p-4 border-b border-blue-100 flex justify-between items-center">
-                                <h3 className="font-bold text-blue-900">Colonnes SÃ©lectionnÃ©es ({selectedFields.length})</h3>
+                                <h3 className="font-bold text-blue-900">Colonnes Sélectionnées ({selectedFields.length})</h3>
                                 <div className="flex gap-2">
                                     <button
                                         onClick={() => {
-                                            // SÃ©lectionner toutes les rubriques de paie comme dans l'export Excel
+                                            // Sélectionner toutes les rubriques de paie comme dans l'export Excel
                                             const payrollFields = availableFields.filter(f => 
-                                                ['IdentitÃ©', 'Base', 'Gains', 'Retenues', 'Charges Patronales', 'RÃ©sultats'].includes(f.category)
+                                                ['Identité', 'Base', 'Gains', 'Retenues', 'Charges Patronales', 'Résultats'].includes(f.category)
                                             );
                                             setSelectedFields(payrollFields);
                                         }}
                                         className="text-xs text-blue-600 hover:underline font-semibold px-2 py-1 bg-blue-100 rounded"
                                     >
-                                        Ã‰tat de Paie Complet
+                                        Etat de Paie Complet
                                     </button>
                                     <button
                                         onClick={() => setSelectedFields([])}
@@ -848,7 +848,7 @@ export default function Reporting() {
                                 {selectedFields.length === 0 ? (
                                     <div className="h-full flex flex-col items-center justify-center text-slate-400 space-y-4">
                                         <AdjustmentsHorizontalIcon className="h-12 w-12 opacity-20" />
-                                        <p className="text-sm italic">Aucune colonne sÃ©lectionnÃ©e</p>
+                                        <p className="text-sm italic">Aucune colonne sélectionnée</p>
                                     </div>
                                 ) : selectedFields.map((field, index) => (
                                     <div
@@ -885,12 +885,12 @@ export default function Reporting() {
                                         <ExclamationTriangleIcon className="h-5 w-5 text-amber-400 mr-2" />
                                         <div>
                                             <h4 className="text-sm font-medium text-amber-800">
-                                                Homonymes dÃ©tectÃ©s dans les rÃ©sultats
+                                                Homonymes détectés dans les résultats
                                             </h4>
                                             <p className="text-sm text-amber-700 mt-1">
-                                                Plusieurs salariÃ©s portent le mÃªme nom. Les matricules permettent de les distinguer clairement.
+                                                Plusieurs salariés portent le même nom. Les matricules permettent de les distinguer clairement.
                                                 {!showMatriculeColumn && (
-                                                    <span className="font-medium"> Activez l'affichage des matricules pour plus de clartÃ©.</span>
+                                                    <span className="font-medium"> Activez l'affichage des matricules pour plus de clarté.</span>
                                                 )}
                                             </p>
                                         </div>
@@ -901,21 +901,21 @@ export default function Reporting() {
                             <div className="bg-slate-800 p-4 flex justify-between items-center">
                                 <h3 className="text-white font-bold flex items-center gap-2">
                                     <EyeIcon className="h-5 w-5 text-blue-400" />
-                                    AperÃ§u de l'Ã‰tat de Paie
+                                    Aperçu de l'Etat de Paie
                                     {groupByMatricule && (
                                         <span className="text-xs bg-blue-600 text-white px-2 py-1 rounded-full ml-2">
-                                            RegroupÃ© par matricule
+                                            Regroupé par matricule
                                         </span>
                                     )}
                                 </h3>
-                                <span className="text-slate-400 text-sm">{reportData.length} salariÃ©s â€¢ {selectedFields.length} rubriques</span>
+                                <span className="text-slate-400 text-sm">{reportData.length} salariés • {selectedFields.length} rubriques</span>
                             </div>
                             
-                            {/* Tableau avec groupement des colonnes par catÃ©gorie */}
+                            {/* Tableau avec groupement des colonnes par catégorie */}
                             <div className="overflow-x-auto max-h-[600px] overflow-y-auto custom-scrollbar">
                                 <table className="w-full text-left border-collapse">
                                     <thead className="sticky top-0 z-20">
-                                        {/* En-tÃªte de groupement par catÃ©gorie */}
+                                        {/* En-tête de groupement par catégorie */}
                                         <tr className="bg-gradient-to-r from-slate-700 to-slate-800">
                                             {/* Matricule column header if enabled */}
                                             {showMatriculeColumn && (
@@ -924,7 +924,7 @@ export default function Reporting() {
                                                 </th>
                                             )}
                                             {(() => {
-                                                const categories = ['IdentitÃ©', 'Base', 'Gains', 'Retenues', 'Charges Patronales', 'RÃ©sultats', 'Autres'];
+                                                const categories = ['Identité', 'Base', 'Gains', 'Retenues', 'Charges Patronales', 'Résultats', 'Autres'];
                                                 return categories.map(category => {
                                                     const fieldsInCategory = selectedFields.filter(f => f.category === category);
                                                     if (fieldsInCategory.length === 0) return null;
@@ -941,7 +941,7 @@ export default function Reporting() {
                                             })()}
                                         </tr>
                                         
-                                        {/* En-tÃªte des colonnes */}
+                                        {/* En-tête des colonnes */}
                                         <tr className="bg-slate-100 border-b border-slate-200 shadow-sm">
                                             {/* Matricule column if enabled */}
                                             {showMatriculeColumn && (
@@ -950,7 +950,7 @@ export default function Reporting() {
                                                 </th>
                                             )}
                                             {selectedFields.map(field => {
-                                                const isMonetary = ['Gains', 'Retenues', 'Charges Patronales', 'RÃ©sultats'].includes(field.category);
+                                                const isMonetary = ['Gains', 'Retenues', 'Charges Patronales', 'Résultats'].includes(field.category);
                                                 return (
                                                     <th key={field.id} className={`p-3 text-xs font-bold text-slate-600 uppercase tracking-wider min-w-[120px] border-r border-slate-200 last:border-r-0 ${isMonetary ? 'text-right' : 'text-left'}`}>
                                                         <div className="truncate" title={field.label}>
@@ -975,7 +975,7 @@ export default function Reporting() {
                                                 {selectedFields.map((field) => {
                                                     const val = row[field.id];
                                                     const isNumeric = typeof val === 'number';
-                                                    const isMonetary = ['Gains', 'Retenues', 'Charges Patronales', 'RÃ©sultats'].includes(field.category);
+                                                    const isMonetary = ['Gains', 'Retenues', 'Charges Patronales', 'Résultats'].includes(field.category);
                                                     const isZero = isNumeric && val === 0;
                                                     
                                                     return (
@@ -988,7 +988,7 @@ export default function Reporting() {
                                                                 isNumeric ? 'text-slate-700 font-medium' : 
                                                                 'text-slate-600'
                                                             } ${
-                                                                field.category === 'RÃ©sultats' ? 'bg-blue-50/50 font-bold' : ''
+                                                                field.category === 'Résultats' ? 'bg-blue-50/50 font-bold' : ''
                                                             }`}
                                                         >
                                                             {isNumeric ? (
@@ -1004,7 +1004,7 @@ export default function Reporting() {
                                         ))}
                                     </tbody>
                                     
-                                    {/* Ligne de totaux si plus de 5 salariÃ©s */}
+                                    {/* Ligne de totaux si plus de 5 salariés */}
                                     {reportData.length > 5 && (
                                         <tfoot className="sticky bottom-0 z-10">
                                             <tr className="bg-gradient-to-r from-slate-700 to-slate-800 text-white font-bold">
@@ -1015,12 +1015,12 @@ export default function Reporting() {
                                                     </td>
                                                 )}
                                                 {selectedFields.map((field, fieldIndex) => {
-                                                    const isNumeric = ['Gains', 'Retenues', 'Charges Patronales', 'RÃ©sultats'].includes(field.category);
+                                                    const isNumeric = ['Gains', 'Retenues', 'Charges Patronales', 'Résultats'].includes(field.category);
                                                     
                                                     if (fieldIndex === 0) {
                                                         return (
                                                             <td key={field.id} className="p-3 text-sm font-bold border-r border-slate-600">
-                                                                TOTAUX ({reportData.length} salariÃ©s)
+                                                                TOTAUX ({reportData.length} salariés)
                                                             </td>
                                                         );
                                                     }
@@ -1050,13 +1050,13 @@ export default function Reporting() {
                                 </table>
                             </div>
                             
-                            {/* RÃ©sumÃ© statistique */}
+                            {/* Résumé statistique */}
                             <div className="bg-slate-50 p-4 border-t border-slate-200">
                                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
                                     <div className="bg-white p-3 rounded-lg shadow-sm">
                                         <div className="text-2xl font-bold text-blue-600">{reportData.length}</div>
                                         <div className="text-xs text-slate-500 uppercase tracking-wide">
-                                            SalariÃ©s
+                                            Salariés
                                             {showMatriculeColumn && (
                                                 <div className="text-xs text-blue-600 mt-1">avec matricules</div>
                                             )}
@@ -1078,7 +1078,7 @@ export default function Reporting() {
                                         <div className="text-2xl font-bold text-orange-600">
                                             {reportData.reduce((sum, row) => sum + (row.cout_total_employeur || 0), 0).toLocaleString('fr-FR', { maximumFractionDigits: 0 })}
                                         </div>
-                                        <div className="text-xs text-slate-500 uppercase tracking-wide">CoÃ»t Total (Ar)</div>
+                                        <div className="text-xs text-slate-500 uppercase tracking-wide">Coût Total (Ar)</div>
                                     </div>
                                 </div>
                                 
@@ -1088,22 +1088,22 @@ export default function Reporting() {
                                         <div className="flex flex-wrap gap-2 justify-center">
                                             {matriculeSearch && (
                                                 <span className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-xs font-medium">
-                                                    FiltrÃ© par matricule: {matriculeSearch}
+                                                    Filtré par matricule: {matriculeSearch}
                                                 </span>
                                             )}
                                             {workerNameSearch && (
                                                 <span className="px-3 py-1 bg-green-100 text-green-800 rounded-full text-xs font-medium">
-                                                    FiltrÃ© par nom: {workerNameSearch}
+                                                    Filtré par nom: {workerNameSearch}
                                                 </span>
                                             )}
                                             {homonymDetected && (
                                                 <span className="px-3 py-1 bg-amber-100 text-amber-800 rounded-full text-xs font-medium">
-                                                    âš ï¸ Homonymes dÃ©tectÃ©s
+                                                    Homonymes détectés
                                                 </span>
                                             )}
                                             {groupByMatricule && (
                                                 <span className="px-3 py-1 bg-purple-100 text-purple-800 rounded-full text-xs font-medium">
-                                                    ðŸ“Š RegroupÃ© par matricule
+                                                    Regroupé par matricule
                                                 </span>
                                             )}
                                         </div>
@@ -1118,4 +1118,5 @@ export default function Reporting() {
         </>
     );
 }
+
 

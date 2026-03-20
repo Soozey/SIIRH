@@ -38,7 +38,7 @@ export function getStoredToken(): string | null {
 
 // Instance axios commune pour tout le frontend
 export const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL ?? "http://localhost:8000",
+  baseURL: import.meta.env.VITE_API_URL ?? "http://127.0.0.1:8001",
 });
 
 api.interceptors.request.use((config) => {

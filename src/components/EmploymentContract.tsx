@@ -508,7 +508,7 @@ export default function EmploymentContract({ worker, employer, onClose }: Employ
                         {employer?.logo_path && (
                             <div className="w-32 h-20 flex items-center justify-end relative z-0 print:w-full print:h-auto">
                                 <img
-                                    src={`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}${employer.logo_path}`}
+                                    src={`${import.meta.env.VITE_API_URL || 'http://127.0.0.1:8001'}${employer.logo_path}`}
                                     alt="Logo"
                                     className="max-w-full max-h-full object-contain"
                                 />
