@@ -1,9 +1,11 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from ..schemas import (
     AbsenceInput,
     AbsenceCalculationResult,
     AbsenceRubriqueResult,
 )
+from .. import models
+from ..security import READ_PAYROLL_ROLES, require_roles
 
 
 router = APIRouter(
@@ -152,7 +154,10 @@ def calculate_absences(data: AbsenceInput) -> AbsenceCalculationResult:
 
 
 @router.post("/calcul", response_model=AbsenceCalculationResult)
-def calculer_absences(payload: AbsenceInput):
+def calculer_absences(
+    payload: AbsenceInput,
+    user: models.AppUser = Depends(require_roles(*READ_PAYROLL_ROLES)),
+):
     """
     Endpoint pour calculer les retenues liées aux absences.
     """

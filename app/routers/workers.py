@@ -8,6 +8,7 @@ from datetime import datetime
 from .. import models, schemas
 from ..security import READ_PAYROLL_ROLES, WRITE_RH_ROLES, can_access_worker, can_manage_worker, get_current_user, require_roles
 from ..services.audit_service import record_audit
+from ..services.master_data_service import sync_worker_master_data
 
 router = APIRouter(prefix="/workers", tags=["workers"])
 
@@ -34,11 +35,11 @@ def _apply_worker_search(query, q: Optional[str]):
 def _apply_worker_scope(query, db: Session, user: models.AppUser):
     if user.role_code in {"admin", "rh", "comptable", "audit"}:
         return query
-    if user.role_code == "employeur" and user.employer_id:
+    if user.role_code in {"employeur", "direction", "juridique", "recrutement", "inspecteur"} and user.employer_id:
         return query.filter(models.Worker.employer_id == user.employer_id)
     if user.role_code == "employe" and user.worker_id:
         return query.filter(models.Worker.id == user.worker_id)
-    if user.role_code == "manager" and user.worker_id:
+    if user.role_code in {"manager", "departement"} and user.worker_id:
         manager_worker = db.query(models.Worker).filter(models.Worker.id == user.worker_id).first()
         if manager_worker and manager_worker.organizational_unit_id:
             return query.filter(models.Worker.organizational_unit_id == manager_worker.organizational_unit_id)
@@ -143,6 +144,7 @@ def create_worker(
     )
     db.add(obj)
     db.flush()
+    sync_worker_master_data(db, obj)
     record_audit(
         db,
         actor=user,
@@ -183,6 +185,7 @@ def update_worker(
 
     if not w.salaire_horaire and w.vhm:
         w.salaire_horaire = w.salaire_base / w.vhm
+    sync_worker_master_data(db, w)
 
     record_audit(
         db,
@@ -220,6 +223,7 @@ def update_worker_organizational(
     for field in organizational_fields:
         if field in data:
             setattr(w, field, data[field])
+    sync_worker_master_data(db, w)
 
     record_audit(
         db,
@@ -257,6 +261,7 @@ def patch_worker(
 
     if w.vhm and w.vhm > 0:
         w.salaire_horaire = w.salaire_base / w.vhm
+    sync_worker_master_data(db, w)
 
     record_audit(
         db,

@@ -17,21 +17,54 @@ from ..schemas import (
     MigrationResult
 )
 from ..services.organizational_service import OrganizationalService
+from ..services.master_data_service import build_worker_reporting_payload
+from ..security import (
+    READ_PAYROLL_ROLES,
+    WRITE_RH_ROLES,
+    can_access_employer,
+    can_manage_worker,
+    require_roles,
+)
 
 router = APIRouter(prefix="/organization", tags=["Organization"])
+
+
+def _ensure_employer_scope(db: Session, user, employer_id: int):
+    if not can_access_employer(db, user, employer_id):
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+
+def _get_unit_or_404(db: Session, unit_id: int) -> OrganizationalUnit:
+    unit = db.query(OrganizationalUnit).filter(OrganizationalUnit.id == unit_id).first()
+    if not unit:
+        raise HTTPException(status_code=404, detail="UnitÃ© organisationnelle non trouvÃ©e")
+    return unit
+
+
+def _get_unit_for_user(db: Session, user, unit_id: int, active_only: bool = False) -> OrganizationalUnit:
+    query = db.query(OrganizationalUnit).filter(OrganizationalUnit.id == unit_id)
+    if active_only:
+        query = query.filter(OrganizationalUnit.is_active == True)
+    unit = query.first()
+    if not unit:
+        raise HTTPException(status_code=404, detail="UnitÃ© organisationnelle non trouvÃ©e")
+    _ensure_employer_scope(db, user, unit.employer_id)
+    return unit
 
 
 @router.post("/employers/{employer_id}/units", response_model=OrganizationalUnitOut)
 def create_organizational_unit(
     employer_id: int,
     unit_data: OrganizationalUnitCreate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user=Depends(require_roles(*WRITE_RH_ROLES)),
 ):
     """
     Crée une nouvelle unité organisationnelle avec validation de l'ordre hiérarchique
     """
     try:
         # Vérifier que l'employeur existe
+        _ensure_employer_scope(db, user, employer_id)
         employer = db.query(Employer).get(employer_id)
         if not employer:
             raise HTTPException(status_code=404, detail="Employeur non trouvé")
@@ -55,11 +88,13 @@ def get_organizational_units(
     employer_id: int,
     level: Optional[str] = Query(None, description="Filter by level"),
     parent_id: Optional[int] = Query(None, description="Filter by parent ID"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user=Depends(require_roles(*READ_PAYROLL_ROLES)),
 ):
     """
     Récupère les unités organisationnelles d'un employeur
     """
+    _ensure_employer_scope(db, user, employer_id)
     query = db.query(OrganizationalUnit).filter(
         OrganizationalUnit.employer_id == employer_id,
         OrganizationalUnit.is_active == True
@@ -76,14 +111,15 @@ def get_organizational_units(
 
 
 @router.get("/units/{unit_id}", response_model=OrganizationalUnitOut)
-def get_organizational_unit(unit_id: int, db: Session = Depends(get_db)):
+def get_organizational_unit(
+    unit_id: int,
+    db: Session = Depends(get_db),
+    user=Depends(require_roles(*READ_PAYROLL_ROLES)),
+):
     """
     Récupère une unité organisationnelle par son ID (seulement si active)
     """
-    unit = db.query(OrganizationalUnit).filter(
-        OrganizationalUnit.id == unit_id,
-        OrganizationalUnit.is_active == True
-    ).first()
+    unit = _get_unit_for_user(db, user, unit_id, active_only=True)
     if not unit:
         raise HTTPException(status_code=404, detail="Unité organisationnelle non trouvée")
     return unit
@@ -93,12 +129,13 @@ def get_organizational_unit(unit_id: int, db: Session = Depends(get_db)):
 def update_organizational_unit(
     unit_id: int,
     unit_data: OrganizationalUnitUpdate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user=Depends(require_roles(*WRITE_RH_ROLES)),
 ):
     """
     Met à jour une unité organisationnelle
     """
-    unit = db.query(OrganizationalUnit).get(unit_id)
+    unit = _get_unit_for_user(db, user, unit_id)
     if not unit:
         raise HTTPException(status_code=404, detail="Unité organisationnelle non trouvée")
     
@@ -124,11 +161,15 @@ def update_organizational_unit(
 
 
 @router.delete("/units/{unit_id}")
-def delete_organizational_unit(unit_id: int, db: Session = Depends(get_db)):
+def delete_organizational_unit(
+    unit_id: int,
+    db: Session = Depends(get_db),
+    user=Depends(require_roles(*WRITE_RH_ROLES)),
+):
     """
     Supprime une unité organisationnelle (soft delete)
     """
-    unit = db.query(OrganizationalUnit).get(unit_id)
+    unit = _get_unit_for_user(db, user, unit_id)
     if not unit:
         raise HTTPException(status_code=404, detail="Unité organisationnelle non trouvée")
     
@@ -157,11 +198,16 @@ def delete_organizational_unit(unit_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/employers/{employer_id}/tree", response_model=OrganizationTree)
-def get_organization_tree(employer_id: int, db: Session = Depends(get_db)):
+def get_organization_tree(
+    employer_id: int,
+    db: Session = Depends(get_db),
+    user=Depends(require_roles(*READ_PAYROLL_ROLES)),
+):
     """
     Retourne l'arbre organisationnel complet avec les salariés
     """
     # Vérifier que l'employeur existe
+    _ensure_employer_scope(db, user, employer_id)
     employer = db.query(Employer).get(employer_id)
     if not employer:
         raise HTTPException(status_code=404, detail="Employeur non trouvé")
@@ -173,15 +219,13 @@ def get_organization_tree(employer_id: int, db: Session = Depends(get_db)):
 @router.get("/units/{unit_id}/available-workers")
 async def get_available_workers_for_unit(
     unit_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user=Depends(require_roles(*READ_PAYROLL_ROLES)),
 ):
     """Récupérer les salariés disponibles pour assignation à une unité"""
     try:
         # Récupérer l'unité pour vérifier qu'elle existe
-        unit = db.query(OrganizationalUnit).filter(
-            OrganizationalUnit.id == unit_id,
-            OrganizationalUnit.is_active == True
-        ).first()
+        unit = _get_unit_for_user(db, user, unit_id, active_only=True)
         
         if not unit:
             raise HTTPException(status_code=404, detail="Unité organisationnelle non trouvée")
@@ -201,12 +245,13 @@ async def get_available_workers_for_unit(
         # Formater les données
         workers_data = []
         for worker in workers:
+            canonical = build_worker_reporting_payload(db, worker)
             workers_data.append({
                 "id": worker.id,
-                "matricule": worker.matricule,
-                "nom": worker.nom,
-                "prenom": worker.prenom,
-                "poste": worker.poste,
+                "matricule": canonical.get("matricule"),
+                "nom": canonical.get("nom"),
+                "prenom": canonical.get("prenom"),
+                "poste": canonical.get("poste"),
                 "current_unit_id": worker.organizational_unit_id,
                 "is_unassigned": worker.organizational_unit_id is None
             })
@@ -239,10 +284,10 @@ def get_workers_in_unit(
             "workers": [
                 {
                     "id": w.id,
-                    "matricule": w.matricule,
-                    "nom": w.nom,
-                    "prenom": w.prenom,
-                    "poste": w.poste,
+                    "matricule": build_worker_reporting_payload(db, w).get("matricule"),
+                    "nom": build_worker_reporting_payload(db, w).get("nom"),
+                    "prenom": build_worker_reporting_payload(db, w).get("prenom"),
+                    "poste": build_worker_reporting_payload(db, w).get("poste"),
                     "organizational_unit_id": w.organizational_unit_id
                 } for w in workers
             ],
@@ -253,11 +298,15 @@ def get_workers_in_unit(
 
 
 @router.get("/units/{unit_id}/possible-children")
-def get_possible_child_levels(unit_id: int, db: Session = Depends(get_db)):
+def get_possible_child_levels(
+    unit_id: int,
+    db: Session = Depends(get_db),
+    user=Depends(require_roles(*READ_PAYROLL_ROLES)),
+):
     """
     Retourne les niveaux possibles pour créer des unités enfants
     """
-    unit = db.query(OrganizationalUnit).get(unit_id)
+    unit = _get_unit_for_user(db, user, unit_id)
     if not unit:
         raise HTTPException(status_code=404, detail="Unité organisationnelle non trouvée")
     
@@ -270,11 +319,16 @@ def get_possible_child_levels(unit_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/employers/{employer_id}/possible-root-levels")
-def get_possible_root_levels(employer_id: int, db: Session = Depends(get_db)):
+def get_possible_root_levels(
+    employer_id: int,
+    db: Session = Depends(get_db),
+    user=Depends(require_roles(*READ_PAYROLL_ROLES)),
+):
     """
     Retourne les niveaux possibles pour créer des unités racines
     """
     # Vérifier que l'employeur existe
+    _ensure_employer_scope(db, user, employer_id)
     employer = db.query(Employer).get(employer_id)
     if not employer:
         raise HTTPException(status_code=404, detail="Employeur non trouvé")
@@ -289,12 +343,20 @@ def get_possible_root_levels(employer_id: int, db: Session = Depends(get_db)):
 @router.post("/workers/assign")
 def assign_worker_to_unit(
     assignment: WorkerAssignment,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user=Depends(require_roles(*WRITE_RH_ROLES)),
 ):
     """
     Assigne un salarié à une unité organisationnelle
     """
     try:
+        worker = db.query(Worker).filter(Worker.id == assignment.worker_id).first()
+        if not worker:
+            raise HTTPException(status_code=404, detail="Worker not found")
+        if not can_manage_worker(db, user, worker=worker):
+            raise HTTPException(status_code=403, detail="Forbidden")
+        _get_unit_for_user(db, user, assignment.organizational_unit_id)
+
         worker = OrganizationalService.assign_worker_to_unit(
             db=db,
             worker_id=assignment.worker_id,
@@ -311,11 +373,16 @@ def assign_worker_to_unit(
 
 
 @router.post("/employers/{employer_id}/migrate", response_model=MigrationResult)
-def migrate_existing_data(employer_id: int, db: Session = Depends(get_db)):
+def migrate_existing_data(
+    employer_id: int,
+    db: Session = Depends(get_db),
+    user=Depends(require_roles(*WRITE_RH_ROLES)),
+):
     """
     Migre les données textuelles existantes vers la structure organisationnelle
     """
     # Vérifier que l'employeur existe
+    _ensure_employer_scope(db, user, employer_id)
     employer = db.query(Employer).get(employer_id)
     if not employer:
         raise HTTPException(status_code=404, detail="Employeur non trouvé")
@@ -331,11 +398,15 @@ def migrate_existing_data(employer_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/units/{unit_id}/hierarchy")
-def get_unit_hierarchy(unit_id: int, db: Session = Depends(get_db)):
+def get_unit_hierarchy(
+    unit_id: int,
+    db: Session = Depends(get_db),
+    user=Depends(require_roles(*READ_PAYROLL_ROLES)),
+):
     """
     Retourne le chemin hiérarchique complet d'une unité
     """
-    unit = db.query(OrganizationalUnit).get(unit_id)
+    unit = _get_unit_for_user(db, user, unit_id)
     if not unit:
         raise HTTPException(status_code=404, detail="Unité organisationnelle non trouvée")
     

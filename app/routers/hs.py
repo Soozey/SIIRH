@@ -6,8 +6,10 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from ..config.config import get_db
+from .. import models
 from ..models import HSCalculationHS
 from ..schemas import HSCalculationReadHS
+from ..security import PAYROLL_WRITE_ROLES, READ_PAYROLL_ROLES, can_access_worker, require_roles
 
 
 router = APIRouter(
@@ -16,9 +18,23 @@ router = APIRouter(
 )
 
 
+def _filter_hs_for_user(db: Session, user: models.AppUser, rows: List[HSCalculationHS]) -> List[HSCalculationHS]:
+    worker_cache = {}
+    allowed = []
+    for row in rows:
+        worker_id = row.worker_id_HS
+        if worker_id not in worker_cache:
+            worker_cache[worker_id] = db.query(models.Worker).filter(models.Worker.id == worker_id).first()
+        worker = worker_cache[worker_id]
+        if worker and can_access_worker(db, user, worker):
+            allowed.append(row)
+    return allowed
+
+
 @router.get("/all", response_model=List[HSCalculationReadHS])
 def get_all_hs_calculations_HS(
     db: Session = Depends(get_db),
+    user: models.AppUser = Depends(require_roles(*READ_PAYROLL_ROLES)),
 ) -> List[HSCalculationReadHS]:
     """
     Endpoint API :
@@ -32,12 +48,13 @@ def get_all_hs_calculations_HS(
         .order_by(HSCalculationHS.created_at_HS.desc())
         .all()
     )
-    return calculs_HS
+    return _filter_hs_for_user(db, user, calculs_HS)
 
 
 @router.get("/all", response_model=List[HSCalculationReadHS])
 def get_all_hs_calculations_HS(
     db: Session = Depends(get_db),
+    user: models.AppUser = Depends(require_roles(*READ_PAYROLL_ROLES)),
 ) -> List[HSCalculationReadHS]:
     """
     Endpoint API :
@@ -51,13 +68,14 @@ def get_all_hs_calculations_HS(
         .order_by(HSCalculationHS.created_at_HS.desc())
         .all()
     )
-    return calculs_HS
+    return _filter_hs_for_user(db, user, calculs_HS)
 
 
 @router.delete("/{hs_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_hs_calculation_HS(
     hs_id: int,
     db: Session = Depends(get_db),
+    user: models.AppUser = Depends(require_roles(*PAYROLL_WRITE_ROLES)),
 ) -> None:
     """
     Endpoint API :
@@ -78,6 +96,9 @@ def delete_hs_calculation_HS(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Calcul HS id_HS={hs_id} introuvable.",
         )
+    worker = db.query(models.Worker).filter(models.Worker.id == calc_HS.worker_id_HS).first()
+    if not worker or not can_access_worker(db, user, worker):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
 
     db.delete(calc_HS)
     db.commit()
@@ -403,12 +424,21 @@ def calculer_heures_supplementaires_et_majorations_HS(
 
 
 @router.post("/calculate", response_model=HSCalculationResultHS)
-def calculate_hs_endpoint_HS(payload_HS: HSCalculationRequestHS) -> HSCalculationResultHS:
+def calculate_hs_endpoint_HS(
+    payload_HS: HSCalculationRequestHS,
+    db: Session = Depends(get_db),
+    user: models.AppUser = Depends(require_roles(*READ_PAYROLL_ROLES)),
+) -> HSCalculationResultHS:
     """
     Endpoint API :
     POST /hs/calculate
     -> calcule les HS mais ne sauvegarde pas en base
     """
+    worker = db.query(models.Worker).filter(models.Worker.id == payload_HS.worker_id_HS).first()
+    if not worker:
+        raise HTTPException(status_code=404, detail="Worker not found")
+    if not can_access_worker(db, user, worker):
+        raise HTTPException(status_code=403, detail="Forbidden")
     return calculer_heures_supplementaires_et_majorations_HS(payload_HS)
 
 
@@ -416,6 +446,7 @@ def calculate_hs_endpoint_HS(payload_HS: HSCalculationRequestHS) -> HSCalculatio
 def calculate_and_save_hs_endpoint_HS(
     payload_HS: HSCalculationRequestHS,
     db: Session = Depends(get_db),
+    user: models.AppUser = Depends(require_roles(*PAYROLL_WRITE_ROLES)),
 ) -> HSCalculationReadHS:
     """
     Endpoint API :
@@ -425,6 +456,12 @@ def calculate_and_save_hs_endpoint_HS(
     2. Sauvegarde le résumé mensuel dans hs_calculations_HS
     3. Retourne l'enregistrement sauvegardé (avec id_HS)
     """
+    worker = db.query(models.Worker).filter(models.Worker.id == payload_HS.worker_id_HS).first()
+    if not worker:
+        raise HTTPException(status_code=404, detail="Worker not found")
+    if not can_access_worker(db, user, worker):
+        raise HTTPException(status_code=403, detail="Forbidden")
+
     result_HS = calculer_heures_supplementaires_et_majorations_HS(payload_HS)
 
     now_HS = datetime.utcnow()

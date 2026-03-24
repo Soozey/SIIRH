@@ -22,6 +22,7 @@ from ..schemas import (
     ValidationResult
 )
 from ..services.organizational_structure_service import OrganizationalStructureService
+from ..security import READ_PAYROLL_ROLES, WRITE_RH_ROLES, can_access_employer, require_roles
 import logging
 
 logger = logging.getLogger(__name__)
@@ -29,10 +30,23 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/organizational-structure", tags=["Organizational Structure"])
 
 
+def _ensure_employer_scope(db: Session, user, employer_id: int):
+    if not can_access_employer(db, user, employer_id):
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+
+def _resolve_unit_employer_id(db: Session, unit_id: int) -> int:
+    unit = db.query(OrganizationalUnit).filter(OrganizationalUnit.id == unit_id).first()
+    if not unit:
+        raise HTTPException(status_code=404, detail="Organizational unit not found")
+    return unit.employer_id
+
+
 @router.get("/{employer_id}/tree")
 async def get_organizational_tree(
     employer_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user=Depends(require_roles(*READ_PAYROLL_ROLES)),
 ) -> Dict[str, Any]:
     """
     Get the complete organizational tree for an employer.
@@ -42,6 +56,7 @@ async def get_organizational_tree(
     logger.info(f"Getting organizational tree for employer {employer_id}")
     
     # Verify employer exists
+    _ensure_employer_scope(db, user, employer_id)
     employer = db.query(Employer).filter(Employer.id == employer_id).first()
     if not employer:
         raise HTTPException(status_code=404, detail="Employer not found")
@@ -57,7 +72,8 @@ async def get_cascading_choices(
     employer_id: int,
     level: str = Query(..., description="Level to get choices for"),
     parent_id: Optional[int] = Query(None, description="Parent ID for filtering"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user=Depends(require_roles(*READ_PAYROLL_ROLES)),
 ) -> List[Dict[str, Any]]:
     """
     Get available choices for a specific level based on parent selection.
@@ -66,6 +82,7 @@ async def get_cascading_choices(
     logger.info(f"Getting cascading choices for employer {employer_id}, level {level}, parent {parent_id}")
     
     # Verify employer exists
+    _ensure_employer_scope(db, user, employer_id)
     employer = db.query(Employer).filter(Employer.id == employer_id).first()
     if not employer:
         raise HTTPException(status_code=404, detail="Employer not found")
@@ -81,7 +98,8 @@ async def get_cascading_choices(
 @router.post("/create")
 async def create_organizational_unit(
     data: CreateOrganizationalUnitRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user=Depends(require_roles(*WRITE_RH_ROLES)),
 ) -> OrganizationalUnitOut:
     """
     Create a new organizational unit with proper hierarchy validation.
@@ -89,6 +107,7 @@ async def create_organizational_unit(
     logger.info(f"Creating organizational unit: {data.name} (level: {data.level})")
     
     try:
+        _ensure_employer_scope(db, user, data.employer_id)
         service = OrganizationalStructureService(db)
         unit = service.create_entity(data)
         
@@ -113,7 +132,8 @@ async def create_organizational_unit(
 async def update_organizational_unit(
     unit_id: int,
     data: UpdateOrganizationalUnitRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user=Depends(require_roles(*WRITE_RH_ROLES)),
 ) -> OrganizationalUnitOut:
     """
     Update an existing organizational unit with validation.
@@ -121,6 +141,8 @@ async def update_organizational_unit(
     logger.info(f"Updating organizational unit {unit_id}")
     
     try:
+        employer_id = _resolve_unit_employer_id(db, unit_id)
+        _ensure_employer_scope(db, user, employer_id)
         service = OrganizationalStructureService(db)
         unit = service.update_entity(unit_id, data)
         
@@ -145,7 +167,8 @@ async def update_organizational_unit(
 async def delete_organizational_unit(
     unit_id: int,
     force: bool = Query(False, description="Force deletion by reassigning children and workers"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user=Depends(require_roles(*WRITE_RH_ROLES)),
 ) -> Dict[str, str]:
     """
     Delete an organizational unit with proper constraint checking.
@@ -153,6 +176,8 @@ async def delete_organizational_unit(
     logger.info(f"Deleting organizational unit {unit_id} (force={force})")
     
     try:
+        employer_id = _resolve_unit_employer_id(db, unit_id)
+        _ensure_employer_scope(db, user, employer_id)
         service = OrganizationalStructureService(db)
         success = service.delete_entity(unit_id, force)
         
@@ -167,7 +192,8 @@ async def delete_organizational_unit(
 @router.get("/{unit_id}/can-delete")
 async def check_deletion_constraints(
     unit_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user=Depends(require_roles(*READ_PAYROLL_ROLES)),
 ) -> Dict[str, Any]:
     """
     Check if an organizational unit can be deleted and get detailed constraint information.
@@ -176,6 +202,8 @@ async def check_deletion_constraints(
     """
     logger.info(f"Checking deletion constraints for unit {unit_id}")
     
+    employer_id = _resolve_unit_employer_id(db, unit_id)
+    _ensure_employer_scope(db, user, employer_id)
     service = OrganizationalStructureService(db)
     result = service.can_delete_unit(unit_id)
     
@@ -188,7 +216,8 @@ async def check_deletion_constraints(
 @router.get("/{employer_id}/validate")
 async def validate_hierarchy(
     employer_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user=Depends(require_roles(*READ_PAYROLL_ROLES)),
 ) -> ValidationResult:
     """
     Validate the complete hierarchy for an employer.
@@ -196,6 +225,7 @@ async def validate_hierarchy(
     logger.info(f"Validating hierarchy for employer {employer_id}")
     
     # Verify employer exists
+    _ensure_employer_scope(db, user, employer_id)
     employer = db.query(Employer).filter(Employer.id == employer_id).first()
     if not employer:
         raise HTTPException(status_code=404, detail="Employer not found")
@@ -209,7 +239,8 @@ async def validate_hierarchy(
 @router.get("/unit/{unit_id}/path")
 async def get_unit_path(
     unit_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user=Depends(require_roles(*READ_PAYROLL_ROLES)),
 ) -> Dict[str, str]:
     """
     Get the hierarchical path for a unit (breadcrumb).
@@ -217,6 +248,8 @@ async def get_unit_path(
     logger.info(f"Getting path for unit {unit_id}")
     
     try:
+        employer_id = _resolve_unit_employer_id(db, unit_id)
+        _ensure_employer_scope(db, user, employer_id)
         service = OrganizationalStructureService(db)
         path = service.get_path(unit_id)
         
@@ -232,7 +265,8 @@ async def validate_organizational_combination(
     department_id: Optional[int] = None,
     service_id: Optional[int] = None,
     unit_id: Optional[int] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user=Depends(require_roles(*READ_PAYROLL_ROLES)),
 ) -> ValidationResult:
     """
     Validate that a combination of organizational units forms a valid hierarchy path.
@@ -240,6 +274,7 @@ async def validate_organizational_combination(
     logger.info(f"Validating combination for employer {employer_id}")
     
     # Verify employer exists
+    _ensure_employer_scope(db, user, employer_id)
     employer = db.query(Employer).filter(Employer.id == employer_id).first()
     if not employer:
         raise HTTPException(status_code=404, detail="Employer not found")
@@ -256,7 +291,8 @@ async def validate_organizational_combination(
 async def get_children(
     employer_id: int,
     parent_id: Optional[int] = Query(None, description="Parent ID (null for root units)"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user=Depends(require_roles(*READ_PAYROLL_ROLES)),
 ) -> List[OrganizationalUnitOut]:
     """
     Get direct children of a specific organizational unit.
@@ -265,6 +301,7 @@ async def get_children(
     logger.info(f"Getting children for parent {parent_id} in employer {employer_id}")
     
     # Verify employer exists
+    _ensure_employer_scope(db, user, employer_id)
     employer = db.query(Employer).filter(Employer.id == employer_id).first()
     if not employer:
         raise HTTPException(status_code=404, detail="Employer not found")
@@ -294,7 +331,8 @@ async def get_children(
 @router.post("/{employer_id}/sync-workers")
 async def sync_all_workers_to_structures(
     employer_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user=Depends(require_roles(*READ_PAYROLL_ROLES)),
 ) -> Dict[str, Any]:
     """
     Valide les affectations des salariés d'un employeur sans les modifier.
@@ -303,6 +341,7 @@ async def sync_all_workers_to_structures(
     logger.info(f"Validating worker assignments for employer {employer_id}")
     
     # Verify employer exists
+    _ensure_employer_scope(db, user, employer_id)
     employer = db.query(Employer).filter(Employer.id == employer_id).first()
     if not employer:
         raise HTTPException(status_code=404, detail="Employer not found")
@@ -321,7 +360,8 @@ async def sync_all_workers_to_structures(
 @router.post("/{employer_id}/force-sync-workers")
 async def force_sync_all_workers_to_structures(
     employer_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user=Depends(require_roles(*WRITE_RH_ROLES)),
 ) -> Dict[str, Any]:
     """
     FORCE la synchronisation de tous les salariés d'un employeur vers les structures hiérarchiques.
@@ -330,6 +370,7 @@ async def force_sync_all_workers_to_structures(
     logger.warning(f"FORCE synchronizing all workers for employer {employer_id}")
     
     # Verify employer exists
+    _ensure_employer_scope(db, user, employer_id)
     employer = db.query(Employer).filter(Employer.id == employer_id).first()
     if not employer:
         raise HTTPException(status_code=404, detail="Employer not found")
@@ -348,7 +389,8 @@ async def force_sync_all_workers_to_structures(
 @router.get("/{employer_id}/validate-assignments")
 async def validate_worker_assignments(
     employer_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user=Depends(require_roles(*READ_PAYROLL_ROLES)),
 ) -> Dict[str, Any]:
     """
     Valide que toutes les affectations des salariés correspondent aux structures existantes.
@@ -357,6 +399,7 @@ async def validate_worker_assignments(
     logger.info(f"Validating worker assignments for employer {employer_id}")
     
     # Verify employer exists
+    _ensure_employer_scope(db, user, employer_id)
     employer = db.query(Employer).filter(Employer.id == employer_id).first()
     if not employer:
         raise HTTPException(status_code=404, detail="Employer not found")
@@ -378,7 +421,8 @@ async def sync_structure_change(
     old_name: str = Query(..., description="Ancien nom de la structure"),
     new_name: str = Query(..., description="Nouveau nom de la structure"),
     structure_type: str = Query(..., description="Type de structure (etablissement, departement, service, unite)"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user=Depends(require_roles(*WRITE_RH_ROLES)),
 ) -> Dict[str, Any]:
     """
     Synchronise les affectations des salariés après un changement de nom de structure.
@@ -387,6 +431,7 @@ async def sync_structure_change(
     logger.info(f"Syncing structure change for employer {employer_id}: '{old_name}' → '{new_name}' ({structure_type})")
     
     # Verify employer exists
+    _ensure_employer_scope(db, user, employer_id)
     employer = db.query(Employer).filter(Employer.id == employer_id).first()
     if not employer:
         raise HTTPException(status_code=404, detail="Employer not found")

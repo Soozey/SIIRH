@@ -20,6 +20,7 @@ from ..schemas import (
     OrganizationalPathValidationResult,
     OrganizationalMoveRequest
 )
+from ..security import READ_PAYROLL_ROLES, WRITE_RH_ROLES, can_access_employer, require_roles
 
 logger = logging.getLogger(__name__)
 
@@ -29,10 +30,16 @@ router = APIRouter(
 )
 
 
+def _ensure_employer_scope(db: Session, user, employer_id: int):
+    if not can_access_employer(db, user, employer_id):
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+
 @router.get("/tree")
 def get_organizational_tree(
     employer_id: int = Path(..., description="ID de l'employeur"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user=Depends(require_roles(*READ_PAYROLL_ROLES)),
 ):
     """
     Récupère l'arbre hiérarchique complet pour un employeur.
@@ -41,6 +48,7 @@ def get_organizational_tree(
     avec les relations parent-enfant.
     """
     try:
+        _ensure_employer_scope(db, user, employer_id)
         service = HierarchicalOrganizationalService(db)
         tree = service.get_organizational_tree(employer_id)
         
@@ -69,7 +77,8 @@ def get_cascading_options(
     employer_id: int = Path(..., description="ID de l'employeur"),
     parent_id: Optional[int] = Query(None, description="ID du parent (None pour les établissements)"),
     level: Optional[str] = Query(None, description="Niveau souhaité (optionnel)"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user=Depends(require_roles(*READ_PAYROLL_ROLES))
 ):
     """
     Récupère les options pour le filtrage en cascade.
@@ -78,6 +87,7 @@ def get_cascading_options(
     - Sinon, retourne les enfants directs du parent spécifié
     """
     try:
+        _ensure_employer_scope(db, user, employer_id)
         service = HierarchicalOrganizationalService(db)
         options = service.get_cascading_options(employer_id, parent_id, level)
         
@@ -92,7 +102,8 @@ def get_cascading_options(
 def create_organizational_node(
     employer_id: int = Path(..., description="ID de l'employeur"),
     data: OrganizationalNodeCreate = ...,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user=Depends(require_roles(*WRITE_RH_ROLES))
 ):
     """
     Crée un nouveau nœud organisationnel.
@@ -100,6 +111,7 @@ def create_organizational_node(
     Valide automatiquement la cohérence hiérarchique et l'unicité du nom.
     """
     try:
+        _ensure_employer_scope(db, user, employer_id)
         service = HierarchicalOrganizationalService(db)
         node = service.create_node(
             employer_id=employer_id,
@@ -125,7 +137,8 @@ def update_organizational_node(
     employer_id: int = Path(..., description="ID de l'employeur"),
     node_id: int = Path(..., description="ID du nœud à mettre à jour"),
     data: OrganizationalNodeUpdate = ...,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user=Depends(require_roles(*WRITE_RH_ROLES))
 ):
     """
     Met à jour un nœud organisationnel.
@@ -133,6 +146,7 @@ def update_organizational_node(
     Seuls les champs fournis sont mis à jour. Valide l'unicité du nom si modifié.
     """
     try:
+        _ensure_employer_scope(db, user, employer_id)
         service = HierarchicalOrganizationalService(db)
         node = service.update_node(
             node_id=node_id,
@@ -156,7 +170,8 @@ def delete_organizational_node(
     employer_id: int = Path(..., description="ID de l'employeur"),
     node_id: int = Path(..., description="ID du nœud à supprimer"),
     force: bool = Query(False, description="Forcer la suppression même avec des enfants ou salariés"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user=Depends(require_roles(*WRITE_RH_ROLES))
 ):
     """
     Supprime un nœud organisationnel (suppression logique).
@@ -169,6 +184,7 @@ def delete_organizational_node(
     - Interdit la suppression si des salariés y sont rattachés (sauf force=True)
     """
     try:
+        _ensure_employer_scope(db, user, employer_id)
         service = HierarchicalOrganizationalService(db)
         success = service.delete_node(node_id=node_id, force=force)
         
@@ -188,7 +204,8 @@ def delete_organizational_node(
 def get_node_deletion_info(
     employer_id: int = Path(..., description="ID de l'employeur"),
     node_id: int = Path(..., description="ID du nœud"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user=Depends(require_roles(*READ_PAYROLL_ROLES))
 ):
     """
     Récupère les informations nécessaires pour la suppression d'un nœud.
@@ -200,6 +217,7 @@ def get_node_deletion_info(
     - Avertissements éventuels
     """
     try:
+        _ensure_employer_scope(db, user, employer_id)
         service = HierarchicalOrganizationalService(db)
         info = service.get_node_deletion_info(node_id)
         return info
@@ -216,7 +234,8 @@ def move_organizational_node(
     employer_id: int = Path(..., description="ID de l'employeur"),
     node_id: int = Path(..., description="ID du nœud à déplacer"),
     move_data: OrganizationalMoveRequest = ...,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user=Depends(require_roles(*WRITE_RH_ROLES))
 ):
     """
     Déplace un nœud vers un nouveau parent.
@@ -225,6 +244,7 @@ def move_organizational_node(
     les niveaux et chemins hiérarchiques.
     """
     try:
+        _ensure_employer_scope(db, user, employer_id)
         service = HierarchicalOrganizationalService(db)
         node = service.move_node(
             node_id=node_id,
@@ -244,7 +264,8 @@ def move_organizational_node(
 def validate_organizational_path(
     employer_id: int = Path(..., description="ID de l'employeur"),
     path_data: OrganizationalPathValidation = ...,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user=Depends(require_roles(*READ_PAYROLL_ROLES))
 ):
     """
     Valide qu'un chemin organisationnel est cohérent hiérarchiquement.
@@ -253,6 +274,7 @@ def validate_organizational_path(
     et respectent la hiérarchie parent-enfant.
     """
     try:
+        _ensure_employer_scope(db, user, employer_id)
         service = HierarchicalOrganizationalService(db)
         is_valid, errors = service.validate_organizational_path(
             employer_id=employer_id,
@@ -276,12 +298,14 @@ def validate_organizational_path(
 def get_organizational_node(
     employer_id: int = Path(..., description="ID de l'employeur"),
     node_id: int = Path(..., description="ID du nœud"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user=Depends(require_roles(*READ_PAYROLL_ROLES))
 ):
     """
     Récupère un nœud organisationnel spécifique.
     """
     try:
+        _ensure_employer_scope(db, user, employer_id)
         from ..models import OrganizationalNode
         
         node = db.query(OrganizationalNode).filter(
@@ -307,7 +331,8 @@ def get_nodes_by_level(
     employer_id: int = Path(..., description="ID de l'employeur"),
     level: str = Path(..., description="Niveau hiérarchique"),
     active_only: bool = Query(True, description="Inclure seulement les nœuds actifs"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user=Depends(require_roles(*READ_PAYROLL_ROLES))
 ):
     """
     Récupère tous les nœuds d'un niveau hiérarchique spécifique.
@@ -315,6 +340,7 @@ def get_nodes_by_level(
     Utile pour les interfaces de filtrage et de sélection.
     """
     try:
+        _ensure_employer_scope(db, user, employer_id)
         from ..models import OrganizationalNode
         
         # Valider le niveau
@@ -360,7 +386,8 @@ def search_organizational_nodes(
     query: str = Query(..., min_length=1, description="Terme de recherche"),
     level: Optional[str] = Query(None, description="Filtrer par niveau"),
     active_only: bool = Query(True, description="Inclure seulement les nœuds actifs"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user=Depends(require_roles(*READ_PAYROLL_ROLES))
 ):
     """
     Recherche dans les nœuds organisationnels par nom ou code.
@@ -368,6 +395,7 @@ def search_organizational_nodes(
     Supporte la recherche partielle et le filtrage par niveau.
     """
     try:
+        _ensure_employer_scope(db, user, employer_id)
         from ..models import OrganizationalNode
         from sqlalchemy import or_
         

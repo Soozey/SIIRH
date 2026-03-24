@@ -8,6 +8,14 @@ from datetime import datetime
 
 from ..config.config import get_db
 from .. import models
+from ..security import (
+    PAYROLL_WRITE_ROLES,
+    READ_PAYROLL_ROLES,
+    WRITE_RH_ROLES,
+    can_access_employer,
+    can_access_worker,
+    require_roles,
+)
 
 router = APIRouter(
     prefix="/primes",
@@ -39,12 +47,34 @@ class PrimeOut(PrimeBase):
     class Config:
         from_attributes = True
 
+
+def _ensure_employer_access(db: Session, user: models.AppUser, employer_id: int) -> None:
+    if not can_access_employer(db, user, employer_id):
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+
+def _get_worker_or_404(db: Session, worker_id: int) -> models.Worker:
+    worker = db.query(models.Worker).filter(models.Worker.id == worker_id).first()
+    if not worker:
+        raise HTTPException(status_code=404, detail="Worker not found")
+    return worker
+
 @router.get("/", response_model=List[PrimeOut])
-def get_primes(employer_id: int, db: Session = Depends(get_db)):
+def get_primes(
+    employer_id: int,
+    db: Session = Depends(get_db),
+    user: models.AppUser = Depends(require_roles(*READ_PAYROLL_ROLES)),
+):
+    _ensure_employer_access(db, user, employer_id)
     return db.query(models.Prime).filter(models.Prime.employer_id == employer_id).all()
 
 @router.post("/", response_model=PrimeOut)
-def create_prime(prime: PrimeCreate, db: Session = Depends(get_db)):
+def create_prime(
+    prime: PrimeCreate,
+    db: Session = Depends(get_db),
+    user: models.AppUser = Depends(require_roles(*WRITE_RH_ROLES)),
+):
+    _ensure_employer_access(db, user, prime.employer_id)
     db_prime = models.Prime(**prime.dict())
     db.add(db_prime)
     db.commit()
@@ -52,10 +82,18 @@ def create_prime(prime: PrimeCreate, db: Session = Depends(get_db)):
     return db_prime
 
 @router.put("/{prime_id}", response_model=PrimeOut)
-def update_prime(prime_id: int, prime: PrimeCreate, db: Session = Depends(get_db)):
+def update_prime(
+    prime_id: int,
+    prime: PrimeCreate,
+    db: Session = Depends(get_db),
+    user: models.AppUser = Depends(require_roles(*WRITE_RH_ROLES)),
+):
     db_prime = db.query(models.Prime).get(prime_id)
     if not db_prime:
         raise HTTPException(404, "Prime not found")
+    _ensure_employer_access(db, user, db_prime.employer_id)
+    if prime.employer_id != db_prime.employer_id:
+        raise HTTPException(status_code=400, detail="Changing employer_id is not allowed")
     
     for key, value in prime.dict().items():
         setattr(db_prime, key, value)
@@ -65,10 +103,15 @@ def update_prime(prime_id: int, prime: PrimeCreate, db: Session = Depends(get_db
     return db_prime
 
 @router.delete("/{prime_id}")
-def delete_prime(prime_id: int, db: Session = Depends(get_db)):
+def delete_prime(
+    prime_id: int,
+    db: Session = Depends(get_db),
+    user: models.AppUser = Depends(require_roles(*WRITE_RH_ROLES)),
+):
     db_prime = db.query(models.Prime).get(prime_id)
     if not db_prime:
         raise HTTPException(404, "Prime not found")
+    _ensure_employer_access(db, user, db_prime.employer_id)
     db.delete(db_prime)
     db.commit()
     return {"message": "Deleted"}
@@ -79,7 +122,20 @@ class AssociationRequest(BaseModel):
     is_active: bool = True
 
 @router.post("/associations")
-def set_worker_prime_association(assoc: AssociationRequest, db: Session = Depends(get_db)):
+def set_worker_prime_association(
+    assoc: AssociationRequest,
+    db: Session = Depends(get_db),
+    user: models.AppUser = Depends(require_roles(*WRITE_RH_ROLES)),
+):
+    worker = _get_worker_or_404(db, assoc.worker_id)
+    if not can_access_worker(db, user, worker):
+        raise HTTPException(status_code=403, detail="Forbidden")
+    prime = db.query(models.Prime).filter(models.Prime.id == assoc.prime_id).first()
+    if not prime:
+        raise HTTPException(status_code=404, detail="Prime not found")
+    if prime.employer_id != worker.employer_id:
+        raise HTTPException(status_code=400, detail="Prime and worker must belong to same employer")
+
     link = db.query(models.WorkerPrimeLink).filter(
         models.WorkerPrimeLink.worker_id == assoc.worker_id,
         models.WorkerPrimeLink.prime_id == assoc.prime_id
@@ -94,7 +150,14 @@ def set_worker_prime_association(assoc: AssociationRequest, db: Session = Depend
     return {"message": "Updated"}
 
 @router.get("/associations", response_model=List[dict])
-def get_worker_associations(worker_id: int, db: Session = Depends(get_db)):
+def get_worker_associations(
+    worker_id: int,
+    db: Session = Depends(get_db),
+    user: models.AppUser = Depends(require_roles(*READ_PAYROLL_ROLES)),
+):
+    worker = _get_worker_or_404(db, worker_id)
+    if not can_access_worker(db, user, worker):
+        raise HTTPException(status_code=403, detail="Forbidden")
     links = db.query(models.WorkerPrimeLink).filter(models.WorkerPrimeLink.worker_id == worker_id).all()
     # Return list of active IDs or detailed objects
     return [{"prime_id": l.prime_id, "is_active": l.is_active} for l in links]
@@ -104,13 +167,15 @@ def get_worker_associations(worker_id: int, db: Session = Depends(get_db)):
 def reset_prime_overrides(
     period: str = Query(...),
     employer_id: int = Query(...),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: models.AppUser = Depends(require_roles(*PAYROLL_WRITE_ROLES)),
 ):
     """
     Réinitialise manuellement les overrides de primes (PayrollPrime) pour une période donnée.
     Supprime toutes les valeurs importées pour revenir aux formules par défaut.
     """
     # Récupérer tous les workers de l'employeur
+    _ensure_employer_access(db, user, employer_id)
     workers = db.query(models.Worker).filter(models.Worker.employer_id == employer_id).all()
     worker_ids = [w.id for w in workers]
     
@@ -134,11 +199,13 @@ def reset_prime_overrides(
 @router.get("/template")
 def download_primes_template(
     employer_id: int = Query(...),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: models.AppUser = Depends(require_roles(*READ_PAYROLL_ROLES)),
 ):
     """
     Génère un modèle Excel dynamique incluant Primes 1-5 (Nombre/Base), 13ème mois et Primes détaillées.
     """
+    _ensure_employer_access(db, user, employer_id)
     employer = db.query(models.Employer).filter(models.Employer.id == employer_id).first()
     if not employer:
         raise HTTPException(status_code=404, detail="Employer not found")
@@ -192,7 +259,8 @@ async def import_primes(
     file: UploadFile = File(...),
     period: str = Form(...),
     employer_id: int = Form(...),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: models.AppUser = Depends(require_roles(*PAYROLL_WRITE_ROLES)),
 ):
     """
     Importe les valeurs variables (Nombre/Base) des primes depuis un fichier Excel.
@@ -202,6 +270,7 @@ async def import_primes(
         raise HTTPException(status_code=400, detail="Fichier invalide. Format attendu : .xlsx")
 
     # Fetch Employer for labels
+    _ensure_employer_access(db, user, employer_id)
     employer = db.query(models.Employer).filter(models.Employer.id == employer_id).first()
     if not employer:
         raise HTTPException(status_code=404, detail="Employer not found")
@@ -264,7 +333,10 @@ async def import_primes(
                 continue # Ligne vide ou fin de fichier
             
             # Trouver le travailleur
-            worker = db.query(models.Worker).filter(models.Worker.matricule == str(matricule)).first()
+            worker = db.query(models.Worker).filter(
+                models.Worker.matricule == str(matricule),
+                models.Worker.employer_id == employer_id,
+            ).first()
             if not worker:
                 errors.append(f"Ligne {row_idx}: Matricule {matricule} inconnu.")
                 continue

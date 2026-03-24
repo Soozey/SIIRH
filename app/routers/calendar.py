@@ -7,6 +7,7 @@ from pydantic import BaseModel
 
 from .. import models
 from ..config.config import get_db
+from ..security import READ_PAYROLL_ROLES, WRITE_RH_ROLES, can_access_employer, require_roles
 
 router = APIRouter(
     prefix="/calendar",
@@ -24,7 +25,15 @@ class ToggleRequest(BaseModel):
     is_worked: bool
 
 @router.get("/{employer_id}/{year}/{month}", response_model=List[CalendarDayOut])
-def get_month_calendar(employer_id: int, year: int, month: int, db: Session = Depends(get_db)):
+def get_month_calendar(
+    employer_id: int,
+    year: int,
+    month: int,
+    db: Session = Depends(get_db),
+    user: models.AppUser = Depends(require_roles(*READ_PAYROLL_ROLES)),
+):
+    if not can_access_employer(db, user, employer_id):
+        raise HTTPException(status_code=403, detail="Forbidden")
     # 1. Fetch overrides from DB
     _, last_day = pycalendar.monthrange(year, month)
     start = date(year, month, 1)
@@ -58,7 +67,13 @@ def get_month_calendar(employer_id: int, year: int, month: int, db: Session = De
     return result
 
 @router.post("/toggle")
-def toggle_day(req: ToggleRequest, db: Session = Depends(get_db)):
+def toggle_day(
+    req: ToggleRequest,
+    db: Session = Depends(get_db),
+    user: models.AppUser = Depends(require_roles(*WRITE_RH_ROLES)),
+):
+    if not can_access_employer(db, user, req.employer_id):
+        raise HTTPException(status_code=403, detail="Forbidden")
     # Check if exists
     day_entry = db.query(models.CalendarDay).filter(
         models.CalendarDay.employer_id == req.employer_id,

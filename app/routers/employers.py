@@ -7,7 +7,13 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
 from ..config.config import get_db
 from .. import models, schemas
-from ..security import READ_PAYROLL_ROLES, WRITE_RH_ROLES, require_roles
+from ..security import (
+    READ_PAYROLL_ROLES,
+    WRITE_RH_ROLES,
+    can_access_employer,
+    require_roles,
+    resolve_user_employer_id,
+)
 from ..services.audit_service import record_audit
 from ..services.file_storage import build_static_path, sanitize_filename_part, save_upload_file
 import json
@@ -15,12 +21,9 @@ import json
 router = APIRouter(prefix="/employers", tags=["employers"])
 
 
-def _ensure_employer_scope(user: models.AppUser, employer_id: int):
-    if user.role_code in {"admin", "rh", "comptable", "audit"}:
-        return
-    if user.role_code == "employeur" and user.employer_id == employer_id:
-        return
-    raise HTTPException(status_code=403, detail="Forbidden")
+def _ensure_employer_scope(db: Session, user: models.AppUser, employer_id: int):
+    if not can_access_employer(db, user, employer_id):
+        raise HTTPException(status_code=403, detail="Forbidden")
 
 
 def _deserialize_lists(emp: models.Employer):
@@ -99,8 +102,17 @@ def list_employers(
     user: models.AppUser = Depends(require_roles(*READ_PAYROLL_ROLES)),
 ):
     query = db.query(models.Employer)
-    if user.role_code == "employeur" and user.employer_id:
-        query = query.filter(models.Employer.id == user.employer_id)
+    if user.role_code in {"employeur", "direction", "juridique", "recrutement", "inspecteur"}:
+        if user.employer_id:
+            query = query.filter(models.Employer.id == user.employer_id)
+        else:
+            query = query.filter(models.Employer.id == -1)
+    elif user.role_code in {"manager", "departement", "employe"}:
+        scoped_employer_id = resolve_user_employer_id(db, user)
+        if scoped_employer_id:
+            query = query.filter(models.Employer.id == scoped_employer_id)
+        else:
+            query = query.filter(models.Employer.id == -1)
     query = query.order_by(models.Employer.raison_sociale.asc())
     if page and page_size:
         query = query.offset((page - 1) * page_size).limit(page_size)
@@ -115,8 +127,17 @@ def list_employers_paginated(
     user: models.AppUser = Depends(require_roles(*READ_PAYROLL_ROLES)),
 ):
     query = db.query(models.Employer)
-    if user.role_code == "employeur" and user.employer_id:
-        query = query.filter(models.Employer.id == user.employer_id)
+    if user.role_code in {"employeur", "direction", "juridique", "recrutement", "inspecteur"}:
+        if user.employer_id:
+            query = query.filter(models.Employer.id == user.employer_id)
+        else:
+            query = query.filter(models.Employer.id == -1)
+    elif user.role_code in {"manager", "departement", "employe"}:
+        scoped_employer_id = resolve_user_employer_id(db, user)
+        if scoped_employer_id:
+            query = query.filter(models.Employer.id == scoped_employer_id)
+        else:
+            query = query.filter(models.Employer.id == -1)
     total = query.count()
     items = query.order_by(models.Employer.raison_sociale.asc()).offset((page - 1) * page_size).limit(page_size).all()
     return schemas.PaginatedEmployersOut(
@@ -134,7 +155,7 @@ def get_employer(
     db: Session = Depends(get_db),
     user: models.AppUser = Depends(require_roles(*READ_PAYROLL_ROLES)),
 ):
-    _ensure_employer_scope(user, employer_id)
+    _ensure_employer_scope(db, user, employer_id)
     emp = db.query(models.Employer).filter(models.Employer.id == employer_id).first()
     if not emp:
         raise HTTPException(status_code=404, detail="Employeur non trouve")
@@ -148,7 +169,7 @@ def update_employer(
     db: Session = Depends(get_db),
     user: models.AppUser = Depends(require_roles(*WRITE_RH_ROLES)),
 ):
-    _ensure_employer_scope(user, employer_id)
+    _ensure_employer_scope(db, user, employer_id)
     emp = db.query(models.Employer).filter(models.Employer.id == employer_id).first()
     if not emp:
         raise HTTPException(status_code=404, detail="Employeur non trouvé")
@@ -221,7 +242,7 @@ def delete_employer(
     db: Session = Depends(get_db),
     user: models.AppUser = Depends(require_roles(*WRITE_RH_ROLES)),
 ):
-    _ensure_employer_scope(user, employer_id)
+    _ensure_employer_scope(db, user, employer_id)
     emp = db.query(models.Employer).filter(models.Employer.id == employer_id).first()
     if not emp:
         raise HTTPException(status_code=404, detail="Employeur non trouvé")
@@ -261,7 +282,7 @@ def get_workers_organizational_data(
     user: models.AppUser = Depends(require_roles(*READ_PAYROLL_ROLES)),
 ):
     """Récupère toutes les données organisationnelles réelles des salariés pour un employeur"""
-    _ensure_employer_scope(user, employer_id)
+    _ensure_employer_scope(db, user, employer_id)
     try:
         # Récupérer tous les salariés de l'employeur avec leurs données organisationnelles
         workers = db.query(models.Worker).filter(
@@ -301,7 +322,7 @@ def get_hierarchical_organizational_data(
     user: models.AppUser = Depends(require_roles(*READ_PAYROLL_ROLES)),
 ):
     """Récupère les données organisationnelles depuis les structures hiérarchiques"""
-    _ensure_employer_scope(user, employer_id)
+    _ensure_employer_scope(db, user, employer_id)
     try:
         # Récupérer toutes les unités organisationnelles de l'employeur
         organizational_units = db.query(models.OrganizationalUnit).filter(
@@ -344,7 +365,7 @@ def get_filtered_organizational_data(
     user: models.AppUser = Depends(require_roles(*READ_PAYROLL_ROLES)),
 ):
     """Récupère les données organisationnelles filtrées en cascade"""
-    _ensure_employer_scope(user, employer_id)
+    _ensure_employer_scope(db, user, employer_id)
     try:
         # Construire la requête de base
         query = db.query(models.Worker).filter(models.Worker.employer_id == employer_id)
@@ -395,7 +416,7 @@ def get_hierarchical_filtered_organizational_data(
     user: models.AppUser = Depends(require_roles(*READ_PAYROLL_ROLES)),
 ):
     """Récupère les données organisationnelles filtrées en cascade depuis les structures hiérarchiques"""
-    _ensure_employer_scope(user, employer_id)
+    _ensure_employer_scope(db, user, employer_id)
     try:
         # Récupérer toutes les unités organisationnelles de l'employeur
         all_units = db.query(models.OrganizationalUnit).filter(
@@ -494,7 +515,7 @@ def upload_logo(
     db: Session = Depends(get_db),
     user: models.AppUser = Depends(require_roles(*WRITE_RH_ROLES)),
 ):
-    _ensure_employer_scope(user, employer_id)
+    _ensure_employer_scope(db, user, employer_id)
     employer = db.query(models.Employer).filter(models.Employer.id == employer_id).first()
     if not employer:
         raise HTTPException(status_code=404, detail="Employer not found")

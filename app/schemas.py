@@ -1000,6 +1000,53 @@ class UserSessionOut(BaseModel):
     worker_id: Optional[int] = None
 
 
+class AppUserLightOut(BaseModel):
+    id: int
+    username: str
+    full_name: Optional[str] = None
+    role_code: str
+    employer_id: Optional[int] = None
+    worker_id: Optional[int] = None
+    is_active: bool = True
+
+    class Config:
+        from_attributes = True
+
+
+class RoleCatalogItemOut(BaseModel):
+    code: str
+    label: str
+    scope: str
+    modules: Dict[str, List[str]]
+
+
+class AppUserCreateIn(BaseModel):
+    username: str
+    password: str
+    full_name: Optional[str] = None
+    role_code: str
+    employer_id: Optional[int] = None
+    worker_id: Optional[int] = None
+    is_active: bool = True
+
+
+class AppUserUpdateIn(BaseModel):
+    full_name: Optional[str] = None
+    password: Optional[str] = None
+    role_code: Optional[str] = None
+    employer_id: Optional[int] = None
+    worker_id: Optional[int] = None
+    is_active: Optional[bool] = None
+
+
+class AppUserOut(AppUserLightOut):
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
 class ReviewWorkflowIn(BaseModel):
     approved: bool
     comment: Optional[str] = None
@@ -1413,6 +1460,267 @@ class RecruitmentConversionOut(BaseModel):
     decision_id: int
 
 
+class ContractVersionCreate(BaseModel):
+    contract_id: int
+    status: str = "generated"
+    source_module: str = "contracts"
+    effective_date: Optional[date] = None
+    salary_amount: Optional[float] = None
+    classification_index: Optional[str] = None
+
+
+class ContractVersionOut(BaseModel):
+    id: int
+    contract_id: int
+    worker_id: int
+    employer_id: int
+    version_number: int
+    source_module: str
+    status: str
+    effective_date: Optional[date] = None
+    salary_amount: Optional[float] = None
+    classification_index: Optional[str] = None
+    snapshot_json: str
+    created_by_user_id: Optional[int] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class ComplianceReviewCreate(BaseModel):
+    contract_id: Optional[int] = None
+    contract_version_id: Optional[int] = None
+    worker_id: Optional[int] = None
+    employer_id: int
+    review_type: str = "contract_control"
+    review_stage: str = "pre_signature"
+    status: str = "draft"
+    due_at: Optional[datetime] = None
+    requested_documents: List[str] = Field(default_factory=list)
+    tags: List[str] = Field(default_factory=list)
+
+
+class ComplianceReviewStatusUpdate(BaseModel):
+    status: str
+    review_stage: Optional[str] = None
+    note: Optional[str] = None
+
+
+class ComplianceReviewOut(BaseModel):
+    id: int
+    employer_id: int
+    worker_id: Optional[int] = None
+    contract_id: Optional[int] = None
+    contract_version_id: Optional[int] = None
+    review_type: str
+    review_stage: str
+    status: str
+    source_module: str
+    checklist: List[Dict[str, Any]] = Field(default_factory=list)
+    observations: List[Dict[str, Any]] = Field(default_factory=list)
+    requested_documents: List[str] = Field(default_factory=list)
+    tags: List[str] = Field(default_factory=list)
+    due_at: Optional[datetime] = None
+    submitted_to_inspector_at: Optional[datetime] = None
+    reviewed_by_user_id: Optional[int] = None
+    created_by_user_id: Optional[int] = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class InspectorObservationCreate(BaseModel):
+    visibility: str = "restricted"
+    observation_type: str = "general"
+    status_marker: str = "observation"
+    message: str
+    structured_payload: Dict[str, Any] = Field(default_factory=dict)
+
+
+class InspectorObservationOut(BaseModel):
+    id: int
+    review_id: int
+    employer_id: int
+    author_user_id: Optional[int] = None
+    visibility: str
+    observation_type: str
+    status_marker: str
+    message: str
+    structured_payload: Dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime
+
+
+class ComplianceVisitCreate(BaseModel):
+    employer_id: int
+    review_id: Optional[int] = None
+    visit_type: str = "inspection"
+    status: str = "scheduled"
+    inspector_name: Optional[str] = None
+    scheduled_at: Optional[datetime] = None
+    notes: Optional[str] = None
+    attachments: List[Dict[str, Any]] = Field(default_factory=list)
+
+
+class ComplianceVisitOut(BaseModel):
+    id: int
+    employer_id: int
+    review_id: Optional[int] = None
+    visit_type: str
+    status: str
+    inspector_name: Optional[str] = None
+    scheduled_at: Optional[datetime] = None
+    occurred_at: Optional[datetime] = None
+    notes: Optional[str] = None
+    attachments: List[Dict[str, Any]] = Field(default_factory=list)
+    created_at: datetime
+    updated_at: datetime
+
+
+class EmployerRegisterEntryOut(BaseModel):
+    id: int
+    employer_id: int
+    worker_id: Optional[int] = None
+    contract_id: Optional[int] = None
+    contract_version_id: Optional[int] = None
+    entry_type: str
+    registry_label: str
+    status: str
+    effective_date: Optional[date] = None
+    archived_at: Optional[datetime] = None
+    details: Dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime
+    updated_at: datetime
+
+
+class IntegrityIssueOut(BaseModel):
+    severity: str
+    issue_type: str
+    entity_type: str
+    entity_id: str
+    message: str
+    details: Dict[str, Any] = Field(default_factory=dict)
+
+
+class EmployeeFlowOut(BaseModel):
+    worker: Dict[str, Any]
+    candidate: Dict[str, Any] = Field(default_factory=dict)
+    job_posting: Dict[str, Any] = Field(default_factory=dict)
+    decision: Dict[str, Any] = Field(default_factory=dict)
+    contract: Dict[str, Any] = Field(default_factory=dict)
+    contract_versions: List[Dict[str, Any]] = Field(default_factory=list)
+    declarations: List[Dict[str, Any]] = Field(default_factory=list)
+    integrity_issues: List[IntegrityIssueOut] = Field(default_factory=list)
+
+
+class MasterDataSectionOut(BaseModel):
+    data: Dict[str, Any] = Field(default_factory=dict)
+    canonical_hash: Optional[str] = None
+    source_status: Optional[str] = None
+    updated_at: Optional[datetime] = None
+
+
+class MasterDataWorkerViewOut(BaseModel):
+    worker: Dict[str, Any] = Field(default_factory=dict)
+    identity: MasterDataSectionOut
+    employment: MasterDataSectionOut
+    compensation: MasterDataSectionOut
+    organization: MasterDataSectionOut
+    recruitment: Dict[str, Any] = Field(default_factory=dict)
+    contract: Dict[str, Any] = Field(default_factory=dict)
+    contract_versions: List[Dict[str, Any]] = Field(default_factory=list)
+    declarations: List[Dict[str, Any]] = Field(default_factory=list)
+    integrity_issues: List[IntegrityIssueOut] = Field(default_factory=list)
+
+
+class ComplianceDashboardOut(BaseModel):
+    review_counts: Dict[str, int] = Field(default_factory=dict)
+    contract_queue: List[Dict[str, Any]] = Field(default_factory=list)
+    integrity_issues: List[IntegrityIssueOut] = Field(default_factory=list)
+    pending_declarations: List[Dict[str, Any]] = Field(default_factory=list)
+    upcoming_visits: List[ComplianceVisitOut] = Field(default_factory=list)
+
+
+class ExportTemplateOut(BaseModel):
+    id: int
+    code: str
+    type_document: str
+    version: str
+    format: str
+    mapping: Dict[str, Any] = Field(default_factory=dict)
+    options: Dict[str, Any] = Field(default_factory=dict)
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+class StatutoryExportPreviewRequest(BaseModel):
+    employer_id: int
+    template_code: str
+    start_period: str
+    end_period: str
+
+    @field_validator("start_period", "end_period")
+    @classmethod
+    def validate_period_fields(cls, value: str) -> str:
+        return _validate_period(value)
+
+    @model_validator(mode="after")
+    def validate_period_order(self):
+        if self.end_period < self.start_period:
+            raise ValueError("end_period cannot be before start_period")
+        return self
+
+
+class StatutoryExportPreviewOut(BaseModel):
+    template_code: str
+    document_type: str
+    format: str
+    meta: Dict[str, Any] = Field(default_factory=dict)
+    columns: List[str] = Field(default_factory=list)
+    rows: List[Dict[str, Any]] = Field(default_factory=list)
+    issues: List[IntegrityIssueOut] = Field(default_factory=list)
+
+
+class ExportJobOut(BaseModel):
+    id: int
+    employer_id: int
+    template_id: Optional[int] = None
+    snapshot_id: Optional[int] = None
+    requested_by_user_id: Optional[int] = None
+    document_type: str
+    start_period: str
+    end_period: str
+    status: str
+    file_path: Optional[str] = None
+    checksum: Optional[str] = None
+    logs: List[str] = Field(default_factory=list)
+    errors: List[str] = Field(default_factory=list)
+    completed_at: Optional[datetime] = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class StatutoryDeclarationOut(BaseModel):
+    id: int
+    employer_id: int
+    export_job_id: Optional[int] = None
+    channel: str
+    period_label: str
+    status: str
+    reference_number: Optional[str] = None
+    receipt_path: Optional[str] = None
+    totals: Dict[str, Any] = Field(default_factory=dict)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    submitted_at: Optional[datetime] = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class DeclarationSubmissionOut(BaseModel):
+    declaration: StatutoryDeclarationOut
+    download_url: Optional[str] = None
+
+
 class TalentSkillBase(BaseModel):
     employer_id: int
     code: str
@@ -1569,3 +1877,677 @@ class SstIncidentOut(SstIncidentBase):
 
     class Config:
         from_attributes = True
+
+
+class EmployeePortalRequestBase(BaseModel):
+    employer_id: int
+    worker_id: Optional[int] = None
+    request_type: str
+    destination: str = "rh"
+    title: str
+    description: str
+    priority: str = "normal"
+    confidentiality: str = "standard"
+    attachments: List[Dict[str, Any]] = Field(default_factory=list)
+
+
+class EmployeePortalRequestCreate(EmployeePortalRequestBase):
+    pass
+
+
+class EmployeePortalRequestStatusUpdate(BaseModel):
+    status: str
+    note: Optional[str] = None
+
+
+class EmployeePortalRequestOut(EmployeePortalRequestBase):
+    id: int
+    status: str
+    case_number: Optional[str] = None
+    history: List[Dict[str, Any]] = Field(default_factory=list)
+    created_by_user_id: Optional[int] = None
+    assigned_to_user_id: Optional[int] = None
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class InspectorCaseBase(BaseModel):
+    employer_id: int
+    worker_id: Optional[int] = None
+    contract_id: Optional[int] = None
+    portal_request_id: Optional[int] = None
+    case_type: str = "general_claim"
+    source_party: str = "employee"
+    subject: str
+    description: str
+    confidentiality: str = "standard"
+    amicable_attempt_status: str = "not_started"
+    current_stage: str = "filing"
+    attachments: List[Dict[str, Any]] = Field(default_factory=list)
+    tags: List[str] = Field(default_factory=list)
+
+
+class InspectorCaseCreate(InspectorCaseBase):
+    pass
+
+
+class InspectorCaseStatusUpdate(BaseModel):
+    status: str
+    current_stage: Optional[str] = None
+    note: Optional[str] = None
+
+
+class InspectorCaseOut(InspectorCaseBase):
+    id: int
+    case_number: str
+    status: str
+    receipt_reference: Optional[str] = None
+    assigned_inspector_user_id: Optional[int] = None
+    filed_by_user_id: Optional[int] = None
+    last_response_at: Optional[datetime] = None
+    closed_at: Optional[datetime] = None
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class InspectorMessageCreate(BaseModel):
+    sender_role: str = "employee"
+    direction: str = "employee_to_inspector"
+    message_type: str = "message"
+    visibility: str = "case_parties"
+    body: str
+    attachments: List[Dict[str, Any]] = Field(default_factory=list)
+
+
+class InspectorMessageOut(BaseModel):
+    id: int
+    case_id: int
+    employer_id: int
+    author_user_id: Optional[int] = None
+    sender_role: str
+    direction: str
+    message_type: str
+    visibility: str
+    body: str
+    attachments: List[Dict[str, Any]] = Field(default_factory=list)
+    status: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class InspectorCaseAssignmentCreate(BaseModel):
+    inspector_user_id: int
+    scope: str = "lead"
+    notes: Optional[str] = None
+
+
+class InspectorCaseAssignmentUpdate(BaseModel):
+    status: str
+    notes: Optional[str] = None
+
+
+class InspectorCaseAssignmentOut(BaseModel):
+    id: int
+    case_id: int
+    inspector_user_id: int
+    assigned_by_user_id: Optional[int] = None
+    scope: str
+    status: str
+    notes: Optional[str] = None
+    assigned_at: datetime
+    revoked_at: Optional[datetime] = None
+    inspector: Optional[AppUserLightOut] = None
+
+    class Config:
+        from_attributes = True
+
+
+class InspectionDocumentVersionOut(BaseModel):
+    id: int
+    document_id: int
+    case_id: int
+    employer_id: int
+    version_number: int
+    file_name: str
+    original_name: str
+    storage_path: str
+    download_url: Optional[str] = None
+    content_type: Optional[str] = None
+    file_size: Optional[int] = None
+    checksum: Optional[str] = None
+    notes: Optional[str] = None
+    uploaded_by_user_id: Optional[int] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class InspectionDocumentOut(BaseModel):
+    id: int
+    case_id: int
+    employer_id: int
+    uploaded_by_user_id: Optional[int] = None
+    document_type: str
+    title: str
+    description: Optional[str] = None
+    visibility: str
+    confidentiality: str
+    status: str
+    current_version_number: int
+    tags: List[str] = Field(default_factory=list)
+    created_at: datetime
+    updated_at: datetime
+    versions: List[InspectionDocumentVersionOut] = Field(default_factory=list)
+
+    class Config:
+        from_attributes = True
+
+
+class InspectionDocumentAccessLogOut(BaseModel):
+    id: int
+    document_id: int
+    version_id: Optional[int] = None
+    case_id: int
+    user_id: Optional[int] = None
+    action: str
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class EmployeePortalDashboardOut(BaseModel):
+    worker: Dict[str, Any] = Field(default_factory=dict)
+    requests: List[EmployeePortalRequestOut] = Field(default_factory=list)
+    inspector_cases: List[InspectorCaseOut] = Field(default_factory=list)
+    contracts: List[Dict[str, Any]] = Field(default_factory=list)
+    performance_reviews: List[Dict[str, Any]] = Field(default_factory=list)
+    training_plan_items: List[Dict[str, Any]] = Field(default_factory=list)
+    notifications: List[Dict[str, Any]] = Field(default_factory=list)
+
+
+class InternalMessageChannelCreate(BaseModel):
+    employer_id: int
+    title: str
+    description: Optional[str] = None
+    channel_type: str = "group"
+    visibility: str = "internal"
+    ack_required: bool = False
+    member_user_ids: List[int] = Field(default_factory=list)
+
+
+class InternalMessageChannelMemberCreate(BaseModel):
+    user_id: int
+    member_role: str = "member"
+
+
+class InternalMessageChannelMemberOut(BaseModel):
+    id: int
+    channel_id: int
+    user_id: int
+    member_role: str
+    is_active: bool
+    last_read_at: Optional[datetime] = None
+    joined_at: datetime
+    user: Optional[AppUserLightOut] = None
+
+    class Config:
+        from_attributes = True
+
+
+class InternalMessageCreate(BaseModel):
+    message_type: str = "message"
+    body: str
+    attachments: List[Dict[str, Any]] = Field(default_factory=list)
+
+
+class InternalMessageOut(BaseModel):
+    id: int
+    channel_id: int
+    employer_id: int
+    author_user_id: Optional[int] = None
+    message_type: str
+    body: str
+    attachments: List[Dict[str, Any]] = Field(default_factory=list)
+    status: str
+    created_at: datetime
+    updated_at: datetime
+    author: Optional[AppUserLightOut] = None
+    receipt_status: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class InternalMessageChannelOut(BaseModel):
+    id: int
+    channel_code: str
+    employer_id: int
+    created_by_user_id: Optional[int] = None
+    channel_type: str
+    title: str
+    description: Optional[str] = None
+    visibility: str
+    ack_required: bool
+    status: str
+    member_count: int = 0
+    unread_count: int = 0
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class InternalNoticeCreate(BaseModel):
+    employer_id: int
+    title: str
+    body: str
+    notice_type: str = "service_note"
+    audience_role: Optional[str] = None
+    ack_required: bool = False
+    expires_at: Optional[datetime] = None
+    attachments: List[Dict[str, Any]] = Field(default_factory=list)
+
+
+class InternalNoticeOut(BaseModel):
+    id: int
+    employer_id: int
+    created_by_user_id: Optional[int] = None
+    title: str
+    body: str
+    notice_type: str
+    audience_role: Optional[str] = None
+    status: str
+    ack_required: bool
+    attachments: List[Dict[str, Any]] = Field(default_factory=list)
+    published_at: Optional[datetime] = None
+    expires_at: Optional[datetime] = None
+    created_at: datetime
+    updated_at: datetime
+    acknowledged_by_current_user: bool = False
+
+    class Config:
+        from_attributes = True
+
+
+class InternalMessagesDashboardOut(BaseModel):
+    online_users: int = 0
+    active_channels: int = 0
+    unread_messages: int = 0
+    pending_acknowledgements: int = 0
+    notices: List[InternalNoticeOut] = Field(default_factory=list)
+    channels: List[InternalMessageChannelOut] = Field(default_factory=list)
+
+
+class WorkforceJobProfileBase(BaseModel):
+    employer_id: int
+    title: str
+    department: Optional[str] = None
+    category_prof: Optional[str] = None
+    classification_index: Optional[str] = None
+    criticality: str = "medium"
+    target_headcount: Optional[int] = None
+    required_skills: List[Dict[str, Any]] = Field(default_factory=list)
+    mobility_paths: List[str] = Field(default_factory=list)
+    succession_candidates: List[str] = Field(default_factory=list)
+    notes: Optional[str] = None
+
+
+class WorkforceJobProfileCreate(WorkforceJobProfileBase):
+    pass
+
+
+class WorkforceJobProfileOut(WorkforceJobProfileBase):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class PerformanceCycleBase(BaseModel):
+    employer_id: int
+    name: str
+    cycle_type: str = "annual"
+    start_date: date
+    end_date: date
+    status: str = "draft"
+    objectives: List[Dict[str, Any]] = Field(default_factory=list)
+
+
+class PerformanceCycleCreate(PerformanceCycleBase):
+    pass
+
+
+class PerformanceCycleOut(PerformanceCycleBase):
+    id: int
+    created_by_user_id: Optional[int] = None
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class PerformanceReviewBase(BaseModel):
+    cycle_id: int
+    employer_id: int
+    worker_id: int
+    status: str = "draft"
+    overall_score: Optional[float] = None
+    self_assessment: Optional[str] = None
+    manager_comment: Optional[str] = None
+    hr_comment: Optional[str] = None
+    objectives: List[Dict[str, Any]] = Field(default_factory=list)
+    competencies: List[Dict[str, Any]] = Field(default_factory=list)
+    development_actions: List[Dict[str, Any]] = Field(default_factory=list)
+    promotion_recommendation: Optional[str] = None
+
+
+class PerformanceReviewCreate(PerformanceReviewBase):
+    reviewer_user_id: Optional[int] = None
+    manager_user_id: Optional[int] = None
+
+
+class PerformanceReviewStatusUpdate(BaseModel):
+    status: str
+    note: Optional[str] = None
+
+
+class PerformanceReviewOut(PerformanceReviewBase):
+    id: int
+    reviewer_user_id: Optional[int] = None
+    manager_user_id: Optional[int] = None
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class WorkforcePlanningBase(BaseModel):
+    employer_id: int
+    planning_year: int
+    title: str
+    job_profile_id: Optional[int] = None
+    current_headcount: int = 0
+    target_headcount: int = 0
+    recruitment_need: int = 0
+    mobility_need: int = 0
+    criticality: str = "medium"
+    status: str = "draft"
+    assumptions: List[Dict[str, Any]] = Field(default_factory=list)
+    notes: Optional[str] = None
+
+
+class WorkforcePlanningCreate(WorkforcePlanningBase):
+    pass
+
+
+class WorkforcePlanningOut(WorkforcePlanningBase):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class TrainingNeedBase(BaseModel):
+    employer_id: int
+    worker_id: Optional[int] = None
+    review_id: Optional[int] = None
+    job_profile_id: Optional[int] = None
+    source: str = "gpec"
+    priority: str = "medium"
+    title: str
+    description: Optional[str] = None
+    target_skill: Optional[str] = None
+    gap_level: Optional[int] = None
+    recommended_training_id: Optional[int] = None
+    status: str = "identified"
+    due_date: Optional[date] = None
+
+
+class TrainingNeedCreate(TrainingNeedBase):
+    pass
+
+
+class TrainingNeedStatusUpdate(BaseModel):
+    status: str
+    note: Optional[str] = None
+
+
+class TrainingNeedOut(TrainingNeedBase):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class TrainingPlanBase(BaseModel):
+    employer_id: int
+    name: str
+    plan_year: int
+    budget_amount: float = 0.0
+    status: str = "draft"
+    objectives: List[Dict[str, Any]] = Field(default_factory=list)
+    fmfp_tracking: Dict[str, Any] = Field(default_factory=dict)
+
+
+class TrainingPlanCreate(TrainingPlanBase):
+    pass
+
+
+class TrainingPlanOut(TrainingPlanBase):
+    id: int
+    created_by_user_id: Optional[int] = None
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class TrainingPlanItemBase(BaseModel):
+    training_plan_id: int
+    need_id: Optional[int] = None
+    training_id: Optional[int] = None
+    training_session_id: Optional[int] = None
+    worker_id: Optional[int] = None
+    status: str = "planned"
+    estimated_cost: float = 0.0
+    funding_source: Optional[str] = None
+    fmfp_eligible: bool = False
+    scheduled_start: Optional[date] = None
+    scheduled_end: Optional[date] = None
+    notes: Optional[str] = None
+
+
+class TrainingPlanItemCreate(TrainingPlanItemBase):
+    pass
+
+
+class TrainingPlanItemOut(TrainingPlanItemBase):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class TrainingEvaluationBase(BaseModel):
+    employer_id: int
+    training_session_id: Optional[int] = None
+    worker_id: int
+    evaluation_type: str = "hot"
+    score: Optional[float] = None
+    impact_level: Optional[str] = None
+    comments: Optional[str] = None
+
+
+class TrainingEvaluationCreate(TrainingEvaluationBase):
+    pass
+
+
+class TrainingEvaluationOut(TrainingEvaluationBase):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class DisciplinaryCaseBase(BaseModel):
+    employer_id: int
+    worker_id: int
+    inspection_case_id: Optional[int] = None
+    case_type: str = "warning"
+    severity: str = "medium"
+    status: str = "draft"
+    subject: str
+    description: str
+    happened_at: Optional[datetime] = None
+    hearing_at: Optional[datetime] = None
+    defense_notes: Optional[str] = None
+    sanction_type: Optional[str] = None
+    monetary_sanction_flag: bool = False
+    documents: List[Dict[str, Any]] = Field(default_factory=list)
+
+
+class DisciplinaryCaseCreate(DisciplinaryCaseBase):
+    pass
+
+
+class DisciplinaryCaseStatusUpdate(BaseModel):
+    status: str
+    note: Optional[str] = None
+
+
+class DisciplinaryCaseOut(DisciplinaryCaseBase):
+    id: int
+    created_by_user_id: Optional[int] = None
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class TerminationWorkflowBase(BaseModel):
+    employer_id: int
+    worker_id: int
+    contract_id: Optional[int] = None
+    inspection_case_id: Optional[int] = None
+    termination_type: str = "resignation"
+    motif: str
+    status: str = "draft"
+    effective_date: Optional[date] = None
+    sensitive_case: bool = False
+    inspection_required: bool = False
+    checklist: List[Dict[str, Any]] = Field(default_factory=list)
+    documents: List[Dict[str, Any]] = Field(default_factory=list)
+    notes: Optional[str] = None
+
+
+class TerminationWorkflowCreate(TerminationWorkflowBase):
+    pass
+
+
+class TerminationWorkflowStatusUpdate(BaseModel):
+    status: str
+    note: Optional[str] = None
+
+
+class TerminationWorkflowOut(TerminationWorkflowBase):
+    id: int
+    created_by_user_id: Optional[int] = None
+    validated_by_user_id: Optional[int] = None
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class DuerEntryBase(BaseModel):
+    employer_id: int
+    site_name: str
+    risk_family: str
+    hazard: str
+    exposure_population: Optional[str] = None
+    probability: int = 1
+    severity: int = 1
+    existing_controls: Optional[str] = None
+    residual_risk: Optional[int] = None
+    owner_name: Optional[str] = None
+    status: str = "open"
+    last_reviewed_at: Optional[date] = None
+
+
+class DuerEntryCreate(DuerEntryBase):
+    pass
+
+
+class DuerEntryOut(DuerEntryBase):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class PreventionActionBase(BaseModel):
+    employer_id: int
+    duer_entry_id: Optional[int] = None
+    action_title: str
+    action_type: str = "pap"
+    owner_name: Optional[str] = None
+    due_date: Optional[date] = None
+    status: str = "planned"
+    measure_details: Optional[str] = None
+    inspection_follow_up: bool = False
+
+
+class PreventionActionCreate(PreventionActionBase):
+    pass
+
+
+class PreventionActionStatusUpdate(BaseModel):
+    status: str
+    note: Optional[str] = None
+
+
+class PreventionActionOut(PreventionActionBase):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class HrDashboardOut(BaseModel):
+    workforce: Dict[str, Any] = Field(default_factory=dict)
+    performance: Dict[str, Any] = Field(default_factory=dict)
+    training: Dict[str, Any] = Field(default_factory=dict)
+    discipline: Dict[str, Any] = Field(default_factory=dict)
+    safety: Dict[str, Any] = Field(default_factory=dict)
+    alerts: List[Dict[str, Any]] = Field(default_factory=list)

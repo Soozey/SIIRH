@@ -6,11 +6,28 @@ from typing import List, Optional
 
 from ..config.config import get_db
 from .. import models, schemas
+from ..security import READ_PAYROLL_ROLES, require_roles
 
 router = APIRouter(prefix="/type_regimes", tags=["type_regimes"])
+REGIME_WRITE_ROLES = {"admin", "rh"}
 
 
 # ---------- Helpers ----------
+def _default_regime_payloads() -> list[dict]:
+    return [
+        {"code": "agricole", "label": "Regime Agricole", "vhm": 200.0},
+        {"code": "non_agricole", "label": "Regime Non Agricole", "vhm": 173.33},
+    ]
+
+
+def _ensure_default_regimes(db: Session) -> None:
+    if db.query(models.TypeRegime.id).first():
+        return
+    for payload in _default_regime_payloads():
+        db.add(models.TypeRegime(**payload))
+    db.commit()
+
+
 def _get_or_404(db: Session, regime_id: int) -> models.TypeRegime:
     obj = db.query(models.TypeRegime).get(regime_id)
     if not obj:
@@ -25,7 +42,10 @@ def list_type_regimes(
     skip: int = 0,
     limit: int = Query(100, le=500),
     db: Session = Depends(get_db),
+    user: models.AppUser = Depends(require_roles(*READ_PAYROLL_ROLES)),
 ):
+    if not q:
+        _ensure_default_regimes(db)
     query = db.query(models.TypeRegime)
     if q:
         like = f"%{q}%"
@@ -37,13 +57,21 @@ def list_type_regimes(
 
 # ---------- Retrieve ----------
 @router.get("/{regime_id}", response_model=schemas.TypeRegimeOut)
-def retrieve_type_regime(regime_id: int, db: Session = Depends(get_db)):
+def retrieve_type_regime(
+    regime_id: int,
+    db: Session = Depends(get_db),
+    user: models.AppUser = Depends(require_roles(*READ_PAYROLL_ROLES)),
+):
     return _get_or_404(db, regime_id)
 
 
 # ---------- Create ----------
 @router.post("", response_model=schemas.TypeRegimeOut, status_code=status.HTTP_201_CREATED)
-def create_type_regime(data: schemas.TypeRegimeIn, db: Session = Depends(get_db)):
+def create_type_regime(
+    data: schemas.TypeRegimeIn,
+    db: Session = Depends(get_db),
+    user: models.AppUser = Depends(require_roles(*REGIME_WRITE_ROLES)),
+):
     # Unicité du code
     if db.query(models.TypeRegime).filter_by(code=data.code).first():
         raise HTTPException(status_code=400, detail="Code already exists")
@@ -61,7 +89,12 @@ def create_type_regime(data: schemas.TypeRegimeIn, db: Session = Depends(get_db)
 
 # ---------- Full update (PUT) ----------
 @router.put("/{regime_id}", response_model=schemas.TypeRegimeOut)
-def update_type_regime(regime_id: int, data: schemas.TypeRegimeIn, db: Session = Depends(get_db)):
+def update_type_regime(
+    regime_id: int,
+    data: schemas.TypeRegimeIn,
+    db: Session = Depends(get_db),
+    user: models.AppUser = Depends(require_roles(*REGIME_WRITE_ROLES)),
+):
     obj = _get_or_404(db, regime_id)
 
     # Empêcher la collision de codes
@@ -85,7 +118,12 @@ def update_type_regime(regime_id: int, data: schemas.TypeRegimeIn, db: Session =
 
 # ---------- Partial update (PATCH) ----------
 @router.patch("/{regime_id}", response_model=schemas.TypeRegimeOut)
-def patch_type_regime(regime_id: int, data: schemas.TypeRegimeIn, db: Session = Depends(get_db)):
+def patch_type_regime(
+    regime_id: int,
+    data: schemas.TypeRegimeIn,
+    db: Session = Depends(get_db),
+    user: models.AppUser = Depends(require_roles(*REGIME_WRITE_ROLES)),
+):
     obj = _get_or_404(db, regime_id)
     payload = data.dict(exclude_unset=True)
 
@@ -111,7 +149,11 @@ def patch_type_regime(regime_id: int, data: schemas.TypeRegimeIn, db: Session = 
 
 # ---------- Delete ----------
 @router.delete("/{regime_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_type_regime(regime_id: int, db: Session = Depends(get_db)):
+def delete_type_regime(
+    regime_id: int,
+    db: Session = Depends(get_db),
+    user: models.AppUser = Depends(require_roles(*REGIME_WRITE_ROLES)),
+):
     obj = _get_or_404(db, regime_id)
 
     # Empêcher la suppression si des employeurs y sont liés (optionnel)
@@ -129,7 +171,10 @@ def delete_type_regime(regime_id: int, db: Session = Depends(get_db)):
 
 # ---------- Seed defaults (pratique) ----------
 @router.post("/seed-defaults", response_model=List[schemas.TypeRegimeOut])
-def seed_defaults(db: Session = Depends(get_db)):
+def seed_defaults(
+    db: Session = Depends(get_db),
+    user: models.AppUser = Depends(require_roles(*REGIME_WRITE_ROLES)),
+):
     """
     Crée/Met à jour les deux régimes standards.
     Adapte les VHM selon ta règle métier.

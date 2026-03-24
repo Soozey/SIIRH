@@ -30,6 +30,7 @@ from ..schemas import (
 from ..utils.hs_hm_calculations import calculate_hs_hm_amounts
 from fastapi.responses import FileResponse
 import os
+from ..security import PAYROLL_WRITE_ROLES, READ_PAYROLL_ROLES, can_access_employer, require_roles
 
 router = APIRouter(prefix="/payroll-hs-hm", tags=["Payroll HS/HM"])
 
@@ -37,7 +38,8 @@ router = APIRouter(prefix="/payroll-hs-hm", tags=["Payroll HS/HM"])
 @router.get("/template")
 def get_hs_hm_template(
     payroll_run_id: int = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user=Depends(require_roles(*READ_PAYROLL_ROLES)),
 ):
     """
     Télécharge le modèle Excel pour l'import HS/HM.
@@ -47,6 +49,8 @@ def get_hs_hm_template(
     payroll_run = None
     if payroll_run_id:
         payroll_run = db.query(PayrollRun).filter(PayrollRun.id == payroll_run_id).first()
+        if payroll_run and not can_access_employer(db, user, payroll_run.employer_id):
+            raise HTTPException(status_code=403, detail="Forbidden")
 
     try:
         # Create NEW workbook from scratch (No file dependency)
@@ -152,7 +156,8 @@ def link_manual_hs_calculation(
     payroll_run_id: int,
     worker_id: int,
     request: LinkHsCalculationRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user=Depends(require_roles(*PAYROLL_WRITE_ROLES)),
 ):
     """
     Lie un calcul HS manuel (from HeuresSupplementairesPageHS) Ã  une paie.
@@ -162,11 +167,15 @@ def link_manual_hs_calculation(
     payroll_run = db.query(PayrollRun).filter(PayrollRun.id == payroll_run_id).first()
     if not payroll_run:
         raise HTTPException(status_code=404, detail="Payroll run not found")
+    if not can_access_employer(db, user, payroll_run.employer_id):
+        raise HTTPException(status_code=403, detail="Forbidden")
     
     # Verify worker exists
     worker = db.query(Worker).filter(Worker.id == worker_id).first()
     if not worker:
         raise HTTPException(status_code=404, detail="Worker not found")
+    if worker.employer_id != payroll_run.employer_id:
+        raise HTTPException(status_code=400, detail="Worker/employer mismatch for payroll run")
     
     # Verify HS calculation exists
     hs_calc = db.query(HSCalculationHS).filter(
@@ -222,7 +231,8 @@ def link_manual_hs_calculation(
 async def import_hs_hm_from_excel(
     payroll_run_id: int,
     file: UploadFile = File(...),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user=Depends(require_roles(*PAYROLL_WRITE_ROLES)),
 ):
     """
     Import HS/HM, Absences, and Avances data from Excel file.
@@ -233,6 +243,8 @@ async def import_hs_hm_from_excel(
     payroll_run = db.query(PayrollRun).filter(PayrollRun.id == payroll_run_id).first()
     if not payroll_run:
         raise HTTPException(status_code=404, detail="Payroll run not found")
+    if not can_access_employer(db, user, payroll_run.employer_id):
+        raise HTTPException(status_code=403, detail="Forbidden")
     
     # Read Excel file
     try:
@@ -259,7 +271,10 @@ async def import_hs_hm_from_excel(
             matricule = str(row[0]).strip()
             
             # Find worker by matricule
-            worker = db.query(Worker).filter(Worker.matricule == matricule).first()
+            worker = db.query(Worker).filter(
+                Worker.matricule == matricule,
+                Worker.employer_id == payroll_run.employer_id,
+            ).first()
             if not worker:
                 errors.append(f"Row {row_idx}: Worker '{matricule}' not found")
                 failed += 1
@@ -437,7 +452,8 @@ async def import_hs_hm_from_excel(
 @router.get("/{payroll_run_id}/all", response_model=List[PayrollHsHmOut])
 def get_all_hs_hm_for_payroll(
     payroll_run_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user=Depends(require_roles(*READ_PAYROLL_ROLES)),
 ):
     """Get all HS/HM data for a payroll run, merged with Absences"""
     
@@ -445,6 +461,8 @@ def get_all_hs_hm_for_payroll(
     payroll_run = db.query(PayrollRun).filter(PayrollRun.id == payroll_run_id).first()
     if not payroll_run:
         return []
+    if not can_access_employer(db, user, payroll_run.employer_id):
+        raise HTTPException(status_code=403, detail="Forbidden")
         
     period = payroll_run.period
     
@@ -568,7 +586,8 @@ def update_worker_hs_hm(
     payroll_run_id: int,
     worker_id: int,
     payload: PayrollHsHmBase,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user=Depends(require_roles(*PAYROLL_WRITE_ROLES)),
 ):
     """
     Update HS/HM AND Absences for a specific worker.
@@ -581,6 +600,10 @@ def update_worker_hs_hm(
     payroll_run = db.query(PayrollRun).filter(PayrollRun.id == payroll_run_id).first()
     if not payroll_run:
         raise HTTPException(status_code=404, detail="Payroll run not found")
+    if not can_access_employer(db, user, payroll_run.employer_id):
+        raise HTTPException(status_code=403, detail="Forbidden")
+    if worker.employer_id != payroll_run.employer_id:
+        raise HTTPException(status_code=400, detail="Worker/employer mismatch for payroll run")
     
     period = payroll_run.period
 
@@ -709,7 +732,8 @@ def update_worker_hs_hm(
 def delete_worker_hs_hm(
     payroll_run_id: int,
     worker_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user=Depends(require_roles(*PAYROLL_WRITE_ROLES)),
 ):
     """
     Supprime les HS/HM et les Absences pour un salariÃ© et une paie donnÃ©e.
@@ -719,6 +743,11 @@ def delete_worker_hs_hm(
     payroll_run = db.query(PayrollRun).filter(PayrollRun.id == payroll_run_id).first()
     if not payroll_run:
         raise HTTPException(status_code=404, detail="Payroll run not found")
+    if not can_access_employer(db, user, payroll_run.employer_id):
+        raise HTTPException(status_code=403, detail="Forbidden")
+    worker = db.query(Worker).filter(Worker.id == worker_id).first()
+    if worker and worker.employer_id != payroll_run.employer_id:
+        raise HTTPException(status_code=400, detail="Worker/employer mismatch for payroll run")
         
     period = payroll_run.period
 
@@ -765,7 +794,8 @@ def delete_worker_hs_hm(
 def reset_bulk_hs_hm(
     payroll_run_id: int,
     worker_ids: List[int],
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user=Depends(require_roles(*PAYROLL_WRITE_ROLES)),
 ):
     """
     Supprime HS/HM et Absences pour une liste de salariÃ©s (Bulk Reset).
@@ -774,6 +804,16 @@ def reset_bulk_hs_hm(
     payroll_run = db.query(PayrollRun).filter(PayrollRun.id == payroll_run_id).first()
     if not payroll_run:
         raise HTTPException(status_code=404, detail="Payroll run not found")
+    if not can_access_employer(db, user, payroll_run.employer_id):
+        raise HTTPException(status_code=403, detail="Forbidden")
+    if worker_ids:
+        allowed_rows = db.query(Worker.id).filter(
+            Worker.id.in_(worker_ids),
+            Worker.employer_id == payroll_run.employer_id,
+        ).all()
+        allowed_ids = {row[0] for row in allowed_rows}
+        if len(allowed_ids) != len(set(worker_ids)):
+            raise HTTPException(status_code=400, detail="Some workers are outside payroll run employer scope")
         
     period = payroll_run.period
     
