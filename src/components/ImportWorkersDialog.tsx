@@ -2,7 +2,7 @@ import { useState, useRef } from 'react';
 import { Dialog, Transition } from '@headlessui/react';
 import { Fragment } from 'react';
 import { CloudArrowUpIcon, DocumentArrowDownIcon, XMarkIcon } from '@heroicons/react/24/outline';
-import { downloadWorkersTemplate, importWorkers, previewWorkersImport, type WorkersImportResponse } from '../api';
+import { downloadWorkersTemplate, importWorkers, mapWorkersImportTemplate, previewWorkersImport, type WorkersImportResponse } from '../api';
 import { useQueryClient } from '@tanstack/react-query';
 
 type Props = {
@@ -17,6 +17,7 @@ export default function ImportWorkersDialog({ isOpen, onClose }: Props) {
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
     const [updateExisting, setUpdateExisting] = useState(false);
     const [isPreviewing, setIsPreviewing] = useState(false);
+    const [isMapping, setIsMapping] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const qc = useQueryClient();
 
@@ -69,6 +70,21 @@ export default function ImportWorkersDialog({ isOpen, onClose }: Props) {
             setErrorMessage("Erreur lors de la prévisualisation du fichier.");
         } finally {
             setIsPreviewing(false);
+        }
+    };
+
+    const handleMapTemplate = async () => {
+        if (!file) return;
+        setIsMapping(true);
+        setResult(null);
+        setErrorMessage(null);
+        try {
+            await mapWorkersImportTemplate(file);
+        } catch (error) {
+            console.error("Erreur mapping", error);
+            setErrorMessage("Erreur lors du mapping du fichier. Vérifiez que le fichier Excel contient des colonnes et des lignes.");
+        } finally {
+            setIsMapping(false);
         }
     };
 
@@ -142,6 +158,7 @@ export default function ImportWorkersDialog({ isOpen, onClose }: Props) {
                                         <p className="font-semibold">Aide avant import</p>
                                         <ul className="mt-2 list-disc space-y-1 pl-5">
                                             <li>Colonnes minimales: Matricule, Nom.</li>
+                                            <li>Si vos colonnes sont différentes, utilisez Mapper vers modèle SIIRH avant l'import.</li>
                                             <li>Formats dates: JJ/MM/AAAA ou YYYY-MM-DD.</li>
                                             <li>Doublons contrôlés: matricule, CIN, email.</li>
                                             <li>Les lignes valides sont importées même si certaines lignes sont rejetées.</li>
@@ -309,15 +326,23 @@ export default function ImportWorkersDialog({ isOpen, onClose }: Props) {
                                         type="button"
                                         className="inline-flex justify-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50"
                                         onClick={handlePreview}
-                                        disabled={!file || isPreviewing || loading}
+                                        disabled={!file || isPreviewing || loading || isMapping}
                                     >
                                         {isPreviewing ? "Prévisualisation..." : "Prévisualiser"}
                                     </button>
                                     <button
                                         type="button"
+                                        className="inline-flex justify-center rounded-md border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-medium text-blue-700 hover:bg-blue-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50"
+                                        onClick={handleMapTemplate}
+                                        disabled={!file || isPreviewing || loading || isMapping}
+                                    >
+                                        {isMapping ? "Mapping..." : "Mapper vers modèle SIIRH"}
+                                    </button>
+                                    <button
+                                        type="button"
                                         className="inline-flex justify-center rounded-md border border-transparent bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50"
                                         onClick={handleImport}
-                                        disabled={!file || loading || isPreviewing}
+                                        disabled={!file || loading || isPreviewing || isMapping}
                                     >
                                         {loading ? "Importation..." : "Importer"}
                                     </button>

@@ -592,6 +592,25 @@ export async function previewWorkersImport(file: File, updateExisting: boolean):
   return response.data;
 }
 
+export async function mapWorkersImportTemplate(file: File): Promise<void> {
+  const formData = new FormData();
+  formData.append("file", file);
+  const response = await api.post("/workers/import/map-template", formData, {
+    headers: { "Content-Type": "multipart/form-data" },
+    responseType: "blob",
+  });
+  const url = window.URL.createObjectURL(new Blob([response.data]));
+  const link = document.createElement("a");
+  link.href = url;
+  const contentDisposition = response.headers?.["content-disposition"] ?? "";
+  const filenameMatch = /filename="?([^";]+)"?/i.exec(contentDisposition);
+  link.setAttribute("download", filenameMatch?.[1] ?? "salaries_mapped_siirh.xlsx");
+  document.body.appendChild(link);
+  link.click();
+  link.parentNode?.removeChild(link);
+  window.URL.revokeObjectURL(url);
+}
+
 export async function importWorkers(file: File, updateExisting: boolean): Promise<WorkersImportResponse> {
   const formData = new FormData();
   formData.append("file", file);
