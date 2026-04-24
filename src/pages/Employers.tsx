@@ -1,4 +1,4 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+﻿import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, updateEmployer, deleteEmployer } from "../api";
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -33,6 +33,7 @@ type Employer = {
   type_etab: "general" | "scolaire";
   taux_pat_cnaps: number;
   plafond_cnaps_base: number;
+  taux_sal_smie: number;
   taux_pat_smie: number;
   plafond_smie: number;
   logo_path?: string;
@@ -63,6 +64,7 @@ type EmployerForm = {
   type_etab: "general" | "scolaire";
   taux_pat_cnaps: number;
   plafond_cnaps_base: number;
+  taux_sal_smie: number;
   taux_pat_smie: number;
   plafond_smie: number;
   logo_path: string;
@@ -90,7 +92,7 @@ export default function Employers() {
   const isInspector = sessionHasRole(session, ["inspecteur", "inspection_travail", "labor_inspector", "labor_inspector_supervisor"]);
   const canWriteWorkforce = hasModulePermission(session, "workforce", "write") && !isInspector;
 
-  // États pour les données
+  // Ã‰tats pour les donnÃ©es
   const { data: employers, isLoading, error } = useQuery({
     queryKey: ["employers"],
     queryFn: async () => (await api.get("/employers")).data as Employer[],
@@ -101,7 +103,7 @@ export default function Employers() {
     queryFn: async () => (await api.get("/type_regimes")).data as TypeRegime[],
   });
 
-  // État du formulaire
+  // Ã‰tat du formulaire
   const initialFormState: EmployerForm = {
     raison_sociale: "",
     adresse: "",
@@ -109,6 +111,7 @@ export default function Employers() {
     type_etab: "general" as "general" | "scolaire",
     taux_pat_cnaps: 13,
     plafond_cnaps_base: 0,
+    taux_sal_smie: 0,
     taux_pat_smie: 0,
     plafond_smie: 0,
     logo_path: "",
@@ -156,18 +159,18 @@ export default function Employers() {
     return fallback;
   };
 
-  // Trouver le type de régime sélectionné pour l'aperçu VHM
+  // Trouver le type de rÃ©gime sÃ©lectionnÃ© pour l'aperÃ§u VHM
   const selectedTypeRegime = useMemo(() => {
     return typeRegimes?.find(regime => regime.id === form.type_regime_id);
   }, [form.type_regime_id, typeRegimes]);
 
-  // Calcul de la VHM basé sur le type de régime sélectionné
+  // Calcul de la VHM basÃ© sur le type de rÃ©gime sÃ©lectionnÃ©
   const vhmPreview = useMemo(
     () => selectedTypeRegime?.vhm || 0,
     [selectedTypeRegime]
   );
 
-  // Mutation pour créer un employeur
+  // Mutation pour crÃ©er un employeur
   const create = useMutation({
     mutationFn: async () => (await api.post("/employers", cleanFormData(form))).data,
     onSuccess: () => {
@@ -175,11 +178,11 @@ export default function Employers() {
       resetForm();
     },
     onError: (error: unknown) => {
-      alert(`Erreur lors de la création: ${extractErrorMessage(error, "Erreur inconnue")}`);
+      alert(`Erreur lors de la crÃ©ation: ${extractErrorMessage(error, "Erreur inconnue")}`);
     }
   });
 
-  // Mutation pour mettre à jour
+  // Mutation pour mettre Ã  jour
   const update = useMutation({
     mutationFn: async () => {
       return await updateEmployer(editingId!, cleanFormData(form));
@@ -189,7 +192,7 @@ export default function Employers() {
       resetForm();
     },
     onError: (error: unknown) => {
-      console.error("Erreur complète:", error);
+      console.error("Erreur complÃ¨te:", error);
       const responseData = typeof error === "object" && error !== null && "response" in error
         ? (error as { response?: { data?: unknown } }).response?.data
         : undefined;
@@ -219,6 +222,7 @@ export default function Employers() {
       type_etab: "general",
       taux_pat_cnaps: 13,
       plafond_cnaps_base: 0,
+      taux_sal_smie: 0,
       taux_pat_smie: 0,
       plafond_smie: 0,
       logo_path: "",
@@ -249,11 +253,11 @@ export default function Employers() {
     navigate(`/organization?employer_id=${employerId}&tab=0`);
   };
 
-  // Fonction pour nettoyer les données avant l'envoi
+  // Fonction pour nettoyer les donnÃ©es avant l'envoi
   const cleanFormData = (formData: EmployerForm): EmployerForm => {
     const cleaned = { ...formData };
     
-    // Convertir les chaînes vides en null pour les champs de date
+    // Convertir les chaÃ®nes vides en null pour les champs de date
     if (cleaned.rep_date_naissance === "") {
       cleaned.rep_date_naissance = null;
     }
@@ -273,6 +277,7 @@ export default function Employers() {
       type_etab: employer.type_etab,
       taux_pat_cnaps: employer.taux_pat_cnaps,
       plafond_cnaps_base: employer.plafond_cnaps_base || 0,
+      taux_sal_smie: employer.taux_sal_smie || 0,
       taux_pat_smie: employer.taux_pat_smie,
       plafond_smie: employer.plafond_smie || 0,
       logo_path: employer.logo_path || "",
@@ -299,7 +304,7 @@ export default function Employers() {
   };
 
   const handleDelete = async (id: number) => {
-    if (confirm("Êtes-vous sûr de vouloir supprimer cet employeur ?")) {
+    if (confirm("ÃŠtes-vous sÃ»r de vouloir supprimer cet employeur ?")) {
       remove.mutate(id);
     }
   };
@@ -317,10 +322,10 @@ export default function Employers() {
       const originalEmp = employers?.find(e => e.id === editingId);
       if (originalEmp && originalEmp.type_regime_id !== regimeId) {
         const confirmed = confirm(
-          "⚠️ ATTENTION : Changement de Régime détecté !\n\n" +
-          "Cette action va modifier la VHM et le salaire horaire de TOUS les salariés liés.\n" +
-          "C'est une décision structurante qui relève de la hiérarchie compétente.\n\n" +
-          "Êtes-vous certain de vouloir procéder à ce changement ?"
+          "âš ï¸ ATTENTION : Changement de RÃ©gime dÃ©tectÃ© !\n\n" +
+          "Cette action va modifier la VHM et le salaire horaire de TOUS les salariÃ©s liÃ©s.\n" +
+          "C'est une dÃ©cision structurante qui relÃ¨ve de la hiÃ©rarchie compÃ©tente.\n\n" +
+          "ÃŠtes-vous certain de vouloir procÃ©der Ã  ce changement ?"
         );
         if (!confirmed) return;
       }
@@ -356,7 +361,7 @@ export default function Employers() {
             Gestion des Employeurs
           </h1>
           <p className="text-lg text-gray-600 mb-6">
-            Gérez vos établissements et leurs paramètres
+            GÃ©rez vos Ã©tablissements et leurs paramÃ¨tres
           </p>
 
           {/* Bouton d'ajout */}
@@ -387,7 +392,7 @@ export default function Employers() {
                     {editingId ? "Modifier l'Employeur" : "Nouvel Employeur"}
                   </h2>
                   <p className="text-gray-600 text-sm mt-1">
-                    {editingId ? "Modifier les informations de l'employeur" : "Ajouter un nouvel employeur au système"}
+                    {editingId ? "Modifier les informations de l'employeur" : "Ajouter un nouvel employeur au systÃ¨me"}
                   </p>
                 </div>
               </div>
@@ -430,14 +435,14 @@ export default function Employers() {
                     value={form.adresse}
                     onChange={(e) => setField("adresse", e.target.value)}
                     className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-                    placeholder="Adresse complète de l'employeur"
+                    placeholder="Adresse complÃ¨te de l'employeur"
                   />
                 </div>
 
-                {/* Numéro CNaPS */}
+                {/* NumÃ©ro CNaPS */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Numéro CNaPS
+                    NumÃ©ro CNaPS
                   </label>
                   <input
                     type="text"
@@ -458,7 +463,7 @@ export default function Employers() {
                     value={form.nif}
                     onChange={(e) => setField("nif", e.target.value)}
                     className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-                    placeholder="Numéro d'Identification Fiscale"
+                    placeholder="NumÃ©ro d'Identification Fiscale"
                   />
                 </div>
 
@@ -472,14 +477,14 @@ export default function Employers() {
                     value={form.stat}
                     onChange={(e) => setField("stat", e.target.value)}
                     className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-                    placeholder="Numéro Statistique"
+                    placeholder="NumÃ©ro Statistique"
                   />
                 </div>
 
-                {/* Représentant */}
+                {/* ReprÃ©sentant */}
                 <div className="md:col-span-2">
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Représentant
+                    ReprÃ©sentant
                   </label>
                   <div className="flex gap-2">
                     <input
@@ -487,7 +492,7 @@ export default function Employers() {
                       value={form.representant}
                       onChange={(e) => setField("representant", e.target.value)}
                       className="flex-1 px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors bg-gray-50"
-                      placeholder="Nom du représentant légal"
+                      placeholder="Nom du reprÃ©sentant lÃ©gal"
                       readOnly
                     />
                     <button
@@ -496,7 +501,7 @@ export default function Employers() {
                       className="px-4 py-2 bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-300 rounded-xl font-medium transition-colors flex items-center gap-2"
                     >
                       <IdentificationIcon className="h-5 w-5" />
-                      Détails complets
+                      DÃ©tails complets
                     </button>
                   </div>
                 </div>
@@ -519,7 +524,7 @@ export default function Employers() {
                             headers: { "Content-Type": "multipart/form-data" }
                           });
                           setField("logo_path", res.data.logo_path);
-                          alert("Logo uploadé avec succès!");
+                          alert("Logo uploadÃ© avec succÃ¨s!");
                         } catch (error: unknown) {
                           alert(`Erreur lors de l'upload: ${extractErrorMessage(error, "Erreur inconnue")}`);
                         }
@@ -534,10 +539,10 @@ export default function Employers() {
                   )}
                 </div>
 
-                {/* Type établissement */}
+                {/* Type Ã©tablissement */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Type d'établissement
+                    Type d'Ã©tablissement
                   </label>
                   <div className="grid grid-cols-2 gap-3">
                     <button
@@ -550,7 +555,7 @@ export default function Employers() {
                     >
                       <BuildingStorefrontIcon className={`h-6 w-6 mb-2 ${form.type_etab === "general" ? "text-blue-600" : "text-gray-400"
                         }`} />
-                      <div className="font-medium text-gray-900">Général</div>
+                      <div className="font-medium text-gray-900">GÃ©nÃ©ral</div>
                       <div className="text-sm text-gray-600 mt-1">Taux CNaPS: 13%</div>
                     </button>
                     <button
@@ -569,10 +574,10 @@ export default function Employers() {
                   </div>
                 </div>
 
-                {/* Type régime */}
+                {/* Type rÃ©gime */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Type de régime
+                    Type de rÃ©gime
                   </label>
                   <select
                     value={form.type_regime_id}
@@ -626,11 +631,32 @@ export default function Employers() {
                     />
                   </div>
                   <p className="text-sm text-gray-500 mt-1">
-                    Laissez à 0 pour utiliser le calcul automatique (8 x SME)
+                    Laissez Ã  0 pour utiliser le calcul automatique (8 x SME)
                   </p>
                 </div>
 
                 {/* Taux SMIE */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Taux salarié SMIE (%)
+                  </label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                      <CurrencyDollarIcon className="h-5 w-5 text-gray-400" />
+                    </div>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={form.taux_sal_smie}
+                      onChange={(e) => setField("taux_sal_smie", +e.target.value)}
+                      className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+                    />
+                  </div>
+                  <p className="text-sm text-gray-500 mt-1">
+                    Part salariale retenue sur le bulletin.
+                  </p>
+                </div>
+
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Taux patronal SMIE (%)
@@ -661,12 +687,12 @@ export default function Employers() {
                       type="number"
                       value={form.plafond_smie}
                       onChange={(e) => setField("plafond_smie", +e.target.value)}
-                      placeholder="Laissez à 0 pour utiliser le Brut"
+                      placeholder="Laissez Ã  0 pour utiliser le Brut"
                       className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
                     />
                   </div>
                   <p className="text-sm text-gray-500 mt-1">
-                    Laissez à 0 pour utiliser le Brut
+                    Laissez Ã  0 pour utiliser le Brut
                   </p>
                 </div>
 
@@ -687,7 +713,7 @@ export default function Employers() {
                     />
                   </div>
                   <p className="text-sm text-gray-500 mt-1">
-                    Utilisé dans la constante SME
+                    UtilisÃ© dans la constante SME
                   </p>
                 </div>
               </div>
@@ -697,7 +723,7 @@ export default function Employers() {
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-lg font-semibold text-green-900 flex items-center gap-2">
                     <BuildingOfficeIcon className="h-6 w-6" />
-                    Hiérarchie Organisationnelle
+                    HiÃ©rarchie Organisationnelle
                   </h3>
                   {editingId && (
                     <button
@@ -705,26 +731,26 @@ export default function Employers() {
                       onClick={() => openCanonicalOrganizationView(editingId)}
                       className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
                     >
-                      Gérer la Hiérarchie
+                      GÃ©rer la HiÃ©rarchie
                     </button>
                   )}
                 </div>
                 
                 <p className="text-green-700 mb-6">
-                  Définissez la structure hiérarchique de votre organisation avec des relations parent-enfant.
-                  Cette structure sera utilisée pour le filtrage en cascade dans tous les formulaires.
+                  DÃ©finissez la structure hiÃ©rarchique de votre organisation avec des relations parent-enfant.
+                  Cette structure sera utilisÃ©e pour le filtrage en cascade dans tous les formulaires.
                 </p>
                 
-                {/* Aperçu de la hiérarchie */}
+                {/* AperÃ§u de la hiÃ©rarchie */}
                 {editingId ? (
                   <div className="bg-white rounded-lg p-4 border border-green-200">
-                    <h4 className="font-medium text-gray-900 mb-3">Aperçu de la hiérarchie actuelle :</h4>
+                    <h4 className="font-medium text-gray-900 mb-3">AperÃ§u de la hiÃ©rarchie actuelle :</h4>
                     <HierarchicalOrganizationTree employerId={editingId} readonly />
                   </div>
                 ) : (
                   <div className="bg-white rounded-lg p-4 border border-green-200 text-center text-gray-500">
                     <BuildingOfficeIcon className="h-12 w-12 mx-auto mb-4 text-gray-300" />
-                    <p>Sélectionnez un employeur pour voir sa hiérarchie organisationnelle.</p>
+                    <p>SÃ©lectionnez un employeur pour voir sa hiÃ©rarchie organisationnelle.</p>
                   </div>
                 )}
               </div>
@@ -733,7 +759,7 @@ export default function Employers() {
 
 
 
-              {/* Aperçu VHM */}
+              {/* AperÃ§u VHM */}
               <div className="mt-6 p-4 bg-gradient-to-r from-blue-50 to-purple-50 border border-blue-200 rounded-xl">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
                   <div>
@@ -742,8 +768,8 @@ export default function Employers() {
                     </h3>
                     <p className="text-blue-700">
                       {selectedTypeRegime
-                        ? `${selectedTypeRegime.label} → VHM = ${selectedTypeRegime.vhm}`
-                        : "Sélectionnez un type de régime"
+                        ? `${selectedTypeRegime.label} â†’ VHM = ${selectedTypeRegime.vhm}`
+                        : "SÃ©lectionnez un type de rÃ©gime"
                       }
                     </p>
                   </div>
@@ -773,12 +799,12 @@ export default function Employers() {
                   {create.isPending || update.isPending ? (
                     <>
                       <div className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                      {editingId ? "Modification..." : "Création..."}
+                      {editingId ? "Modification..." : "CrÃ©ation..."}
                     </>
                   ) : (
                     <>
                       <PlusIcon className="h-5 w-5" />
-                      {editingId ? "Mettre à jour" : "Enregistrer"}
+                      {editingId ? "Mettre Ã  jour" : "Enregistrer"}
                     </>
                   )}
                 </button>
@@ -808,7 +834,7 @@ export default function Employers() {
 
           {error && (
             <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl mb-6">
-              Erreur lors du chargement des données
+              Erreur lors du chargement des donnÃ©es
             </div>
           )}
 
@@ -837,7 +863,7 @@ export default function Employers() {
                             <div className="flex gap-2 flex-wrap">
                               <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium border ${getTypeEtabColor(employer.type_etab)}`}>
                                 <TypeEtabIcon className="h-3 w-3" />
-                                {employer.type_etab === "scolaire" ? "Scolaire" : "Général"}
+                                {employer.type_etab === "scolaire" ? "Scolaire" : "GÃ©nÃ©ral"}
                               </span>
                               {employer.type_regime && (
                                 <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium border ${getRegimeColor(employer.type_regime.code)}`}>
@@ -851,7 +877,7 @@ export default function Employers() {
                             <a
                               href={`/employers/${employer.id}/primes`}
                               className="p-2 text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
-                              title="Gérer les Primes"
+                              title="GÃ©rer les Primes"
                             >
                               <CurrencyDollarIcon className="h-4 w-4" />
                             </a>
@@ -877,16 +903,16 @@ export default function Employers() {
                           </div>
                         </div>
 
-                        {/* Détails */}
+                        {/* DÃ©tails */}
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm mt-4">
                           <div className="flex items-center gap-2 text-gray-600">
                             <ChartBarIcon className="h-4 w-4" />
                             <span><strong>CNaPS:</strong> {employer.taux_pat_cnaps}%</span>
                           </div>
-                          {employer.taux_pat_smie > 0 && (
+                          {((employer.taux_sal_smie || 0) > 0 || employer.taux_pat_smie > 0) && (
                             <div className="flex items-center gap-2 text-gray-600">
                               <CurrencyDollarIcon className="h-4 w-4" />
-                              <span><strong>SMIE:</strong> {employer.taux_pat_smie}%</span>
+                              <span><strong>SMIE:</strong> Sal. {employer.taux_sal_smie || 0}% / Pat. {employer.taux_pat_smie}%</span>
                             </div>
                           )}
                           {employer.type_regime && (
@@ -902,7 +928,7 @@ export default function Employers() {
                             <strong>STAT:</strong> {employer.stat || "-"}
                           </div>
                           <div className="flex items-center gap-2 text-gray-600">
-                            <strong>Représentant:</strong> {employer.representant || "-"}
+                            <strong>ReprÃ©sentant:</strong> {employer.representant || "-"}
                           </div>
                         </div>
                       </div>
@@ -924,10 +950,10 @@ export default function Employers() {
             <div className="text-center py-16 bg-white rounded-2xl border border-gray-200">
               <BuildingOfficeIcon className="h-16 w-16 text-gray-400 mx-auto mb-4" />
               <h3 className="text-xl font-semibold text-gray-900 mb-2">
-                Aucun employeur enregistré
+                Aucun employeur enregistrÃ©
               </h3>
               <p className="text-gray-600 mb-6 max-w-md mx-auto">
-                Commencez par ajouter votre premier employeur pour gérer vos établissements et leurs paramètres.
+                Commencez par ajouter votre premier employeur pour gÃ©rer vos Ã©tablissements et leurs paramÃ¨tres.
               </p>
               {canWriteWorkforce ? (
                 <button
@@ -947,14 +973,14 @@ export default function Employers() {
 
       </div >
 
-      {/* Modal Représentant */}
+      {/* Modal ReprÃ©sentant */}
       {repModalOpen && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-[60] backdrop-blur-sm">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
             <div className="p-6 border-b border-gray-200 flex justify-between items-center bg-slate-50">
               <div className="flex items-center gap-3">
                 <IdentificationIcon className="h-6 w-6 text-blue-600" />
-                <h3 className="text-xl font-bold text-gray-900">Détails du Représentant</h3>
+                <h3 className="text-xl font-bold text-gray-900">DÃ©tails du ReprÃ©sentant</h3>
               </div>
               <button onClick={() => setRepModalOpen(false)} className="text-gray-400 hover:text-gray-600 transition-colors">
                 <PlusIcon className="h-6 w-6 rotate-45" />
@@ -968,7 +994,7 @@ export default function Employers() {
                   value={form.representant}
                   onChange={(e) => setField("representant", e.target.value)}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                  placeholder="NOM et Prénoms"
+                  placeholder="NOM et PrÃ©noms"
                 />
               </div>
               <div>
@@ -987,14 +1013,14 @@ export default function Employers() {
                   value={form.rep_fonction}
                   onChange={(e) => setField("rep_fonction", e.target.value)}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                  placeholder="ex: Gérant, DRH..."
+                  placeholder="ex: GÃ©rant, DRH..."
                 />
               </div>
               <div className="md:col-span-2 border-t border-gray-100 pt-4 mt-2">
                 <h4 className="font-semibold text-slate-800 text-sm mb-3">Informations CIN</h4>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="col-span-2 md:col-span-1">
-                    <label className="block text-xs text-gray-500 mb-1">Numéro CIN</label>
+                    <label className="block text-xs text-gray-500 mb-1">NumÃ©ro CIN</label>
                     <input
                       type="text"
                       value={form.rep_cin_num}
@@ -1003,7 +1029,7 @@ export default function Employers() {
                     />
                   </div>
                   <div>
-                    <label className="block text-xs text-gray-500 mb-1">Délivré le</label>
+                    <label className="block text-xs text-gray-500 mb-1">DÃ©livrÃ© le</label>
                     <input
                       type="date"
                       value={form.rep_cin_date || ""}
@@ -1012,7 +1038,7 @@ export default function Employers() {
                     />
                   </div>
                   <div className="col-span-2">
-                    <label className="block text-xs text-gray-500 mb-1">Lieu de délivrance</label>
+                    <label className="block text-xs text-gray-500 mb-1">Lieu de dÃ©livrance</label>
                     <input
                       type="text"
                       value={form.rep_cin_lieu}
@@ -1029,7 +1055,7 @@ export default function Employers() {
                   value={form.rep_adresse}
                   onChange={(e) => setField("rep_adresse", e.target.value)}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                  placeholder="Adresse complète"
+                  placeholder="Adresse complÃ¨te"
                 />
               </div>
             </div>
@@ -1048,3 +1074,4 @@ export default function Employers() {
     </div>
   );
 }
+
