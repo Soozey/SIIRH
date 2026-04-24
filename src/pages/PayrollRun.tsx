@@ -73,6 +73,36 @@ type EmployerOption = {
   numero_contribuable?: string | null;
 };
 
+const JOURNAL_NUMERIC_COLUMNS = [
+  "salaire_base", "Salaire de base", "brut_total",
+  "HS Non Imposable 130%", "HS Imposable 130%", "HS Non Imposable 150%", "HS Imposable 150%",
+  "Heures Majorées Nuit Hab. 30%", "Heures Majorées Nuit Occ. 50%",
+  "Heures Majorées Dimanche 40%", "Heures Majorées Jours Fériés 50%",
+  "Avantage en nature véhicule", "Avantage en nature logement", "Avantage en nature téléphone",
+  "Cotisation CNaPS", "CNaPS Patronal", "Total CNaPS",
+  "Cotisation SMIE", "SMIE Patronal", "Total SMIE",
+  "Charges salariales", "Charges patronales",
+  "IRSA", "Avance sur salaire", "Avance sur salaire (quinzaine)", "Autres Déductions",
+  "net_a_payer", "cout_total_employeur"
+];
+
+const isJournalNumericColumn = (columnId: string) =>
+  JOURNAL_NUMERIC_COLUMNS.includes(columnId) ||
+  columnId.includes("Prime") ||
+  columnId.includes("13ème") ||
+  columnId.includes("Avantage");
+
+const toJournalNumber = (value: unknown) => {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? Math.abs(numeric) : 0;
+};
+
+const formatJournalAmount = (value: number) =>
+  new Intl.NumberFormat("fr-FR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  }).format(value);
+
 export default function PayrollRun() {
   // Force rebuild comment
   const [employers, setEmployers] = useState<EmployerOption[]>([]);
@@ -331,24 +361,18 @@ export default function PayrollRun() {
       'IRSA', 'Avance sur salaire', 'net_a_payer', 'cout_total_employeur'
     ];
     
-    if (numericColumns.includes(columnId) || columnId.includes('Prime') || columnId.includes('13ème') || columnId.includes('Avantage')) {
-      const numValue = Math.abs(Number(value) || 0);
+    if (numericColumns.includes(columnId) || isJournalNumericColumn(columnId)) {
+      const numValue = toJournalNumber(value);
       
       // Formatage spécial pour l'IRSA : forcer l'affichage avec ,00 si c'est un entier
       if (columnId === 'IRSA') {
         // Si la valeur est un entier (pas de décimales réelles), forcer ,00
         if (Number.isInteger(numValue)) {
-          return new Intl.NumberFormat('fr-FR', {
-            minimumFractionDigits: 2,
-            maximumFractionDigits: 2
-          }).format(numValue);
+          return formatJournalAmount(numValue);
         }
       }
       
-      return new Intl.NumberFormat('fr-FR', {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2
-      }).format(numValue);
+      return formatJournalAmount(numValue);
     }
     
     // Colonnes spéciales
@@ -380,7 +404,7 @@ export default function PayrollRun() {
       'IRSA', 'Avance sur salaire', 'net_a_payer', 'cout_total_employeur'
     ];
     
-    if (numericColumns.includes(columnId) || columnId.includes('Prime') || columnId.includes('13ème') || columnId.includes('Avantage')) {
+    if (numericColumns.includes(columnId) || isJournalNumericColumn(columnId)) {
       if (columnId === 'net_a_payer') {
         return 'px-4 py-3 whitespace-nowrap text-xs font-bold text-indigo-600 text-right';
       } else if (columnId === 'brut_total') {
@@ -399,6 +423,11 @@ export default function PayrollRun() {
     } else {
       return 'px-4 py-3 whitespace-nowrap text-xs text-slate-600';
     }
+  };
+
+  const getJournalColumnTotal = (columnId: string) => {
+    if (!isJournalNumericColumn(columnId)) return null;
+    return journalData.reduce((sum, row) => sum + toJournalNumber(row[columnId]), 0);
   };
 
   const handleViewBulk = () => {
@@ -913,6 +942,24 @@ export default function PayrollRun() {
 
             {/* Modal Content - Table */}
             <div className="flex-1 overflow-auto p-6 custom-scrollbar">
+              {journalData.length > 0 ? (
+                <div className="mb-4 grid gap-3 md:grid-cols-4">
+                  {[
+                    { label: "Total brut", columnId: "brut_total" },
+                    { label: "Charges salariales", columnId: "Charges salariales" },
+                    { label: "Net à payer", columnId: "net_a_payer" },
+                    { label: "Coût employeur", columnId: "cout_total_employeur" },
+                  ].map((item) => {
+                    const total = getJournalColumnTotal(item.columnId) ?? 0;
+                    return (
+                      <div key={item.columnId} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                        <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">{item.label}</div>
+                        <div className="mt-2 text-lg font-black text-slate-900">{formatJournalAmount(total)} Ar</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : null}
               <div className="min-w-full inline-block align-middle">
                 <div className="overflow-hidden border border-slate-200 rounded-2xl shadow-sm">
                   <table className="min-w-full divide-y divide-slate-200">
@@ -944,6 +991,20 @@ export default function PayrollRun() {
                         </tr>
                       )}
                     </tbody>
+                    {journalData.length > 0 ? (
+                      <tfoot className="sticky bottom-0 bg-slate-900 text-white shadow-[0_-6px_18px_rgba(15,23,42,0.14)]">
+                        <tr>
+                          {journalColumns.map((columnId, index) => {
+                            const total = getJournalColumnTotal(columnId);
+                            return (
+                              <td key={columnId} className={`px-4 py-3 whitespace-nowrap text-xs font-bold ${total !== null ? "text-right" : "text-left"}`}>
+                                {total !== null ? formatJournalAmount(total) : index === 0 ? `TOTAL (${journalData.length})` : ""}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      </tfoot>
+                    ) : null}
                   </table>
                 </div>
               </div>
