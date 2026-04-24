@@ -34,6 +34,8 @@ const DEFAULT_DEMO_ACCOUNTS: PublicDemoAccount[] = [
   { label: "Inspecteur (alias actif)", role_code: "inspecteur", username: "inspecteur@siirh.com" },
 ];
 
+const DEMO_LOGIN_PASSWORD = "Siirh2026";
+
 type CatalogStatus = "loading" | "live" | "fallback";
 
 type RoleInsight = {
@@ -169,7 +171,7 @@ export default function Login() {
   const toast = useToast();
 
   const [username, setUsername] = useState("admin@siirh.com");
-  const [password, setPassword] = useState("");
+  const [password, setPassword] = useState(DEMO_LOGIN_PASSWORD);
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [demoAccounts, setDemoAccounts] = useState<PublicDemoAccount[]>(DEFAULT_DEMO_ACCOUNTS);
@@ -321,6 +323,7 @@ export default function Login() {
     const loginForRole = resolveRoleLogin(role.code);
     if (loginForRole) {
       setUsername(loginForRole.username);
+      setPassword(DEMO_LOGIN_PASSWORD);
       toast.info("Rôle présélectionné", `Compte de test sélectionné pour ${loginForRole.label}.`);
     }
   };
@@ -469,7 +472,7 @@ export default function Login() {
                 <div className="flex items-center justify-between gap-2">
                   <div>
                     <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">Comptes de test</div>
-                    <p className="mt-0.5 text-[12px] text-slate-400">Sélection rapide du compte. Le mot de passe initial n'est jamais affiché dans l'interface.</p>
+                    <p className="mt-0.5 text-[12px] text-slate-400">Sélection rapide du compte avec le mot de passe local de test prérempli.</p>
                   </div>
                   <div className={`rounded-full border px-2 py-1 text-[11px] font-medium ${demoAccountsStatus === "live" ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-100" : "border-slate-400/30 bg-slate-400/10 text-slate-100"}`}>{demoAccountsStatus === "live" ? "Synchronisé" : "Local"}</div>
                 </div>
@@ -480,6 +483,7 @@ export default function Login() {
                       type="button"
                       onClick={() => {
                         setUsername(item.username);
+                        setPassword(DEMO_LOGIN_PASSWORD);
                       }}
                       className="rounded-lg border border-slate-800 bg-slate-900/75 px-2.5 py-1.5 text-left transition hover:border-cyan-400/40 hover:bg-slate-900"
                     >
