@@ -257,6 +257,83 @@ body[data-theme="dark"] .layout-main-content select {
   color: #f8fafc;
 }
 
+.payslip-document {
+  color-scheme: light;
+  background: #ffffff !important;
+  color: #111827 !important;
+  text-shadow: none !important;
+  filter: none !important;
+  opacity: 1 !important;
+}
+
+.payslip-document *,
+body[data-theme="dark"] .layout-main-content .payslip-document * {
+  text-shadow: none !important;
+  filter: none !important;
+}
+
+body[data-theme="dark"] .layout-main-content .payslip-document,
+body[data-theme="dark"] .layout-main-content .payslip-document .bg-white,
+body[data-theme="dark"] .layout-main-content .payslip-document .bg-gray-50,
+body[data-theme="dark"] .layout-main-content .payslip-document .bg-gray-100,
+body[data-theme="dark"] .layout-main-content .payslip-document [class*="bg-white"],
+body[data-theme="dark"] .layout-main-content .payslip-document [class*="bg-gray-50"],
+body[data-theme="dark"] .layout-main-content .payslip-document [class*="bg-gray-100"] {
+  background-color: #ffffff !important;
+}
+
+body[data-theme="dark"] .layout-main-content .payslip-document .bg-blue-100 {
+  background-color: #dbeafe !important;
+}
+
+body[data-theme="dark"] .layout-main-content .payslip-document .bg-orange-100 {
+  background-color: #ffedd5 !important;
+}
+
+body[data-theme="dark"] .layout-main-content .payslip-document .bg-gray-100,
+body[data-theme="dark"] .layout-main-content .payslip-document .bg-gray-50\/50 {
+  background-color: #f3f4f6 !important;
+}
+
+.payslip-document,
+.payslip-document p,
+.payslip-document span,
+.payslip-document div,
+.payslip-document td,
+.payslip-document th {
+  color: #111827 !important;
+}
+
+.payslip-document .text-gray-500,
+.payslip-document .text-slate-500 {
+  color: #6b7280 !important;
+}
+
+.payslip-document .text-gray-600,
+.payslip-document .text-slate-600,
+.payslip-document .text-gray-700,
+.payslip-document .text-slate-700 {
+  color: #374151 !important;
+}
+
+.payslip-document .text-red-600 {
+  color: #dc2626 !important;
+}
+
+.payslip-document .text-green-700 {
+  color: #047857 !important;
+}
+
+.payslip-document th {
+  background-color: #f3f4f6 !important;
+  color: #374151 !important;
+}
+
+.payslip-document td,
+.payslip-document th {
+  border-color: #9ca3af !important;
+}
+
 @media print {
   body {
     background: white !important;

@@ -300,7 +300,7 @@ export default function PayslipDocument({ data, showPrintButton = false }: Props
 
             <div
                 ref={contentRef}
-                className="printable-content border border-gray-400 p-4 rounded-lg bg-white shadow-sm print:shadow-none print:border-none print:p-0 text-[11px] leading-snug font-sans text-gray-900"
+                className="printable-content payslip-document border border-gray-400 p-4 rounded-lg bg-white shadow-sm print:shadow-none print:border-none print:p-0 text-[11px] leading-snug font-sans text-gray-900"
             >
 
                 {/* HEADER */}
