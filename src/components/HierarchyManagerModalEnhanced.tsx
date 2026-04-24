@@ -36,6 +36,20 @@ interface CreateNodeForm {
   description: string;
 }
 
+interface ApiErrorPayload {
+  response?: {
+    data?: {
+      detail?: string;
+    };
+  };
+  message?: string;
+}
+
+const getApiErrorMessage = (error: unknown, fallback: string) => {
+  const apiError = error as ApiErrorPayload;
+  return apiError.response?.data?.detail || apiError.message || fallback;
+};
+
 export const HierarchyManagerModalEnhanced: React.FC<HierarchyManagerModalEnhancedProps> = ({
   employerId,
   isOpen,
@@ -97,8 +111,8 @@ export const HierarchyManagerModalEnhanced: React.FC<HierarchyManagerModalEnhanc
       resetCreateForm();
       alert('Structure créée avec succès!');
     },
-    onError: (error: any) => {
-      alert(`Erreur: ${error.response?.data?.detail || error.message}`);
+    onError: (error: unknown) => {
+      alert(`Erreur: ${getApiErrorMessage(error, 'Erreur lors de la creation du noeud')}`);
     }
   });
 
@@ -121,8 +135,8 @@ export const HierarchyManagerModalEnhanced: React.FC<HierarchyManagerModalEnhanc
       setEditingNode(null);
       alert('Structure modifiée avec succès!');
     },
-    onError: (error: any) => {
-      alert(`Erreur: ${error.response?.data?.detail || error.message}`);
+    onError: (error: unknown) => {
+      alert(`Erreur: ${getApiErrorMessage(error, 'Erreur lors de la mise a jour du noeud')}`);
     }
   });
 
@@ -142,8 +156,8 @@ export const HierarchyManagerModalEnhanced: React.FC<HierarchyManagerModalEnhanc
       setSelectedNodeId(null);
       alert('Structure supprimée avec succès!');
     },
-    onError: (error: any) => {
-      alert(`Erreur: ${error.response?.data?.detail || error.message}`);
+    onError: (error: unknown) => {
+      alert(`Erreur: ${getApiErrorMessage(error, 'Erreur lors de la suppression du noeud')}`);
     }
   });
 
@@ -547,9 +561,9 @@ export const HierarchyManagerModalEnhanced: React.FC<HierarchyManagerModalEnhanc
               </div>
             </div>
 
-            {deletionInfo.warnings && deletionInfo.warnings.length > 0 && (
+            {(deletionInfo.warnings ?? []).length > 0 && (
               <div className="mb-4">
-                {deletionInfo.warnings.map((warning: string, index: number) => (
+                {(deletionInfo.warnings ?? []).map((warning: string, index: number) => (
                   <div key={index} className={`flex items-start gap-2 text-sm p-2 rounded ${
                     deletionInfo.can_delete ? 'bg-green-50 text-green-800' : 'bg-orange-50 text-orange-800'
                   }`}>

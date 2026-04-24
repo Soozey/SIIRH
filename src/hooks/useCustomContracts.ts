@@ -12,6 +12,12 @@ export interface CustomContract {
   content: string;
   template_type: string;
   is_default: boolean;
+  validation_status: string;
+  inspection_status: string;
+  inspection_comment?: string | null;
+  active_version_number?: number;
+  last_published_at?: string | null;
+  last_reviewed_at?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -23,12 +29,18 @@ export interface CustomContractInput {
   content: string;
   template_type?: string;
   is_default?: boolean;
+  validation_status?: string;
+  inspection_status?: string;
+  inspection_comment?: string | null;
 }
 
 export interface CustomContractUpdate {
   title?: string;
   content?: string;
   is_default?: boolean;
+  validation_status?: string;
+  inspection_status?: string;
+  inspection_comment?: string | null;
 }
 
 // Hook pour récupérer les contrats d'un travailleur

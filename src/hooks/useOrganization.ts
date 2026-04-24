@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api } from '../api';
 
 export interface OrganizationalUnit {
@@ -54,27 +54,55 @@ export interface CreateUnitData {
   description?: string;
 }
 
+interface ApiErrorPayload {
+  response?: {
+    data?: {
+      detail?: string;
+    };
+  };
+  message?: string;
+}
+
+const getApiErrorMessage = (error: unknown, fallback: string) => {
+  const apiError = error as ApiErrorPayload;
+  return apiError.response?.data?.detail || apiError.message || fallback;
+};
+
 export const useOrganization = (employerId?: number) => {
   const [organizationTree, setOrganizationTree] = useState<OrganizationTree | null>(null);
   const [units, setUnits] = useState<OrganizationalUnit[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const organizationCacheRef = useRef<Record<number, OrganizationTree>>({});
 
-  // Récupérer l'arbre organisationnel
-  const fetchOrganizationTree = async (empId: number) => {
+  const fetchOrganizationTree = async (empId: number, options?: { force?: boolean }) => {
+    const cachedTree = organizationCacheRef.current[empId];
+    if (cachedTree && !options?.force) {
+      setOrganizationTree(cachedTree);
+      setError(null);
+      return cachedTree;
+    }
+
     try {
-      setLoading(true);
+      if (!cachedTree) {
+        setLoading(true);
+      }
       setError(null);
       const response = await api.get(`/organization/employers/${empId}/tree`);
-      setOrganizationTree(response.data);
-    } catch (err: any) {
-      setError(err.response?.data?.detail || 'Erreur lors du chargement de l\'organisation');
+      const tree = response.data as OrganizationTree;
+      organizationCacheRef.current[empId] = tree;
+      setOrganizationTree(tree);
+      return tree;
+    } catch (err: unknown) {
+      setError(getApiErrorMessage(err, "Erreur lors du chargement de l'organisation"));
+      return null;
     } finally {
-      setLoading(false);
+      if (!cachedTree) {
+        setLoading(false);
+      }
     }
   };
 
-  // Récupérer les unités organisationnelles
   const fetchUnits = async (empId: number, level?: string, parentId?: number) => {
     try {
       setLoading(true);
@@ -82,142 +110,137 @@ export const useOrganization = (employerId?: number) => {
       const params = new URLSearchParams();
       if (level) params.append('level', level);
       if (parentId !== undefined) params.append('parent_id', parentId.toString());
-      
+
       const response = await api.get(`/organization/employers/${empId}/units?${params}`);
-      setUnits(response.data);
-    } catch (err: any) {
-      setError(err.response?.data?.detail || 'Erreur lors du chargement des unités');
+      setUnits(response.data as OrganizationalUnit[]);
+    } catch (err: unknown) {
+      setError(getApiErrorMessage(err, 'Erreur lors du chargement des unites'));
     } finally {
       setLoading(false);
     }
   };
 
-  // Créer une nouvelle unité
   const createUnit = async (empId: number, unitData: CreateUnitData): Promise<OrganizationalUnit | null> => {
     try {
       setLoading(true);
       setError(null);
       const response = await api.post(`/organization/employers/${empId}/units`, unitData);
-      
-      // Rafraîchir les données
-      await fetchOrganizationTree(empId);
-      
-      return response.data;
-    } catch (err: any) {
-      setError(err.response?.data?.detail || 'Erreur lors de la création de l\'unité');
+      delete organizationCacheRef.current[empId];
+      await fetchOrganizationTree(empId, { force: true });
+      return response.data as OrganizationalUnit;
+    } catch (err: unknown) {
+      setError(getApiErrorMessage(err, "Erreur lors de la creation de l'unite"));
       return null;
     } finally {
       setLoading(false);
     }
   };
 
-  // Mettre à jour une unité
-  const updateUnit = async (unitId: number, unitData: Partial<CreateUnitData>): Promise<OrganizationalUnit | null> => {
+  const updateUnit = async (
+    unitId: number,
+    unitData: Partial<CreateUnitData>,
+  ): Promise<OrganizationalUnit | null> => {
     try {
       setLoading(true);
       setError(null);
       const response = await api.put(`/organization/units/${unitId}`, unitData);
-      
-      // Rafraîchir les données si on a un employeur
       if (employerId) {
-        await fetchOrganizationTree(employerId);
+        delete organizationCacheRef.current[employerId];
+        await fetchOrganizationTree(employerId, { force: true });
       }
-      
-      return response.data;
-    } catch (err: any) {
-      setError(err.response?.data?.detail || 'Erreur lors de la mise à jour de l\'unité');
+      return response.data as OrganizationalUnit;
+    } catch (err: unknown) {
+      setError(getApiErrorMessage(err, "Erreur lors de la mise a jour de l'unite"));
       return null;
     } finally {
       setLoading(false);
     }
   };
 
-  // Supprimer une unité
   const deleteUnit = async (unitId: number): Promise<boolean> => {
     try {
       setLoading(true);
       setError(null);
       await api.delete(`/organization/units/${unitId}`);
-      
-      // Rafraîchir les données si on a un employeur
       if (employerId) {
-        await fetchOrganizationTree(employerId);
+        delete organizationCacheRef.current[employerId];
+        await fetchOrganizationTree(employerId, { force: true });
       }
-      
       return true;
-    } catch (err: any) {
-      setError(err.response?.data?.detail || 'Erreur lors de la suppression de l\'unité');
+    } catch (err: unknown) {
+      setError(getApiErrorMessage(err, "Erreur lors de la suppression de l'unite"));
       return false;
     } finally {
       setLoading(false);
     }
   };
 
-  // Obtenir les niveaux possibles pour un parent
   const getPossibleChildLevels = async (unitId?: number): Promise<string[]> => {
     try {
-      const url = unitId 
+      const url = unitId
         ? `/organization/units/${unitId}/possible-children`
         : `/organization/employers/${employerId}/possible-root-levels`;
-      
+
       const response = await api.get(url);
-      return unitId 
-        ? response.data.possible_child_levels 
-        : response.data.possible_root_levels;
-    } catch (err: any) {
-      console.error('Erreur lors de la récupération des niveaux possibles:', err);
+      return unitId
+        ? (response.data.possible_child_levels as string[])
+        : (response.data.possible_root_levels as string[]);
+    } catch {
       return [];
     }
   };
 
-  // Assigner un salarié à une unité
   const assignWorkerToUnit = async (workerId: number, unitId?: number): Promise<boolean> => {
     try {
       setLoading(true);
       setError(null);
       await api.post('/organization/workers/assign', {
         worker_id: workerId,
-        organizational_unit_id: unitId
+        organizational_unit_id: unitId,
       });
-      
-      // Rafraîchir les données si on a un employeur
       if (employerId) {
-        await fetchOrganizationTree(employerId);
+        delete organizationCacheRef.current[employerId];
+        await fetchOrganizationTree(employerId, { force: true });
       }
-      
       return true;
-    } catch (err: any) {
-      setError(err.response?.data?.detail || 'Erreur lors de l\'assignation du salarié');
+    } catch (err: unknown) {
+      setError(getApiErrorMessage(err, "Erreur lors de l'assignation du salarie"));
       return false;
     } finally {
       setLoading(false);
     }
   };
 
-  // Migrer les données existantes
-  const migrateExistingData = async (empId: number): Promise<{ migrated_count: number; message: string } | null> => {
+  const migrateExistingData = async (
+    empId: number,
+  ): Promise<{ migrated_count: number; message: string } | null> => {
     try {
       setLoading(true);
       setError(null);
       const response = await api.post(`/organization/employers/${empId}/migrate`);
-      
-      // Rafraîchir les données
-      await fetchOrganizationTree(empId);
-      
-      return response.data;
-    } catch (err: any) {
-      setError(err.response?.data?.detail || 'Erreur lors de la migration');
+      delete organizationCacheRef.current[empId];
+      await fetchOrganizationTree(empId, { force: true });
+      return response.data as { migrated_count: number; message: string };
+    } catch (err: unknown) {
+      setError(getApiErrorMessage(err, 'Erreur lors de la migration'));
       return null;
     } finally {
       setLoading(false);
     }
   };
 
-  // Charger automatiquement l'arbre si employerId est fourni
   useEffect(() => {
     if (employerId) {
-      fetchOrganizationTree(employerId);
+      const cachedTree = organizationCacheRef.current[employerId];
+      if (cachedTree) {
+        setOrganizationTree(cachedTree);
+        setError(null);
+        return;
+      }
+      void fetchOrganizationTree(employerId);
+      return;
     }
+    setOrganizationTree(null);
   }, [employerId]);
 
   return {

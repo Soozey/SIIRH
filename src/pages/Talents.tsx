@@ -2,11 +2,14 @@ import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AcademicCapIcon,
+  ArrowDownTrayIcon,
+  ArrowUpTrayIcon,
   ArrowTrendingUpIcon,
   SparklesIcon,
 } from "@heroicons/react/24/outline";
 
-import { api } from "../api";
+import { api, downloadTalentsTemplate, importTalentsResource, type TabularImportReport } from "../api";
+import { useWorkerData } from "../hooks/useConstants";
 
 
 interface Employer {
@@ -85,6 +88,10 @@ export default function Talents() {
     objectives: "",
     status: "draft",
   });
+  const [importResource, setImportResource] = useState<"skills" | "trainings" | "employee-skills">("skills");
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [importReport, setImportReport] = useState<TabularImportReport | null>(null);
 
   const { data: employers = [] } = useQuery({
     queryKey: ["talents", "employers"],
@@ -241,7 +248,59 @@ export default function Talents() {
     },
   });
 
+  const handleDownloadTemplate = async (prefilled: boolean) => {
+    try {
+      await downloadTalentsTemplate(importResource, {
+        employerId: selectedEmployerId ?? undefined,
+        prefilled,
+      });
+    } catch (error) {
+      setFeedback(error instanceof Error ? error.message : "Téléchargement du modèle impossible.");
+    }
+  };
+
+  const handleImport = async () => {
+    if (!importFile) return;
+    setImporting(true);
+    setImportReport(null);
+    try {
+      const report = await importTalentsResource(importResource, importFile, {
+        employerId: selectedEmployerId ?? undefined,
+        updateExisting: true,
+      });
+      setImportReport(report);
+      await invalidateTalents();
+      setFeedback(`Import ${importResource}: ${report.created} création(s), ${report.updated} mise(s) à jour.`);
+    } catch (error) {
+      setFeedback(error instanceof Error ? error.message : "Import impossible.");
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const handleDownloadErrorReport = () => {
+    const csv = importReport?.error_report_csv;
+    if (!csv) return;
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.setAttribute("download", `talents_${importResource}_import_errors.csv`);
+    document.body.appendChild(link);
+    link.click();
+    link.parentNode?.removeChild(link);
+  };
+
   const selectedWorker = workers.find((worker) => worker.id === selectedWorkerId) ?? null;
+  const { data: selectedWorkerData } = useWorkerData(selectedWorkerId || 0);
+  const selectedWorkerLabel = selectedWorker
+    ? `${selectedWorkerData?.nom || selectedWorker.nom} ${selectedWorkerData?.prenom || selectedWorker.prenom}`
+    : null;
+  const selectedWorkerPosition =
+    selectedWorkerData?.poste || selectedWorkerData?.departement || selectedWorker?.poste || "Poste non renseigne";
+  const selectedWorkerMeta = [selectedWorkerData?.matricule || selectedWorker?.matricule, selectedWorkerData?.nature_contrat]
+    .filter(Boolean)
+    .join(" | ");
 
   return (
     <div className="space-y-8">
@@ -320,11 +379,74 @@ export default function Talents() {
           {selectedWorker ? (
             <div className="mt-8 rounded-[1.5rem] border border-white/10 bg-white/5 p-5">
               <div className="text-sm font-semibold text-white">
-                {selectedWorker.nom} {selectedWorker.prenom}
+                {selectedWorkerLabel}
               </div>
-              <div className="mt-2 text-sm text-slate-400">{selectedWorker.poste || "Poste non renseigne"}</div>
+              <div className="mt-2 text-sm text-slate-400">{selectedWorkerPosition}</div>
+              {selectedWorkerMeta ? <div className="mt-2 text-xs text-cyan-200">{selectedWorkerMeta}</div> : null}
             </div>
           ) : null}
+
+          <div className="mt-6 rounded-[1.25rem] border border-white/10 bg-slate-900/50 p-4">
+            <div className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Import / Export templates</div>
+            <div className="mt-3 grid gap-3">
+              <select
+                value={importResource}
+                onChange={(event) => setImportResource(event.target.value as "skills" | "trainings" | "employee-skills")}
+                className={inputClassName}
+              >
+                <option value="skills">Compétences</option>
+                <option value="trainings">Formations</option>
+                <option value="employee-skills">Compétences salariés</option>
+              </select>
+              <input
+                type="file"
+                accept=".xlsx,.xls,.csv"
+                onChange={(event) => setImportFile(event.target.files?.[0] || null)}
+                className={inputClassName}
+              />
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleDownloadTemplate(false)}
+                  className="inline-flex items-center gap-2 rounded-xl border border-white/20 px-3 py-2 text-xs font-semibold text-white"
+                >
+                  <ArrowDownTrayIcon className="h-4 w-4" />
+                  Modèle vide
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleDownloadTemplate(true)}
+                  className="inline-flex items-center gap-2 rounded-xl border border-white/20 px-3 py-2 text-xs font-semibold text-white"
+                >
+                  <ArrowDownTrayIcon className="h-4 w-4" />
+                  Export existant
+                </button>
+                <button
+                  type="button"
+                  onClick={handleImport}
+                  disabled={!importFile || importing}
+                  className="inline-flex items-center gap-2 rounded-xl bg-cyan-400 px-3 py-2 text-xs font-semibold text-slate-950 disabled:opacity-60"
+                >
+                  <ArrowUpTrayIcon className="h-4 w-4" />
+                  {importing ? "Import..." : "Importer"}
+                </button>
+              </div>
+            </div>
+            {importReport ? (
+              <div className="mt-3 rounded-xl border border-cyan-400/20 bg-cyan-400/10 p-3 text-xs text-cyan-100">
+                <div>{importReport.created} création(s), {importReport.updated} mise(s) à jour, {importReport.failed} échec(s).</div>
+                {importReport.error_report_csv ? (
+                  <button
+                    type="button"
+                    onClick={handleDownloadErrorReport}
+                    className="mt-2 underline"
+                  >
+                    Télécharger rapport d'erreurs
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
 
           {feedback ? (
             <div className="mt-6 rounded-2xl border border-emerald-400/20 bg-emerald-400/10 px-4 py-3 text-sm text-emerald-100">

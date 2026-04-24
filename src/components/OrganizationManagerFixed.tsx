@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import { 
   BuildingOfficeIcon, 
   UsersIcon, 
@@ -11,6 +11,7 @@ import {
 } from '@heroicons/react/24/outline';
 import { useOrganization, type OrganizationTreeNode, type CreateUnitData } from '../hooks/useOrganization';
 import { api } from '../api';
+import { useWorkerData } from '../hooks/useConstants';
 
 interface OrganizationManagerProps {
   employerId: number;
@@ -25,6 +26,35 @@ interface Worker {
   current_unit_id?: number | null;
   is_unassigned?: boolean;
 }
+
+const getWorkerDisplayName = (worker: Pick<Worker, 'nom' | 'prenom'>) =>
+  `${worker.nom || ''} ${worker.prenom || ''}`.trim() || 'Salarie';
+
+interface RawWorkerResponse {
+  id: number;
+  matricule?: string;
+  nom?: string;
+  prenom?: string;
+  poste?: string;
+  organizational_unit_id?: number | null;
+}
+
+const WorkerDisplayRow: React.FC<{ worker: Worker; tone?: "neutral" | "warning" }> = ({ worker, tone = "neutral" }) => {
+  const { data: workerData } = useWorkerData(worker.id);
+  const label = `${workerData?.nom || worker.nom} ${workerData?.prenom || worker.prenom}`.trim() || getWorkerDisplayName(worker);
+  const meta = [
+    workerData?.matricule || worker.matricule || 'Sans matricule',
+    workerData?.poste || worker.poste || 'Poste non renseigne',
+    workerData?.departement,
+  ]
+    .filter(Boolean)
+    .join(' - ');
+  return (
+    <div className={tone === "warning" ? "text-sm text-amber-700 bg-amber-100 px-2 py-1 rounded" : "text-sm text-slate-600 bg-slate-50 px-2 py-1 rounded"}>
+      {meta} ({label})
+    </div>
+  );
+};
 
 const LEVEL_LABELS = {
   etablissement: 'Établissement',
@@ -48,8 +78,10 @@ const OrganizationTreeDisplay: React.FC<{
   onDeleteUnit: (unitId: number, unitName: string) => void;
   onAssignWorker: (unitId: number) => void;
   level?: number;
-}> = ({ nodes, onCreateChild, onEditUnit, onDeleteUnit, onAssignWorker, level = 0 }) => {
+  visitedNodeIds?: Set<number>;
+}> = ({ nodes, onCreateChild, onEditUnit, onDeleteUnit, onAssignWorker, level = 0, visitedNodeIds }) => {
   const [expandedNodes, setExpandedNodes] = useState<Set<number>>(new Set());
+  const currentVisited = visitedNodeIds ?? new Set<number>();
 
   const toggleExpanded = (nodeId: number) => {
     const newExpanded = new Set(expandedNodes);
@@ -64,6 +96,11 @@ const OrganizationTreeDisplay: React.FC<{
   return (
     <div className={level > 0 ? "ml-6 border-l-2 border-slate-200 pl-4" : ""}>
       {nodes.map(node => (
+        currentVisited.has(node.id) ? (
+          <div key={`cycle-${node.id}`} className="mb-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+            Cycle détecté sur l&apos;unité {node.name}. La branche a été interrompue pour éviter une boucle infinie.
+          </div>
+        ) : (
         <div key={node.id} className="mb-2">
           <div className="flex items-center justify-between p-3 bg-white rounded-lg shadow-sm border border-slate-100">
             <div className="flex items-center gap-3">
@@ -140,16 +177,14 @@ const OrganizationTreeDisplay: React.FC<{
               <div className="text-xs font-medium text-slate-500 mb-1">Salariés :</div>
               <div className="grid grid-cols-1 gap-1">
                 {node.direct_workers.map(worker => (
-                  <div key={worker.id} className="text-sm text-slate-600 bg-slate-50 px-2 py-1 rounded">
-                    {worker.matricule} - {worker.nom} {worker.prenom} ({worker.poste})
-                  </div>
+                  <WorkerDisplayRow key={worker.id} worker={worker} />
                 ))}
               </div>
             </div>
           )}
 
           {/* Enfants (rendu conditionnel, pas récursif) */}
-          {expandedNodes.has(node.id) && node.children.length > 0 && (
+          {expandedNodes.has(node.id) && node.children.length > 0 && level < 12 && (
             <OrganizationTreeDisplay
               nodes={node.children}
               onCreateChild={onCreateChild}
@@ -157,9 +192,16 @@ const OrganizationTreeDisplay: React.FC<{
               onDeleteUnit={onDeleteUnit}
               onAssignWorker={onAssignWorker}
               level={level + 1}
+              visitedNodeIds={new Set([...currentVisited, node.id])}
             />
           )}
+          {expandedNodes.has(node.id) && node.children.length > 0 && level >= 12 && (
+            <div className="ml-6 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+              Profondeur maximale atteinte. La branche a été tronquée pour préserver la stabilité.
+            </div>
+          )}
         </div>
+        )
       ))}
     </div>
   );
@@ -174,7 +216,7 @@ const CreateUnitModal: React.FC<{
   possibleLevels: string[];
 }> = ({ isOpen, onClose, onSubmit, parentId, possibleLevels }) => {
   const [formData, setFormData] = useState<CreateUnitData>({
-    level: possibleLevels[0] as any || 'etablissement',
+    level: (possibleLevels[0] as CreateUnitData['level']) || 'etablissement',
     name: '',
     code: '',
     parent_id: parentId,
@@ -186,7 +228,7 @@ const CreateUnitModal: React.FC<{
     onSubmit(formData);
     onClose();
     setFormData({
-      level: possibleLevels[0] as any || 'etablissement',
+      level: (possibleLevels[0] as CreateUnitData['level']) || 'etablissement',
       name: '',
       code: '',
       parent_id: parentId,
@@ -210,7 +252,7 @@ const CreateUnitModal: React.FC<{
             </label>
             <select
               value={formData.level}
-              onChange={(e) => setFormData({ ...formData, level: e.target.value as any })}
+              onChange={(e) => setFormData({ ...formData, level: e.target.value as CreateUnitData['level'] })}
               className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
               required
             >
@@ -285,11 +327,12 @@ const CreateUnitModal: React.FC<{
 const WorkerAssignmentModal: React.FC<{
   isOpen: boolean;
   onClose: () => void;
+  employerId: number;
   unitId: number;
   unitName: string;
   organizationTree: OrganizationTreeNode[];
   onAssign: (workerId: number, unitId: number | null) => void;
-}> = ({ isOpen, onClose, unitId, unitName, organizationTree, onAssign }) => {
+}> = ({ isOpen, onClose, employerId, unitId, unitName, organizationTree, onAssign }) => {
   const [availableWorkers, setAvailableWorkers] = useState<Worker[]>([]);
   const [selectedWorkers, setSelectedWorkers] = useState<number[]>([]);
   const [selectedTargetUnit, setSelectedTargetUnit] = useState<number | null>(null);
@@ -319,68 +362,59 @@ const WorkerAssignmentModal: React.FC<{
     }
   }, [isOpen, unitId, organizationTree]);
 
-  // Charger les salariés disponibles quand la modale s'ouvre
-  React.useEffect(() => {
-    if (isOpen) {
-      loadAvailableWorkers();
-    }
-  }, [isOpen, unitId]);
-
-  const loadAvailableWorkers = async () => {
+  const loadAvailableWorkers = useCallback(async () => {
     try {
       setLoading(true);
-      
+
       if (unitId === 0) {
-        // Cas spécial : réassignation des salariés orphelins
-        // Charger seulement les salariés orphelins depuis l'arbre organisationnel
-        const response = await api.get('/organization/employers/1/tree');
-        const treeData = response.data;
+        const response = await api.get(`/organization/employers/${employerId}/tree`);
+        const treeData = response.data as { orphan_workers?: RawWorkerResponse[] };
         const orphanWorkers = treeData.orphan_workers || [];
-        
-        // Convertir au format attendu par le modal
-        const formattedWorkers = orphanWorkers.map((worker: any) => ({
+
+        const formattedWorkers = orphanWorkers.map((worker: RawWorkerResponse) => ({
           id: worker.id,
-          matricule: worker.matricule,
-          nom: worker.nom,
-          prenom: worker.prenom,
-          poste: worker.poste,
+          matricule: worker.matricule || '',
+          nom: worker.nom || '',
+          prenom: worker.prenom || '',
+          poste: worker.poste || '',
           current_unit_id: null,
-          is_unassigned: true
+          is_unassigned: true,
         }));
-        
+
         setAvailableWorkers(formattedWorkers);
       } else {
-        // Cas normal : assignation à une unité spécifique
         const response = await api.get(`/organization/units/${unitId}/available-workers`);
-        setAvailableWorkers(response.data.workers || []);
+        setAvailableWorkers((response.data.workers || []) as Worker[]);
       }
-    } catch (error) {
-      console.error('Erreur lors du chargement des salariés:', error);
-      // Fallback: charger tous les salariés
+    } catch {
       try {
         const response = await api.get('/workers');
-        const allWorkers = response.data || [];
-        
-        // Convertir au format attendu
-        const formattedWorkers = allWorkers.map((worker: any) => ({
+        const allWorkers = (response.data || []) as RawWorkerResponse[];
+
+        const formattedWorkers = allWorkers.map((worker: RawWorkerResponse) => ({
           id: worker.id,
-          matricule: worker.matricule,
-          nom: worker.nom,
-          prenom: worker.prenom,
-          poste: worker.poste,
-          current_unit_id: worker.organizational_unit_id,
-          is_unassigned: worker.organizational_unit_id === null
+          matricule: worker.matricule || '',
+          nom: worker.nom || '',
+          prenom: worker.prenom || '',
+          poste: worker.poste || '',
+          current_unit_id: worker.organizational_unit_id ?? null,
+          is_unassigned: worker.organizational_unit_id == null,
         }));
-        
+
         setAvailableWorkers(formattedWorkers);
-      } catch (fallbackError) {
-        console.error('Erreur fallback:', fallbackError);
+      } catch {
         setAvailableWorkers([]);
       }
     } finally {
       setLoading(false);
     }
-  };
+  }, [employerId, unitId]);
+
+  React.useEffect(() => {
+    if (isOpen) {
+      void loadAvailableWorkers();
+    }
+  }, [isOpen, loadAvailableWorkers]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -526,10 +560,10 @@ const WorkerAssignmentModal: React.FC<{
                       />
                       <div className="flex-1">
                         <div className="font-medium text-slate-800">
-                          {worker.nom} {worker.prenom}
+                          {getWorkerDisplayName(worker)}
                         </div>
                         <div className="text-sm text-slate-500">
-                          {worker.matricule} • {worker.poste}
+                          <span className="block"><WorkerDisplayRow worker={worker} /></span>
                           {worker.current_unit_id ? (
                             <span className="ml-2 px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs">
                               Assigné à une autre unité
@@ -699,6 +733,17 @@ export const OrganizationManagerFixed: React.FC<OrganizationManagerProps> = ({ e
   const [selectedUnitForEdit, setSelectedUnitForEdit] = useState<OrganizationTreeNode | null>(null);
   const [selectedUnitForAssign, setSelectedUnitForAssign] = useState<{id: number, name: string} | null>(null);
   const [possibleLevels, setPossibleLevels] = useState<string[]>([]);
+  const currentTreeMatchesEmployer = organizationTree?.employer_id === employerId;
+
+  React.useEffect(() => {
+    setIsCreateModalOpen(false);
+    setIsEditModalOpen(false);
+    setIsAssignModalOpen(false);
+    setSelectedParentId(undefined);
+    setSelectedUnitForEdit(null);
+    setSelectedUnitForAssign(null);
+    setPossibleLevels([]);
+  }, [employerId]);
 
   const handleCreateUnit = async (parentId?: number) => {
     const levels = await getPossibleChildLevels(parentId);
@@ -779,14 +824,6 @@ export const OrganizationManagerFixed: React.FC<OrganizationManagerProps> = ({ e
     }
   };
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center p-8">
-        <ArrowPathIcon className="h-8 w-8 animate-spin text-primary-600" />
-      </div>
-    );
-  }
-
   if (error) {
     return (
       <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-red-600">
@@ -810,6 +847,12 @@ export const OrganizationManagerFixed: React.FC<OrganizationManagerProps> = ({ e
         </div>
 
         <div className="flex gap-2">
+          {loading && (
+            <div className="flex items-center gap-2 rounded-lg bg-slate-100 px-3 py-2 text-sm text-slate-600">
+              <ArrowPathIcon className="h-4 w-4 animate-spin text-primary-600" />
+              Chargement...
+            </div>
+          )}
           <button
             onClick={() => handleCreateUnit()}
             className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors flex items-center gap-2"
@@ -822,7 +865,14 @@ export const OrganizationManagerFixed: React.FC<OrganizationManagerProps> = ({ e
 
       {/* Arbre organisationnel */}
       <div className="bg-slate-50 rounded-xl p-6">
-        {!organizationTree || (organizationTree.root_units.length === 0 && organizationTree.orphan_workers.length === 0) ? (
+        {!currentTreeMatchesEmployer && loading ? (
+          <div className="py-16">
+            <div className="mx-auto flex max-w-md items-center justify-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-6 text-slate-600 shadow-sm">
+              <ArrowPathIcon className="h-6 w-6 animate-spin text-primary-600" />
+              Chargement de la structure organisationnelle...
+            </div>
+          </div>
+        ) : !organizationTree || (organizationTree.root_units.length === 0 && organizationTree.orphan_workers.length === 0) ? (
           <div className="text-center py-12">
             <BuildingOfficeIcon className="h-16 w-16 text-slate-300 mx-auto mb-4" />
             <h3 className="text-lg font-semibold text-slate-600 mb-2">
@@ -859,9 +909,7 @@ export const OrganizationManagerFixed: React.FC<OrganizationManagerProps> = ({ e
                 </h4>
                 <div className="grid grid-cols-1 gap-2">
                   {organizationTree.orphan_workers.map(worker => (
-                    <div key={worker.id} className="text-sm text-amber-700 bg-amber-100 px-2 py-1 rounded">
-                      {worker.matricule} - {worker.nom} {worker.prenom} ({worker.poste})
-                    </div>
+                    <WorkerDisplayRow key={worker.id} worker={worker} tone="warning" />
                   ))}
                 </div>
                 <button
@@ -908,6 +956,7 @@ export const OrganizationManagerFixed: React.FC<OrganizationManagerProps> = ({ e
             setIsAssignModalOpen(false);
             setSelectedUnitForAssign(null);
           }}
+          employerId={employerId}
           unitId={selectedUnitForAssign.id}
           unitName={selectedUnitForAssign.name}
           organizationTree={organizationTree?.root_units || []}

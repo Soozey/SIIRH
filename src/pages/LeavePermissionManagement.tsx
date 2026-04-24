@@ -1,807 +1,917 @@
-// frontend/src/pages/LeavePermissionManagement.tsx
-import { useState, useEffect } from "react";
+import { useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+
 import { api } from "../api";
-import { CalendarIcon, PlusIcon, TrashIcon, EyeIcon, MagnifyingGlassIcon, ArrowPathIcon } from "@heroicons/react/24/outline";
+import HelpTooltip from "../components/help/HelpTooltip";
+import WorkCalendar from "../components/WorkCalendar";
 import { useAuth } from "../contexts/AuthContext";
+import { getContextHelp } from "../help/helpContent";
+import { sessionHasRole } from "../rbac";
 
-type PayrollRun = {
-    id: number;
-    period: string;
-    employer_id: number;
-    employer_name?: string;
+type Employer = {
+  id: number;
+  raison_sociale: string;
 };
 
-type LeavePermissionEntry = {
-    worker_id: number;
-    matricule: string;
-    nom: string;
-    prenom: string;
-    leave: {
-        days_taken: number;
-        balance: number;
-        start_date: string | null;
-        end_date: string | null;
-        entries: Array<{
-            id: number;
-            start_date: string;
-            end_date: string;
-            days_taken: number;
-            notes: string | null;
-            workflow?: WorkflowState | null;
-        }>;
-        pending_days_taken?: number;
-    };
-    permission: {
-        days_taken: number;
-        balance: number;
-        start_date: string | null;
-        end_date: string | null;
-        entries: Array<{
-            id: number;
-            start_date: string;
-            end_date: string;
-            days_taken: number;
-            notes: string | null;
-            workflow?: WorkflowState | null;
-        }>;
-        pending_days_taken?: number;
-    };
+type Worker = {
+  id: number;
+  employer_id: number;
+  matricule?: string | null;
+  nom: string;
+  prenom: string;
 };
 
-type WorkflowState = {
-    overall_status: string;
-    manager_status: string;
-    rh_status: string;
-    manager_comment?: string | null;
-    rh_comment?: string | null;
+type LeaveType = {
+  id: number;
+  code: string;
+  label: string;
+  category: string;
+  deduct_from_annual_balance: boolean;
+  justification_required: boolean;
+  validation_required: boolean;
+  payroll_impact: string;
+  attendance_impact: string;
+};
+
+type LeaveRequest = {
+  id: number;
+  request_ref: string;
+  worker_id: number;
+  leave_type_code: string;
+  final_leave_type_code: string;
+  status: string;
+  start_date: string;
+  end_date: string;
+  duration_days: number;
+  subject: string;
+  reason?: string | null;
+  comment?: string | null;
+  validations_remaining: string[];
+  alerts: Array<{ code: string; severity: string; message: string }>;
+  approvals: Array<{ id: number; approver_label?: string | null; status: string; comment?: string | null }>;
+  history: Array<{ id: number; action: string; actor_name?: string | null; comment?: string | null; created_at: string }>;
+};
+
+type LeaveDashboard = {
+  worker_id: number;
+  employer_id: number;
+  period: string;
+  balances: Record<string, number>;
+  requests: LeaveRequest[];
+  alerts: Array<{ code: string; severity: string; message: string }>;
+  notifications: Array<{ type: string; label: string; status: string }>;
+  calendar: Array<{ id: number; start_date: string; end_date: string; status: string; leave_type_code: string; subject: string }>;
+};
+
+type ValidatorDashboard = {
+  metrics: Record<string, number>;
+  pending_requests: LeaveRequest[];
+  urgent_requests: LeaveRequest[];
+  conflicts: LeaveRequest[];
+  alerts: Array<{ severity: string; message: string }>;
+};
+
+type ApprovalRuleStep = {
+  id?: number;
+  step_order: number;
+  parallel_group: number;
+  approver_kind: string;
+  approver_role_code?: string | null;
+  approver_user_id?: number | null;
+  is_required?: boolean;
+  label?: string | null;
+};
+
+type RuleEditorStep = {
+  step_order: number;
+  parallel_group: number;
+  approver_kind: string;
+  approver_role_code: string;
+  approver_user_id: string;
+  is_required: boolean;
+  label: string;
+};
+
+type ApprovalRule = {
+  id: number;
+  leave_type_code: string;
+  approval_mode: string;
+  fallback_on_reject: string;
+  steps: ApprovalRuleStep[];
+};
+
+type PlanningCycle = {
+  id: number;
+  title: string;
+};
+
+type PlanningProposal = {
+  id: number;
+  worker_id: number;
+  worker_name: string;
+  score: number;
+  rationale: Array<{ factor: string; weight: number; message: string }>;
+};
+
+type AppUser = {
+  id: number;
+  username: string;
+  full_name?: string | null;
+  role_code: string;
+  employer_id?: number | null;
+};
+
+type ReconciliationRow = {
+  id: number;
+  leave_request_id: number;
+  employer_id: number;
+  worker_id: number;
+  worker_name?: string | null;
+  request_ref?: string | null;
+  leave_type_code?: string | null;
+  subject?: string | null;
+  start_date?: string | null;
+  end_date?: string | null;
+  period: string;
+  status: string;
+  discrepancy_level: string;
+  attendance_payload: Record<string, unknown>;
+  leave_payload: Record<string, unknown>;
+  notes?: string | null;
+};
+
+type RuleEditorState = {
+  id: number | null;
+  leave_type_code: string;
+  approval_mode: string;
+  fallback_on_reject: string;
+  active: boolean;
+  steps: RuleEditorStep[];
+};
+
+const panelClass = "rounded-[1.75rem] border border-white/10 bg-slate-950/55 p-6 shadow-2xl shadow-slate-950/20 backdrop-blur";
+const inputClass = "w-full rounded-2xl border border-white/10 bg-slate-900/80 px-4 py-3 text-sm text-slate-100 outline-none transition focus:border-cyan-300/50";
+const badge = (status: string) => {
+  if (status.includes("approved") || status === "integrated") return "border-emerald-400/30 bg-emerald-400/10 text-emerald-100";
+  if (status.includes("reject")) return "border-rose-400/30 bg-rose-400/10 text-rose-100";
+  if (status.includes("requal")) return "border-amber-400/30 bg-amber-400/10 text-amber-100";
+  return "border-cyan-400/20 bg-cyan-400/10 text-cyan-100";
 };
 
 export default function LeavePermissionManagement() {
-    const { session } = useAuth();
-    const [payrollRuns, setPayrollRuns] = useState<PayrollRun[]>([]);
-    const [selectedRunId, setSelectedRunId] = useState<number | null>(null);
-    const [data, setData] = useState<LeavePermissionEntry[]>([]);
-    const [loading, setLoading] = useState(false);
-    const [viewingWorker, setViewingWorker] = useState<LeavePermissionEntry | null>(null);
-    const [search, setSearch] = useState("");
+  const { session } = useAuth();
+  const queryClient = useQueryClient();
+  const isEmployee = sessionHasRole(session, ["employe"]) && !!session?.worker_id;
+  const canValidate = sessionHasRole(session, ["admin", "rh", "manager", "direction", "employeur"]);
+  const canAdmin = sessionHasRole(session, ["admin", "rh", "employeur", "direction"]);
 
-    // Load payroll runs
-    useEffect(() => {
-        api.get("/payroll/runs").then((res) => {
-            setPayrollRuns(res.data);
-            if (res.data.length > 0) {
-                setSelectedRunId(res.data[0].id);
-            }
+  const [selectedEmployerId, setSelectedEmployerId] = useState<number | null>(session?.employer_id ?? null);
+  const [selectedWorkerId, setSelectedWorkerId] = useState<number | null>(session?.worker_id ?? null);
+  const [selectedCycleId, setSelectedCycleId] = useState<number | null>(null);
+  const [requestForm, setRequestForm] = useState({
+    leave_type_code: "CONGE_ANNUEL",
+    start_date: new Date().toISOString().slice(0, 10),
+    end_date: new Date().toISOString().slice(0, 10),
+    subject: "",
+    reason: "",
+    comment: "",
+    attachment_note: "",
+  });
+  const [requestFile, setRequestFile] = useState<File | null>(null);
+  const [typeForm, setTypeForm] = useState({
+    code: "",
+    label: "",
+    category: "permission",
+    deduct_from_annual_balance: false,
+    justification_required: false,
+    payroll_impact: "none",
+    attendance_impact: "absence",
+  });
+  const [ruleEditor, setRuleEditor] = useState<RuleEditorState>({
+    id: null as number | null,
+    leave_type_code: "CONGE_ANNUEL",
+    approval_mode: "sequential",
+    fallback_on_reject: "reject",
+    active: true,
+    steps: [
+      { step_order: 1, parallel_group: 1, approver_kind: "manager", approver_role_code: "manager", approver_user_id: "", is_required: true, label: "N+1" },
+      { step_order: 2, parallel_group: 1, approver_kind: "rh", approver_role_code: "rh", approver_user_id: "", is_required: true, label: "RH" },
+    ],
+  });
+  const [planningForm, setPlanningForm] = useState({
+    title: `Plan ${new Date().getFullYear()}`,
+    planning_year: new Date().getFullYear(),
+    start_date: new Date().toISOString().slice(0, 10),
+    end_date: new Date(new Date().setDate(new Date().getDate() + 14)).toISOString().slice(0, 10),
+    max_absent_per_unit: 1,
+  });
+  const [isCalendarOpen, setIsCalendarOpen] = useState(false);
+  const [calendarScope, setCalendarScope] = useState<"global" | "team" | "personal">("global");
+  const leaveBalanceHelp = getContextHelp("leaves", "leave_balance");
+  const leaveWorkflowHelp = getContextHelp("leaves", "approval_mode");
+
+  const { data: employers = [] } = useQuery({
+    queryKey: ["leave", "employers"],
+    queryFn: async () => (await api.get<Employer[]>("/employers")).data,
+    enabled: !isEmployee,
+  });
+
+  const effectiveEmployerId = useMemo(() => {
+    if (isEmployee) return session?.employer_id ?? null;
+    if (selectedEmployerId && employers.some((item) => item.id === selectedEmployerId)) return selectedEmployerId;
+    return employers[0]?.id ?? session?.employer_id ?? null;
+  }, [employers, isEmployee, selectedEmployerId, session]);
+
+  const { data: workers = [] } = useQuery({
+    queryKey: ["leave", "workers", effectiveEmployerId],
+    enabled: !isEmployee && effectiveEmployerId !== null,
+    queryFn: async () => (
+      await api.get<Worker[]>("/workers", { params: { employer_id: effectiveEmployerId } })
+    ).data,
+  });
+
+  const effectiveWorkerId = useMemo(() => {
+    if (isEmployee) return session?.worker_id ?? null;
+    if (selectedWorkerId && workers.some((item) => item.id === selectedWorkerId)) return selectedWorkerId;
+    return workers[0]?.id ?? null;
+  }, [isEmployee, selectedWorkerId, session, workers]);
+
+  const { data: leaveTypes = [] } = useQuery({
+    queryKey: ["leave", "types", effectiveEmployerId],
+    enabled: effectiveEmployerId !== null,
+    queryFn: async () => (await api.get<LeaveType[]>("/leaves/types", { params: { employer_id: effectiveEmployerId } })).data,
+  });
+
+  const { data: approvalRules = [] } = useQuery({
+    queryKey: ["leave", "approval-rules", effectiveEmployerId],
+    enabled: canAdmin && effectiveEmployerId !== null,
+    queryFn: async () => (await api.get<ApprovalRule[]>("/leaves/approval-rules", { params: { employer_id: effectiveEmployerId } })).data,
+  });
+
+  const { data: users = [] } = useQuery({
+    queryKey: ["leave", "users", effectiveEmployerId],
+    enabled: canAdmin && effectiveEmployerId !== null,
+    queryFn: async () => (await api.get<AppUser[]>("/auth/users", { params: { employer_id: effectiveEmployerId } })).data,
+  });
+
+  const { data: dashboard } = useQuery({
+    queryKey: ["leave", "dashboard", effectiveWorkerId],
+    enabled: effectiveWorkerId !== null,
+    queryFn: async () => (await api.get<LeaveDashboard>(`/leaves/dashboard/worker/${effectiveWorkerId}`)).data,
+  });
+
+  const { data: validatorDashboard } = useQuery({
+    queryKey: ["leave", "validator-dashboard", effectiveEmployerId, session?.user_id],
+    enabled: canValidate,
+    queryFn: async () => (
+      await api.get<ValidatorDashboard>("/leaves/dashboard/validator", { params: { employer_id: effectiveEmployerId ?? undefined } })
+    ).data,
+  });
+
+  const { data: reconciliationRows = [] } = useQuery({
+    queryKey: ["leave", "reconciliation", effectiveEmployerId],
+    enabled: canValidate,
+    queryFn: async () => (await api.get<ReconciliationRow[]>("/leaves/reconciliation", { params: { employer_id: effectiveEmployerId ?? undefined } })).data,
+  });
+
+  const createRequestMutation = useMutation({
+    mutationFn: async () => {
+      if (!effectiveWorkerId) throw new Error("Salarie requis");
+      const created = (
+        await api.post<LeaveRequest>("/leaves/requests", {
+          worker_id: effectiveWorkerId,
+          leave_type_code: requestForm.leave_type_code,
+          start_date: requestForm.start_date,
+          end_date: requestForm.end_date,
+          subject: requestForm.subject,
+          reason: requestForm.reason || null,
+          comment: requestForm.comment || null,
+          attachments: requestForm.attachment_note ? [{ name: requestForm.attachment_note, source: "manual_note" }] : [],
+          submit_now: true,
+        })
+      ).data;
+      if (requestFile) {
+        const formData = new FormData();
+        formData.append("attachment", requestFile);
+        formData.append("label", requestForm.attachment_note || requestFile.name);
+        await api.post(`/leaves/requests/${created.id}/attachments/upload`, formData, {
+          headers: { "Content-Type": "multipart/form-data" },
         });
-    }, []);
+      }
+      return created;
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["leave"] });
+      setRequestForm((current) => ({ ...current, subject: "", reason: "", comment: "", attachment_note: "" }));
+      setRequestFile(null);
+      alert("Demande soumise.");
+    },
+    onError: (error: any) => alert(error?.response?.data?.detail || "Erreur lors de la demande."),
+  });
 
-    // Load data when run is selected
-    useEffect(() => {
-        if (selectedRunId) {
-            loadData();
-        }
-    }, [selectedRunId]);
+  const createTypeMutation = useMutation({
+    mutationFn: async () => (
+      await api.post("/leaves/types", {
+        employer_id: effectiveEmployerId,
+        ...typeForm,
+        validation_required: true,
+        visibility_scope: "all",
+        allow_requalification: true,
+        supports_hour_range: false,
+        active: true,
+      })
+    ).data,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["leave", "types"] });
+      setTypeForm({ code: "", label: "", category: "permission", deduct_from_annual_balance: false, justification_required: false, payroll_impact: "none", attendance_impact: "absence" });
+    },
+  });
 
-    const loadData = async () => {
-        if (!selectedRunId) return;
-        setLoading(true);
-        try {
-            const res = await api.get(`/leaves/${selectedRunId}/all`);
-            setData(res.data);
-        } catch (error) {
-            console.error("Error loading leave/permission data:", error);
-        } finally {
-            setLoading(false);
-        }
-    };
+  const createStandardRuleMutation = useMutation({
+    mutationFn: async (leaveTypeCode: string) => (
+      await api.post("/leaves/approval-rules", {
+        employer_id: effectiveEmployerId,
+        leave_type_code: leaveTypeCode,
+        approval_mode: "sequential",
+        fallback_on_reject: "reject",
+        active: true,
+        steps: [
+          { step_order: 1, parallel_group: 1, approver_kind: "manager", approver_role_code: "manager", is_required: true, label: "N+1" },
+          { step_order: 2, parallel_group: 1, approver_kind: "rh", approver_role_code: "rh", is_required: true, label: "RH" },
+        ],
+      })
+    ).data,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["leave", "approval-rules"] });
+      alert("Circuit standard cree.");
+    },
+  });
 
-    const [addModal, setAddModal] = useState<{
-        isOpen: boolean;
-        type: 'leave' | 'permission';
-        workerId: number | null;
-        startDate: string;
-        endDate: string;
-        daysTaken: number | string;
-    }>({
-        isOpen: false,
-        type: 'leave',
-        workerId: null,
-        startDate: '',
-        endDate: '',
-        daysTaken: ''
-    });
+  const saveRuleMutation = useMutation({
+    mutationFn: async () => {
+      const payload = {
+        employer_id: effectiveEmployerId,
+        leave_type_code: ruleEditor.leave_type_code,
+        approval_mode: ruleEditor.approval_mode,
+        fallback_on_reject: ruleEditor.fallback_on_reject,
+        active: ruleEditor.active,
+        steps: ruleEditor.steps.map((step) => ({
+          step_order: Number(step.step_order),
+          parallel_group: Number(step.parallel_group),
+          approver_kind: step.approver_kind,
+          approver_role_code: step.approver_role_code || null,
+          approver_user_id: step.approver_user_id ? Number(step.approver_user_id) : null,
+          is_required: step.is_required,
+          label: step.label || null,
+        })),
+      };
+      if (ruleEditor.id) {
+        return (await api.put(`/leaves/approval-rules/${ruleEditor.id}`, payload)).data;
+      }
+      return (await api.post(`/leaves/approval-rules`, payload)).data;
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["leave", "approval-rules"] });
+      alert("Circuit enregistre.");
+      setRuleEditor({
+        id: null,
+        leave_type_code: "CONGE_ANNUEL",
+        approval_mode: "sequential",
+        fallback_on_reject: "reject",
+        active: true,
+        steps: [
+          { step_order: 1, parallel_group: 1, approver_kind: "manager", approver_role_code: "manager", approver_user_id: "", is_required: true, label: "N+1" },
+          { step_order: 2, parallel_group: 1, approver_kind: "rh", approver_role_code: "rh", approver_user_id: "", is_required: true, label: "RH" },
+        ],
+      });
+    },
+  });
 
-    const [adjustmentModal, setAdjustmentModal] = useState<{
-        isOpen: boolean;
-        workerId: number | null;
-        workerName: string;
-        currentInitial: number | string;
-    }>({
-        isOpen: false,
-        workerId: null,
-        workerName: '',
-        currentInitial: 0
-    });
+  const deleteRuleMutation = useMutation({
+    mutationFn: async (ruleId: number) => (await api.delete(`/leaves/approval-rules/${ruleId}`)).data,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["leave", "approval-rules"] });
+    },
+  });
 
-    // Auto-calculate days when dates change
-    useEffect(() => {
-        if (addModal.isOpen && addModal.startDate && addModal.endDate) {
-            const days = calculateBusinessDays(addModal.startDate, addModal.endDate);
-            setAddModal(prev => ({ ...prev, daysTaken: days }));
-        }
-    }, [addModal.startDate, addModal.endDate, addModal.isOpen]);
+  const decisionMutation = useMutation({
+    mutationFn: async ({ requestId, action, comment }: { requestId: number; action: string; comment?: string }) => (
+      await api.post(`/leaves/requests/${requestId}/decision`, { action, comment: comment || null })
+    ).data,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["leave"] });
+    },
+    onError: (error: any) => alert(error?.response?.data?.detail || "Decision impossible."),
+  });
 
-    const calculateBusinessDays = (startStr: string, endStr: string) => {
-        const start = new Date(startStr);
-        const end = new Date(endStr);
+  const requalifyMutation = useMutation({
+    mutationFn: async ({ requestId, newType, comment }: { requestId: number; newType: string; comment: string }) => (
+      await api.post(`/leaves/requests/${requestId}/requalify`, { new_leave_type_code: newType, comment })
+    ).data,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["leave"] });
+    },
+    onError: (error: any) => alert(error?.response?.data?.detail || "Requalification impossible."),
+  });
 
-        if (isNaN(start.getTime()) || isNaN(end.getTime()) || start > end) return 0;
+  const deleteRequestMutation = useMutation({
+    mutationFn: async (requestId: number) => (await api.delete(`/leaves/requests/${requestId}`)).data,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["leave"] });
+    },
+    onError: (error: any) => alert(error?.response?.data?.detail || "Suppression impossible."),
+  });
 
-        let count = 0;
-        const cur = new Date(start);
-        while (cur <= end) {
-            const dayOfWeek = cur.getDay();
-            // Count Mon(1) to Sat(6). Exclude Sun(0).
-            if (dayOfWeek !== 0) {
-                count++;
-            }
-            cur.setDate(cur.getDate() + 1);
-        }
-        return count;
-    };
+  const createCycleMutation = useMutation({
+    mutationFn: async () => (
+      await api.post<PlanningCycle>("/leaves/planning/cycles", {
+        employer_id: effectiveEmployerId,
+        title: planningForm.title,
+        planning_year: planningForm.planning_year,
+        start_date: planningForm.start_date,
+        end_date: planningForm.end_date,
+        status: "draft",
+        max_absent_per_unit: planningForm.max_absent_per_unit,
+        blackout_periods: [],
+        family_priority_enabled: true,
+        notes: null,
+      })
+    ).data,
+    onSuccess: (data) => {
+      setSelectedCycleId(data.id);
+    },
+  });
 
-    const handleAddLeave = (workerId: number) => {
-        setAddModal({
-            isOpen: true,
-            type: 'leave',
-            workerId,
-            startDate: '',
-            endDate: '',
-            daysTaken: ''
-        });
-    };
+  const { data: proposals = [] } = useQuery({
+    queryKey: ["leave", "planning", selectedCycleId],
+    enabled: selectedCycleId !== null,
+    queryFn: async () => (await api.get<PlanningProposal[]>(`/leaves/planning/cycles/${selectedCycleId}/proposals`, { params: { regenerate: true } })).data,
+  });
 
-    const handleAddPermission = (workerId: number) => {
-        setAddModal({
-            isOpen: true,
-            type: 'permission',
-            workerId,
-            startDate: '',
-            endDate: '',
-            daysTaken: ''
-        });
-    };
+  const selectedType = leaveTypes.find((item) => item.code === requestForm.leave_type_code);
+  const dashboardBalances = dashboard?.balances ?? {};
+  const validatorMetrics = validatorDashboard?.metrics ?? {};
+  const effectiveCalendarWorkerId = calendarScope === "personal" ? effectiveWorkerId : null;
 
-    const handleSaveEntry = async () => {
-        if (!addModal.workerId || !selectedRunId) return;
-        const period = payrollRuns.find((r) => r.id === selectedRunId)?.period;
-        if (!period) return;
-
-        try {
-            const endpoint = addModal.type === 'leave' ? '/leaves/leave' : '/leaves/permission';
-            await api.post(endpoint, {
-                worker_id: addModal.workerId,
-                period,
-                start_date: addModal.startDate,
-                end_date: addModal.endDate,
-                days_taken: Number(addModal.daysTaken),
-                notes: null,
-            });
-            setAddModal(prev => ({ ...prev, isOpen: false }));
-            loadData();
-        } catch (error) {
-            console.error("Error adding entry:", error);
-            alert("Erreur lors de l'ajout");
-        }
-    };
-
-    const handleAdjustBalance = (worker: LeavePermissionEntry) => {
-        // We need to fetch the worker to get the current solde_conge_initial
-        setLoading(true);
-        api.get(`/workers/${worker.worker_id}`).then(res => {
-            setAdjustmentModal({
-                isOpen: true,
-                workerId: worker.worker_id,
-                workerName: `${worker.prenom} ${worker.nom}`,
-                currentInitial: res.data.solde_conge_initial || 0
-            });
-        }).catch(err => {
-            console.error("Error fetching worker for adjustment:", err);
-            alert("Erreur lors de la récupération des données du travailleur");
-        }).finally(() => {
-            setLoading(false);
-        });
-    };
-
-    const saveAdjustment = async () => {
-        if (!adjustmentModal.workerId) return;
-        try {
-            await api.patch(`/workers/${adjustmentModal.workerId}`, {
-                solde_conge_initial: Number(adjustmentModal.currentInitial) || 0
-            });
-            setAdjustmentModal(prev => ({ ...prev, isOpen: false }));
-            loadData(); // Reload leave data to reflect new balance
-        } catch (error) {
-            console.error("Error saving adjustment:", error);
-            alert("Erreur lors de la sauvegarde de l'ajustement");
-        }
-    };
-
-    const handleDeleteLeave = async (leaveId: number) => {
-        if (!confirm("Supprimer ce congé ?")) return;
-        try {
-            await api.delete(`/leaves/leave/${leaveId}`);
-            loadData();
-        } catch (error) {
-            console.error("Error deleting leave:", error);
-        }
-    };
-
-    const handleDeletePermission = async (permId: number) => {
-        if (!confirm("Supprimer cette permission ?")) return;
-        try {
-            await api.delete(`/leaves/permission/${permId}`);
-            loadData();
-        } catch (error) {
-            console.error("Error deleting permission:", error);
-        }
-    };
-
-    const canReviewAsManager = ["admin", "rh", "manager"].includes(session?.role_code || "");
-    const canReviewAsRh = ["admin", "rh"].includes(session?.role_code || "");
-
-    const getWorkflowTone = (workflow?: WorkflowState | null) => {
-        const status = workflow?.overall_status || "legacy";
-        if (status === "approved") return "bg-emerald-100 text-emerald-800 border-emerald-200";
-        if (status === "rejected") return "bg-rose-100 text-rose-800 border-rose-200";
-        if (status === "pending_rh") return "bg-amber-100 text-amber-800 border-amber-200";
-        return "bg-slate-100 text-slate-700 border-slate-200";
-    };
-
-    const getWorkflowLabel = (workflow?: WorkflowState | null) => {
-        const status = workflow?.overall_status || "legacy";
-        if (status === "approved") return "Validé";
-        if (status === "rejected") return "Refusé";
-        if (status === "pending_rh") return "En attente RH";
-        if (status === "pending_manager") return "En attente manager";
-        return "Historique";
-    };
-
-    const reviewRequest = async (
-        type: "leave" | "permission",
-        entryId: number,
-        stage: "manager" | "rh",
-        approved: boolean
-    ) => {
-        try {
-            await api.post(`/leaves/${type}/${entryId}/review/${stage}`, {
-                approved,
-                comment: null,
-            });
-            await loadData();
-            setViewingWorker(null);
-        } catch (error) {
-            console.error("Error reviewing request:", error);
-            alert("Erreur lors du traitement de la demande");
-        }
-    };
-
-    return (
-        <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 p-8">
-            <div className="max-w-7xl mx-auto">
-                {/* Header */}
-                <div className="mb-8">
-                    <h1 className="text-4xl font-bold text-gray-900 mb-2 flex items-center gap-3">
-                        <CalendarIcon className="h-10 w-10 text-blue-600" />
-                        Gestion Congés & Permissions
-                    </h1>
-                    <p className="text-gray-600">Gérez les congés et permissions exceptionnelles par période de paie</p>
-                </div>
-
-                {/* Payroll Run Selector & Search */}
-                <div className="bg-white rounded-2xl shadow-lg p-6 mb-6 flex flex-col md:flex-row md:items-end gap-6">
-                    <div className="flex-1">
-                        <label className="block text-sm font-medium text-gray-700 mb-2">Période de Paie</label>
-                        <select
-                            value={selectedRunId || ""}
-                            onChange={(e) => {
-                                const val = Number(e.target.value);
-                                setSelectedRunId(val);
-                            }}
-                            className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                        >
-                            <option value="" disabled>Sélectionnez une période</option>
-                            {payrollRuns.map((run) => (
-                                <option key={run.id} value={run.id}>
-                                    {run.period} ({run.employer_name || 'N/A'})
-                                </option>
-                            ))}
-                        </select>
-                    </div>
-
-                    <div className="flex-1">
-                        <label className="block text-sm font-medium text-gray-700 mb-2">Recherche</label>
-                        <div className="relative">
-                            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                                <MagnifyingGlassIcon className="h-5 w-5 text-gray-400" />
-                            </div>
-                            <input
-                                type="text"
-                                placeholder="Recherche par matr nom prénom"
-                                value={search}
-                                onChange={(e) => setSearch(e.target.value)}
-                                className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                            />
-                        </div>
-                    </div>
-                </div>
-
-                {/* Data Table */}
-                {loading ? (
-                    <div className="text-center py-12">
-                        <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-                        <p className="mt-4 text-gray-600">Chargement...</p>
-                    </div>
-                ) : (
-                    <div className="bg-white rounded-2xl shadow-lg overflow-hidden">
-                        <div className="overflow-x-auto">
-                            <table className="w-full">
-                                <thead className="bg-gradient-to-r from-blue-600 to-purple-600 text-white">
-                                    <tr>
-                                        <th className="px-4 py-3 text-left text-sm font-semibold">Matricule</th>
-                                        <th className="px-4 py-3 text-left text-sm font-semibold">Nom & Prénom</th>
-                                        <th className="px-4 py-3 text-center text-sm font-semibold" colSpan={2}>
-                                            Congés
-                                        </th>
-                                        <th className="px-4 py-3 text-center text-sm font-semibold" colSpan={2}>
-                                            Permissions
-                                        </th>
-                                    </tr>
-                                    <tr className="bg-blue-500 text-white text-xs">
-                                        <th className="px-4 py-2"></th>
-                                        <th className="px-4 py-2"></th>
-                                        <th className="px-4 py-2 text-center">Pris / Solde</th>
-                                        <th className="px-4 py-2 text-center">Actions</th>
-                                        <th className="px-4 py-2 text-center">Pris / Solde</th>
-                                        <th className="px-4 py-2 text-center">Actions</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-gray-200">
-                                    {data.filter(entry => {
-                                        const s = search.toLowerCase();
-                                        return entry.nom?.toLowerCase().includes(s) ||
-                                            entry.prenom?.toLowerCase().includes(s) ||
-                                            entry.matricule?.toLowerCase().includes(s);
-                                    }).map((entry) => (
-                                        <tr key={entry.worker_id} className="hover:bg-blue-50 transition-colors">
-                                            <td className="px-4 py-3 text-sm font-medium text-gray-900">{entry.matricule}</td>
-                                            <td className="px-4 py-3 text-sm text-gray-900">
-                                                <div className="flex items-center gap-2">
-                                                    <span>{entry.nom} {entry.prenom}</span>
-                                                    <button
-                                                        onClick={() => setViewingWorker(entry)}
-                                                        className="text-gray-400 hover:text-blue-600 transition-colors p-1 rounded-full hover:bg-blue-50"
-                                                        title="Voir détails"
-                                                    >
-                                                        <EyeIcon className="h-5 w-5" />
-                                                    </button>
-                                                </div>
-                                            </td>
-                                            {/* Leave */}
-                                            <td className="px-4 py-3 text-center">
-                                                <div className="text-sm">
-                                                    <div className="font-bold text-blue-700">{entry.leave.days_taken}j pris</div>
-                                                    <div className="text-green-700">Solde: {entry.leave.balance}j</div>
-                                                    {(entry.leave.pending_days_taken || 0) > 0 && (
-                                                        <div className="text-amber-700">En attente: {entry.leave.pending_days_taken}j</div>
-                                                    )}
-                                                    {entry.leave.entries.map((l) => (
-                                                        <div key={l.id} className="text-xs text-gray-600 mt-1 flex items-center justify-center gap-2 flex-wrap">
-                                                            <span className={`inline-flex items-center rounded-full border px-2 py-0.5 font-medium ${getWorkflowTone(l.workflow)}`}>
-                                                                {getWorkflowLabel(l.workflow)}
-                                                            </span>
-                                                            <span>
-                                                                {l.start_date} → {l.end_date} ({l.days_taken}j)
-                                                            </span>
-                                                            <button
-                                                                onClick={() => handleDeleteLeave(l.id)}
-                                                                className="text-red-600 hover:text-red-800"
-                                                            >
-                                                                <TrashIcon className="h-3 w-3" />
-                                                            </button>
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                            </td>
-                                            <td className="px-4 py-3 text-center">
-                                                <button
-                                                    onClick={() => handleAddLeave(entry.worker_id)}
-                                                    className="inline-flex items-center gap-1 px-3 py-1 bg-blue-600 text-white text-xs rounded-lg hover:bg-blue-700 transition-colors"
-                                                >
-                                                    <PlusIcon className="h-4 w-4" />
-                                                    Ajouter
-                                                </button>
-                                            </td>
-                                            {/* Permission */}
-                                            <td className="px-4 py-3 text-center">
-                                                <div className="text-sm">
-                                                    <div className="font-bold text-orange-700">{entry.permission.days_taken}j pris</div>
-                                                    <div className="text-green-700">Solde: {entry.permission.balance}j</div>
-                                                    {(entry.permission.pending_days_taken || 0) > 0 && (
-                                                        <div className="text-amber-700">En attente: {entry.permission.pending_days_taken}j</div>
-                                                    )}
-                                                    {entry.permission.entries.map((p) => (
-                                                        <div key={p.id} className="text-xs text-gray-600 mt-1 flex items-center justify-center gap-2 flex-wrap">
-                                                            <span className={`inline-flex items-center rounded-full border px-2 py-0.5 font-medium ${getWorkflowTone(p.workflow)}`}>
-                                                                {getWorkflowLabel(p.workflow)}
-                                                            </span>
-                                                            <span>
-                                                                {p.start_date} → {p.end_date} ({p.days_taken}j)
-                                                            </span>
-                                                            <button
-                                                                onClick={() => handleDeletePermission(p.id)}
-                                                                className="text-red-600 hover:text-red-800"
-                                                            >
-                                                                <TrashIcon className="h-3 w-3" />
-                                                            </button>
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                            </td>
-                                            <td className="px-4 py-3 text-center">
-                                                <button
-                                                    onClick={() => handleAddPermission(entry.worker_id)}
-                                                    className="inline-flex items-center gap-1 px-3 py-1 bg-orange-600 text-white text-xs rounded-lg hover:bg-orange-700 transition-colors"
-                                                >
-                                                    <PlusIcon className="h-4 w-4" />
-                                                    Ajouter
-                                                </button>
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                )}
-
-                {/* Details Modal */}
-                {viewingWorker && (
-                    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-                        <div className="bg-white rounded-2xl shadow-xl w-full max-w-4xl max-h-[90vh] overflow-y-auto">
-                            <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50 rounded-t-2xl">
-                                <div>
-                                    <h2 className="text-2xl font-bold text-gray-900">Détails des absences</h2>
-                                    <p className="text-gray-600">{viewingWorker.nom} {viewingWorker.prenom} ({viewingWorker.matricule})</p>
-                                </div>
-                                <button
-                                    onClick={() => setViewingWorker(null)}
-                                    className="text-gray-400 hover:text-gray-600 p-2 rounded-full hover:bg-gray-200 transition-colors"
-                                >
-                                    <span className="text-2xl">&times;</span>
-                                </button>
-                            </div>
-
-                            <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-8">
-                                {/* Congés Section */}
-                                <div className="bg-blue-50 rounded-xl p-5 border border-blue-100">
-                                    <div className="flex justify-between items-center mb-4">
-                                        <h3 className="text-lg font-bold text-blue-800 flex items-center gap-2">
-                                            <span className="w-2 h-8 bg-blue-600 rounded-full"></span>
-                                            Congés
-                                        </h3>
-                                        <div className="text-right">
-                                            <div className="text-xs text-blue-600 uppercase font-semibold">Solde</div>
-                                            <div className="flex items-center gap-2">
-                                                <div className="text-2xl font-bold text-blue-900">{viewingWorker.leave.balance} j</div>
-                                                <button
-                                                    onClick={() => handleAdjustBalance(viewingWorker)}
-                                                    className="p-1 text-blue-400 hover:text-blue-600 hover:bg-blue-100 rounded transition-colors"
-                                                    title="Ajuster le solde initial"
-                                                >
-                                                    <ArrowPathIcon className="h-4 w-4" />
-                                                </button>
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    {viewingWorker.leave.entries.length === 0 ? (
-                                        <p className="text-sm text-gray-500 italic text-center py-4">Aucun congé ce mois-ci</p>
-                                    ) : (
-                                        <div className="bg-white rounded-lg shadow-sm border border-blue-100 overflow-hidden">
-                                            <table className="w-full text-sm text-left">
-                                                <thead className="bg-blue-100 text-blue-800">
-                                                    <tr>
-                                                        <th className="px-3 py-2">Début</th>
-                                                        <th className="px-3 py-2">Fin</th>
-                                                        <th className="px-3 py-2 text-center">Jours</th>
-                                                        <th className="px-3 py-2 text-center">Statut</th>
-                                                        <th className="px-3 py-2 text-center">Action</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody className="divide-y divide-blue-50">
-                                                    {viewingWorker.leave.entries.map(entry => (
-                                                        <tr key={entry.id} className="hover:bg-blue-50">
-                                                            <td className="px-3 py-2">{entry.start_date}</td>
-                                                            <td className="px-3 py-2">{entry.end_date}</td>
-                                                            <td className="px-3 py-2 text-center font-bold">{entry.days_taken}</td>
-                                                            <td className="px-3 py-2 text-center">
-                                                                <span className={`inline-flex items-center rounded-full border px-2 py-1 text-xs font-medium ${getWorkflowTone(entry.workflow)}`}>
-                                                                    {getWorkflowLabel(entry.workflow)}
-                                                                </span>
-                                                            </td>
-                                                            <td className="px-3 py-2 text-center">
-                                                                <div className="flex items-center justify-center gap-2">
-                                                                    {canReviewAsManager && entry.workflow?.overall_status === "pending_manager" && (
-                                                                        <>
-                                                                            <button
-                                                                                onClick={() => reviewRequest("leave", entry.id, "manager", true)}
-                                                                                className="rounded-lg bg-emerald-600 px-2 py-1 text-xs font-semibold text-white hover:bg-emerald-700"
-                                                                            >
-                                                                                Valider
-                                                                            </button>
-                                                                            <button
-                                                                                onClick={() => reviewRequest("leave", entry.id, "manager", false)}
-                                                                                className="rounded-lg bg-rose-600 px-2 py-1 text-xs font-semibold text-white hover:bg-rose-700"
-                                                                            >
-                                                                                Refuser
-                                                                            </button>
-                                                                        </>
-                                                                    )}
-                                                                    {canReviewAsRh && entry.workflow?.overall_status === "pending_rh" && (
-                                                                        <>
-                                                                            <button
-                                                                                onClick={() => reviewRequest("leave", entry.id, "rh", true)}
-                                                                                className="rounded-lg bg-emerald-600 px-2 py-1 text-xs font-semibold text-white hover:bg-emerald-700"
-                                                                            >
-                                                                                RH OK
-                                                                            </button>
-                                                                            <button
-                                                                                onClick={() => reviewRequest("leave", entry.id, "rh", false)}
-                                                                                className="rounded-lg bg-rose-600 px-2 py-1 text-xs font-semibold text-white hover:bg-rose-700"
-                                                                            >
-                                                                                RH KO
-                                                                            </button>
-                                                                        </>
-                                                                    )}
-                                                                    <button
-                                                                        onClick={() => {
-                                                                            if (confirm('Supprimer ?')) handleDeleteLeave(entry.id).then(() => setViewingWorker(null));
-                                                                        }}
-                                                                        className="text-red-500 hover:text-red-700"
-                                                                    >
-                                                                        <TrashIcon className="h-4 w-4" />
-                                                                    </button>
-                                                                </div>
-                                                            </td>
-                                                        </tr>
-                                                    ))}
-                                                </tbody>
-                                            </table>
-                                        </div>
-                                    )}
-                                </div>
-
-                                {/* Permissions Section */}
-                                <div className="bg-orange-50 rounded-xl p-5 border border-orange-100">
-                                    <div className="flex justify-between items-center mb-4">
-                                        <h3 className="text-lg font-bold text-orange-800 flex items-center gap-2">
-                                            <span className="w-2 h-8 bg-orange-600 rounded-full"></span>
-                                            Permissions
-                                        </h3>
-                                        <div className="text-right">
-                                            <div className="text-xs text-orange-600 uppercase font-semibold">Solde Annuel</div>
-                                            <div className="text-2xl font-bold text-orange-900">{viewingWorker.permission.balance} j</div>
-                                        </div>
-                                    </div>
-
-                                    {viewingWorker.permission.entries.length === 0 ? (
-                                        <p className="text-sm text-gray-500 italic text-center py-4">Aucune permission ce mois-ci</p>
-                                    ) : (
-                                        <div className="bg-white rounded-lg shadow-sm border border-orange-100 overflow-hidden">
-                                            <table className="w-full text-sm text-left">
-                                                <thead className="bg-orange-100 text-orange-800">
-                                                    <tr>
-                                                        <th className="px-3 py-2">Début</th>
-                                                        <th className="px-3 py-2">Fin</th>
-                                                        <th className="px-3 py-2 text-center">Jours</th>
-                                                        <th className="px-3 py-2 text-center">Statut</th>
-                                                        <th className="px-3 py-2 text-center">Action</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody className="divide-y divide-orange-50">
-                                                    {viewingWorker.permission.entries.map(entry => (
-                                                        <tr key={entry.id} className="hover:bg-orange-50">
-                                                            <td className="px-3 py-2">{entry.start_date}</td>
-                                                            <td className="px-3 py-2">{entry.end_date}</td>
-                                                            <td className="px-3 py-2 text-center font-bold">{entry.days_taken}</td>
-                                                            <td className="px-3 py-2 text-center">
-                                                                <span className={`inline-flex items-center rounded-full border px-2 py-1 text-xs font-medium ${getWorkflowTone(entry.workflow)}`}>
-                                                                    {getWorkflowLabel(entry.workflow)}
-                                                                </span>
-                                                            </td>
-                                                            <td className="px-3 py-2 text-center">
-                                                                <div className="flex items-center justify-center gap-2">
-                                                                    {canReviewAsManager && entry.workflow?.overall_status === "pending_manager" && (
-                                                                        <>
-                                                                            <button
-                                                                                onClick={() => reviewRequest("permission", entry.id, "manager", true)}
-                                                                                className="rounded-lg bg-emerald-600 px-2 py-1 text-xs font-semibold text-white hover:bg-emerald-700"
-                                                                            >
-                                                                                Valider
-                                                                            </button>
-                                                                            <button
-                                                                                onClick={() => reviewRequest("permission", entry.id, "manager", false)}
-                                                                                className="rounded-lg bg-rose-600 px-2 py-1 text-xs font-semibold text-white hover:bg-rose-700"
-                                                                            >
-                                                                                Refuser
-                                                                            </button>
-                                                                        </>
-                                                                    )}
-                                                                    {canReviewAsRh && entry.workflow?.overall_status === "pending_rh" && (
-                                                                        <>
-                                                                            <button
-                                                                                onClick={() => reviewRequest("permission", entry.id, "rh", true)}
-                                                                                className="rounded-lg bg-emerald-600 px-2 py-1 text-xs font-semibold text-white hover:bg-emerald-700"
-                                                                            >
-                                                                                RH OK
-                                                                            </button>
-                                                                            <button
-                                                                                onClick={() => reviewRequest("permission", entry.id, "rh", false)}
-                                                                                className="rounded-lg bg-rose-600 px-2 py-1 text-xs font-semibold text-white hover:bg-rose-700"
-                                                                            >
-                                                                                RH KO
-                                                                            </button>
-                                                                        </>
-                                                                    )}
-                                                                    <button
-                                                                        onClick={() => {
-                                                                            if (confirm('Supprimer ?')) handleDeletePermission(entry.id).then(() => setViewingWorker(null));
-                                                                        }}
-                                                                        className="text-red-500 hover:text-red-700"
-                                                                    >
-                                                                        <TrashIcon className="h-4 w-4" />
-                                                                    </button>
-                                                                </div>
-                                                            </td>
-                                                        </tr>
-                                                    ))}
-                                                </tbody>
-                                            </table>
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-
-                            <div className="p-6 bg-gray-50 rounded-b-2xl border-t border-gray-100 flex justify-end">
-                                <button
-                                    onClick={() => setViewingWorker(null)}
-                                    className="px-6 py-2 bg-white border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 font-medium transition-colors"
-                                >
-                                    Fermer
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                )}
-
-                {/* Add Entry Modal */}
-                {addModal.isOpen && (
-                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black bg-opacity-50 backdrop-blur-sm">
-                        <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden transform transition-all scale-100 opacity-100">
-                            <div className="p-6">
-                                <h2 className={`text-xl font-bold mb-6 flex items-center gap-2 ${addModal.type === 'leave' ? 'text-blue-800' : 'text-orange-800'}`}>
-                                    {addModal.type === 'leave' ? (
-                                        <>
-                                            <span className="w-2 h-8 bg-blue-600 rounded-full"></span>
-                                            Ajouter un Congé
-                                        </>
-                                    ) : (
-                                        <>
-                                            <span className="w-2 h-8 bg-orange-600 rounded-full"></span>
-                                            Ajouter une Permission
-                                        </>
-                                    )}
-                                </h2>
-
-                                <div className="space-y-4">
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">Date de début</label>
-                                        <input
-                                            type="date"
-                                            className="w-full border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                                            value={addModal.startDate}
-                                            onChange={e => setAddModal(prev => ({ ...prev, startDate: e.target.value }))}
-                                        />
-                                    </div>
-
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">Date de fin</label>
-                                        <input
-                                            type="date"
-                                            className="w-full border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                                            value={addModal.endDate}
-                                            onChange={e => setAddModal(prev => ({ ...prev, endDate: e.target.value }))}
-                                        />
-                                    </div>
-
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                                            Jours (Calcul auto: Lun-Sam)
-                                        </label>
-                                        <input
-                                            type="number"
-                                            step="0.5"
-                                            className="w-full border border-gray-300 rounded-lg p-2 bg-gray-50 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-bold text-gray-900"
-                                            value={addModal.daysTaken}
-                                            onChange={e => setAddModal(prev => ({ ...prev, daysTaken: e.target.value }))}
-                                        />
-                                        <p className="text-xs text-gray-500 mt-1 italic">Vous pouvez modifier ce montant manuellement.</p>
-                                    </div>
-                                </div>
-
-                                <div className="mt-8 flex justify-end gap-3">
-                                    <button
-                                        onClick={() => setAddModal(prev => ({ ...prev, isOpen: false }))}
-                                        className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors font-medium"
-                                    >
-                                        Annuler
-                                    </button>
-                                    <button
-                                        onClick={handleSaveEntry}
-                                        className={`px-6 py-2 text-white rounded-lg transition-colors font-medium shadow-sm ${addModal.type === 'leave'
-                                            ? 'bg-blue-600 hover:bg-blue-700'
-                                            : 'bg-orange-600 hover:bg-orange-700'
-                                            }`}
-                                    >
-                                        Enregistrer
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                )}
-            </div>
-            {/* Adjustment Modal */}
-            {adjustmentModal.isOpen && (
-                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60] p-4">
-                    <div className="bg-white rounded-2xl shadow-xl w-full max-w-md">
-                        <div className="p-6 border-b border-gray-100">
-                            <h3 className="text-lg font-bold text-gray-900">Ajuster le solde de congé</h3>
-                            <p className="text-sm text-gray-500">{adjustmentModal.workerName}</p>
-                        </div>
-                        <div className="p-6">
-                            <label className="block text-sm font-medium text-gray-700 mb-2">
-                                Solde initial / Reprise de solde (jours)
-                            </label>
-                            <input
-                                type="number"
-                                step="0.5"
-                                value={adjustmentModal.currentInitial}
-                                onChange={(e) => setAdjustmentModal(prev => ({ ...prev, currentInitial: e.target.value }))}
-                                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-bold text-lg"
-                            />
-                            <p className="mt-2 text-xs text-gray-400 italic">
-                                Ce montant sera ajouté au total des jours acquis depuis l'embauche.
-                            </p>
-                        </div>
-                        <div className="p-6 bg-gray-50 rounded-b-2xl flex justify-end gap-3">
-                            <button
-                                onClick={() => setAdjustmentModal(prev => ({ ...prev, isOpen: false }))}
-                                className="px-4 py-2 text-gray-700 hover:bg-gray-200 rounded-lg transition-colors"
-                            >
-                                Annuler
-                            </button>
-                            <button
-                                onClick={saveAdjustment}
-                                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-md"
-                            >
-                                Enregistrer
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
+  return (
+    <div className="space-y-8">
+      <section className="rounded-[2.5rem] border border-cyan-400/15 bg-[linear-gradient(135deg,rgba(15,23,42,0.94),rgba(29,78,216,0.88),rgba(17,94,89,0.82))] p-8 shadow-2xl shadow-slate-950/30">
+        <div className="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
+          <div className="max-w-3xl">
+            <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.28em] text-cyan-100">Absences & conges</div>
+            <h1 className="mt-6 text-4xl font-semibold tracking-tight text-white">Demandes, validation, soldes et planification</h1>
+            <p className="mt-3 text-sm leading-7 text-cyan-50/90">Vue salarie, valideur et RH sur un meme ecran, avec impact paie et historique trace.</p>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="rounded-[1.5rem] border border-white/10 bg-slate-950/30 px-5 py-4"><div className="text-xs uppercase tracking-[0.24em] text-cyan-100/70">Solde annuel</div><div className="mt-3 text-3xl font-semibold text-white">{dashboardBalances.annual_balance ?? 0}</div></div>
+            <div className="rounded-[1.5rem] border border-white/10 bg-slate-950/30 px-5 py-4"><div className="text-xs uppercase tracking-[0.24em] text-cyan-100/70">En attente</div><div className="mt-3 text-3xl font-semibold text-white">{dashboardBalances.pending_annual ?? 0}</div></div>
+            <div className="rounded-[1.5rem] border border-white/10 bg-slate-950/30 px-5 py-4"><div className="text-xs uppercase tracking-[0.24em] text-cyan-100/70">A valider</div><div className="mt-3 text-3xl font-semibold text-white">{validatorMetrics.pending ?? 0}</div></div>
+          </div>
         </div>
-    );
+      </section>
+
+      <section className={panelClass}>
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <h2 className="text-xl font-semibold text-white">Calendrier centralisé</h2>
+            <p className="text-sm text-slate-400">
+              Vue unique du calendrier société, des congés, des propositions de planning, des absences paie et des validations RH.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={() => setCalendarScope("global")} className={`rounded-xl px-4 py-2 text-sm font-semibold ${calendarScope === "global" ? "bg-cyan-400 text-slate-950" : "border border-white/10 text-white"}`}>
+              Vue globale
+            </button>
+            <button type="button" onClick={() => setCalendarScope("team")} className={`rounded-xl px-4 py-2 text-sm font-semibold ${calendarScope === "team" ? "bg-cyan-400 text-slate-950" : "border border-white/10 text-white"}`}>
+              Vue équipe
+            </button>
+            <button type="button" onClick={() => setCalendarScope("personal")} className={`rounded-xl px-4 py-2 text-sm font-semibold ${calendarScope === "personal" ? "bg-cyan-400 text-slate-950" : "border border-white/10 text-white"}`}>
+              Vue personnelle
+            </button>
+            <button type="button" onClick={() => setIsCalendarOpen(true)} disabled={!effectiveEmployerId} className="rounded-xl bg-white px-4 py-2 text-sm font-semibold text-slate-950 disabled:opacity-40">
+              Ouvrir le calendrier
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-4 grid gap-4 lg:grid-cols-3">
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+            <div className="text-xs uppercase tracking-[0.22em] text-slate-500">Périmètre actif</div>
+            <div className="mt-2 text-sm text-slate-200">
+              {calendarScope === "global" ? "Tous les salariés visibles selon vos droits." : calendarScope === "team" ? "Équipe visible selon le périmètre managérial." : "Salarié courant uniquement."}
+            </div>
+          </div>
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+            <div className="text-xs uppercase tracking-[0.22em] text-slate-500">Notifications</div>
+            <div className="mt-2 space-y-2 text-sm text-slate-200">
+              {(dashboard?.notifications ?? []).slice(0, 3).map((item, index) => (
+                <div key={`${item.label}-${index}`} className="rounded-xl border border-white/10 bg-slate-950/40 px-3 py-2">
+                  <div className="font-medium text-white">{item.label}</div>
+                  <div className="text-xs text-slate-400">{item.status}</div>
+                </div>
+              ))}
+              {!(dashboard?.notifications ?? []).length ? <div className="text-slate-400">Aucun rappel sur le périmètre courant.</div> : null}
+            </div>
+          </div>
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+            <div className="text-xs uppercase tracking-[0.22em] text-slate-500">Alertes</div>
+            <div className="mt-2 space-y-2 text-sm text-slate-200">
+              {(dashboard?.alerts ?? []).slice(0, 3).map((item) => (
+                <div key={item.code} className="rounded-xl border border-amber-400/20 bg-amber-400/10 px-3 py-2 text-amber-100">
+                  {item.message}
+                </div>
+              ))}
+              {!(dashboard?.alerts ?? []).length ? <div className="text-slate-400">Aucune alerte de solde ou de fractionnement.</div> : null}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="grid gap-6 xl:grid-cols-[0.95fr_1.35fr]">
+        <div className={panelClass}>
+          {!isEmployee ? (
+            <div className="grid gap-4 md:grid-cols-2">
+              <div>
+                <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">Employeur</label>
+                <select value={effectiveEmployerId ?? ""} onChange={(event) => setSelectedEmployerId(Number(event.target.value))} className={inputClass}>
+                  {employers.map((item) => <option key={item.id} value={item.id}>{item.raison_sociale}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">Salarie</label>
+                <select value={effectiveWorkerId ?? ""} onChange={(event) => setSelectedWorkerId(Number(event.target.value))} className={inputClass}>
+                  {workers.map((item) => <option key={item.id} value={item.id}>{item.nom} {item.prenom} {item.matricule ? `(${item.matricule})` : ""}</option>)}
+                </select>
+              </div>
+            </div>
+          ) : null}
+
+          <div className="mt-6 grid gap-4 md:grid-cols-2">
+            <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+              <div className="text-xs uppercase tracking-[0.22em] text-slate-400">Situation reelle</div>
+              <div className="mt-3 space-y-2 text-sm text-slate-200">
+                <div>Acquis: <span className="font-semibold text-white">{dashboardBalances.acquired ?? 0}</span></div>
+                <div>Consomme: <span className="font-semibold text-white">{dashboardBalances.consumed ?? 0}</span></div>
+                <div>Solde: <span className="font-semibold text-white">{dashboardBalances.annual_balance ?? 0}</span></div>
+                <div>Previsionnel: <span className="font-semibold text-white">{dashboardBalances.projected_annual_balance ?? 0}</span></div>
+              </div>
+            </div>
+            <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+              <div className="text-xs uppercase tracking-[0.22em] text-slate-400">Droits permissions</div>
+              <div className="mt-3 space-y-2 text-sm text-slate-200">
+                <div>Quota: <span className="font-semibold text-white">{dashboardBalances.permission_allowance ?? 0}</span></div>
+                <div>Pris: <span className="font-semibold text-white">{dashboardBalances.permission_consumed ?? 0}</span></div>
+                <div>Restant: <span className="font-semibold text-white">{dashboardBalances.permission_balance ?? 0}</span></div>
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-6 rounded-2xl border border-cyan-400/20 bg-cyan-400/10 p-4 text-sm text-cyan-50">
+            <div className="font-semibold text-white">Nouvelle demande</div>
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
+              <select value={requestForm.leave_type_code} onChange={(event) => setRequestForm((current) => ({ ...current, leave_type_code: event.target.value }))} className={inputClass}>
+                {leaveTypes.map((item) => <option key={item.id} value={item.code}>{item.label}</option>)}
+              </select>
+              <input value={requestForm.subject} onChange={(event) => setRequestForm((current) => ({ ...current, subject: event.target.value }))} className={inputClass} placeholder="Objet obligatoire" />
+              <input type="date" value={requestForm.start_date} onChange={(event) => setRequestForm((current) => ({ ...current, start_date: event.target.value }))} className={inputClass} />
+              <input type="date" value={requestForm.end_date} onChange={(event) => setRequestForm((current) => ({ ...current, end_date: event.target.value }))} className={inputClass} />
+              <input value={requestForm.reason} onChange={(event) => setRequestForm((current) => ({ ...current, reason: event.target.value }))} className={inputClass} placeholder="Motif / raison" />
+              <input value={requestForm.attachment_note} onChange={(event) => setRequestForm((current) => ({ ...current, attachment_note: event.target.value }))} className={inputClass} placeholder="Reference piece jointe" />
+              <input type="file" onChange={(event) => setRequestFile(event.target.files?.[0] ?? null)} className={inputClass} />
+              <textarea value={requestForm.comment} onChange={(event) => setRequestForm((current) => ({ ...current, comment: event.target.value }))} className={`${inputClass} md:col-span-2 min-h-[92px]`} placeholder="Commentaire interne" />
+            </div>
+            {selectedType ? (
+              <div className="mt-4 grid gap-2 text-xs text-cyan-100/90 md:grid-cols-2">
+                <div className="flex items-center gap-2">Deduction solde: <span className="font-semibold text-white">{selectedType.deduct_from_annual_balance ? "Oui" : "Non"}</span><HelpTooltip item={leaveBalanceHelp} role={session?.effective_role_code || session?.role_code} compact /></div>
+                <div>Impact paie: <span className="font-semibold text-white">{selectedType.payroll_impact}</span></div>
+                <div>Impact pointage: <span className="font-semibold text-white">{selectedType.attendance_impact}</span></div>
+                <div>Justificatif: <span className="font-semibold text-white">{selectedType.justification_required ? "Requis" : "Optionnel"}</span></div>
+              </div>
+            ) : null}
+            <button type="button" onClick={() => createRequestMutation.mutate()} disabled={!effectiveWorkerId || !requestForm.subject} className="mt-4 rounded-2xl bg-cyan-400 px-5 py-3 text-sm font-semibold text-slate-950 disabled:opacity-40">Soumettre la demande</button>
+          </div>
+        </div>
+
+        <div className={panelClass}>
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-semibold text-white">Historique et workflow</h2>
+              <p className="text-sm text-slate-400">Validation en cours, requalification et integration.</p>
+            </div>
+          </div>
+
+          <div className="mt-6 space-y-4">
+            {(dashboard?.requests ?? []).map((request) => (
+              <div key={request.id} className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                  <div>
+                    <div className="text-sm text-slate-400">{request.request_ref}</div>
+                    <div className="mt-1 text-lg font-semibold text-white">{request.subject}</div>
+                    <div className="mt-1 text-sm text-slate-300">{request.start_date} {"->"} {request.end_date} | {request.duration_days} j | {request.final_leave_type_code}</div>
+                  </div>
+                  <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${badge(request.status)}`}>{request.status}</span>
+                </div>
+                {request.validations_remaining.length ? <div className="mt-3 text-sm text-cyan-100">A valider par: {request.validations_remaining.join(", ")}</div> : null}
+                {request.alerts.length ? <div className="mt-3 space-y-1">{request.alerts.map((alert) => <div key={`${request.id}-${alert.code}`} className="text-sm text-amber-200">{alert.message}</div>)}</div> : null}
+                <div className="mt-4 flex flex-wrap gap-2 text-xs">
+                  {request.approvals.map((approval) => <span key={approval.id} className={`rounded-full border px-3 py-1 ${badge(approval.status)}`}>{approval.approver_label || "Validateur"}: {approval.status}</span>)}
+                </div>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {request.status !== "approved" && request.status !== "integrated" && request.status !== "cancelled" ? (
+                    <button type="button" onClick={() => decisionMutation.mutate({ requestId: request.id, action: "cancel", comment: "Annulation demandee depuis le front" })} className="rounded-xl border border-white/10 px-3 py-2 text-xs font-semibold text-white">
+                      Annuler
+                    </button>
+                  ) : null}
+                  {request.status !== "approved" && request.status !== "integrated" ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (window.confirm(`Supprimer la demande ${request.request_ref} ?`)) {
+                          deleteRequestMutation.mutate(request.id);
+                        }
+                      }}
+                      className="rounded-xl border border-rose-400/30 bg-rose-400/10 px-3 py-2 text-xs font-semibold text-rose-100"
+                    >
+                      Supprimer
+                    </button>
+                  ) : null}
+                </div>
+                {canValidate ? (
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <button type="button" onClick={() => decisionMutation.mutate({ requestId: request.id, action: "approve" })} className="rounded-xl border border-emerald-400/30 bg-emerald-400/10 px-3 py-2 text-xs font-semibold text-emerald-100">Approuver</button>
+                    <button type="button" onClick={() => { const comment = window.prompt("Motif du rejet / retour correction"); if (comment !== null) decisionMutation.mutate({ requestId: request.id, action: "request_correction", comment }); }} className="rounded-xl border border-rose-400/30 bg-rose-400/10 px-3 py-2 text-xs font-semibold text-rose-100">Demander correction</button>
+                    <button type="button" onClick={() => { const newType = window.prompt("Nouveau type (ex: PERMISSION_LEGALE)", request.final_leave_type_code); const comment = window.prompt("Commentaire obligatoire pour la requalification"); if (newType && comment) requalifyMutation.mutate({ requestId: request.id, newType, comment }); }} className="rounded-xl border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-xs font-semibold text-amber-100">Requalifier</button>
+                  </div>
+                ) : null}
+                <div className="mt-4 border-t border-white/10 pt-4">
+                  <div className="text-xs uppercase tracking-[0.22em] text-slate-500">Timeline</div>
+                  <div className="mt-3 space-y-2">
+                    {request.history.map((event) => (
+                      <div key={event.id} className="rounded-xl border border-white/5 bg-slate-900/70 px-3 py-2 text-sm text-slate-300">
+                        <span className="font-semibold text-white">{event.action}</span> | {event.actor_name || "Systeme"} | {new Date(event.created_at).toLocaleString()}
+                        {event.comment ? <div className="mt-1 text-slate-400">{event.comment}</div> : null}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ))}
+            {!(dashboard?.requests ?? []).length ? <div className="rounded-2xl border border-white/10 bg-white/5 p-6 text-sm text-slate-400">Aucune demande sur le scope courant.</div> : null}
+          </div>
+        </div>
+      </section>
+
+      {canValidate ? (
+        <section className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
+          <div className={panelClass}>
+            <h2 className="text-xl font-semibold text-white">Tableau de validation</h2>
+            <p className="text-sm text-slate-400">Demandes en attente, urgentes et conflits detectes.</p>
+            <div className="mt-6 grid gap-3 sm:grid-cols-3">
+              <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-slate-300">En attente: <span className="font-semibold text-white">{validatorMetrics.pending ?? 0}</span></div>
+              <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-slate-300">Urgentes: <span className="font-semibold text-white">{validatorMetrics.urgent ?? 0}</span></div>
+              <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-slate-300">Conflits: <span className="font-semibold text-white">{validatorMetrics.conflicts ?? 0}</span></div>
+            </div>
+            <div className="mt-6 space-y-3">
+              {(validatorDashboard?.pending_requests ?? []).map((request) => (
+                <div key={`validator-${request.id}`} className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="font-semibold text-white">{request.subject}</div>
+                      <div className="text-sm text-slate-400">{request.start_date} {"->"} {request.end_date} | {request.final_leave_type_code}</div>
+                    </div>
+                    <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${badge(request.status)}`}>{request.status}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className={panelClass}>
+            <h2 className="text-xl font-semibold text-white">Parametrage RH</h2>
+            <p className="text-sm text-slate-400">Catalogue des types et circuit standard N+1 puis RH.</p>
+            {canAdmin ? (
+              <>
+                <div className="mt-6 grid gap-3">
+                  <input value={typeForm.code} onChange={(event) => setTypeForm((current) => ({ ...current, code: event.target.value.toUpperCase() }))} className={inputClass} placeholder="Code type" />
+                  <input value={typeForm.label} onChange={(event) => setTypeForm((current) => ({ ...current, label: event.target.value }))} className={inputClass} placeholder="Libelle" />
+                  <select value={typeForm.category} onChange={(event) => setTypeForm((current) => ({ ...current, category: event.target.value }))} className={inputClass}>
+                    <option value="permission">Permission</option>
+                    <option value="leave">Conge</option>
+                    <option value="absence">Absence</option>
+                    <option value="sick_leave">Maladie</option>
+                  </select>
+                  <label className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-300"><input type="checkbox" checked={typeForm.deduct_from_annual_balance} onChange={(event) => setTypeForm((current) => ({ ...current, deduct_from_annual_balance: event.target.checked }))} /> Deductible du solde annuel</label>
+                  <label className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-300"><input type="checkbox" checked={typeForm.justification_required} onChange={(event) => setTypeForm((current) => ({ ...current, justification_required: event.target.checked }))} /> Justificatif requis</label>
+                  <button type="button" onClick={() => createTypeMutation.mutate()} className="rounded-2xl bg-cyan-400 px-5 py-3 text-sm font-semibold text-slate-950">Ajouter le type</button>
+                </div>
+                <div className="mt-6 space-y-3">
+                  {leaveTypes.map((item) => (
+                    <div key={item.id} className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <div className="font-semibold text-white">{item.label}</div>
+                          <div className="text-sm text-slate-400">{item.code} | {item.payroll_impact} | {item.attendance_impact}</div>
+                        </div>
+                        <button type="button" onClick={() => createStandardRuleMutation.mutate(item.code)} className="rounded-xl border border-white/10 px-3 py-2 text-xs font-semibold text-white">Circuit standard</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-6">
+                  <div className="flex items-center gap-2 text-xs uppercase tracking-[0.22em] text-slate-500"><span>Circuits existants</span><HelpTooltip item={leaveWorkflowHelp} role={session?.effective_role_code || session?.role_code} compact /></div>
+                  <div className="mt-3 space-y-3">
+                    {approvalRules.map((rule) => (
+                      <div key={rule.id} className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-slate-300">
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <div className="font-semibold text-white">{rule.leave_type_code}</div>
+                            <div className="mt-2">{rule.steps.map((step) => step.label || `${step.approver_kind}`).join(" -> ")}</div>
+                          </div>
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setRuleEditor({
+                                  id: rule.id,
+                                  leave_type_code: rule.leave_type_code,
+                                  approval_mode: rule.approval_mode,
+                                  fallback_on_reject: rule.fallback_on_reject,
+                                  active: true,
+                                  steps: rule.steps.map((step) => ({
+                                    step_order: step.step_order,
+                                    parallel_group: step.parallel_group,
+                                    approver_kind: step.approver_kind,
+                                    approver_role_code: step.approver_role_code || "",
+                                    approver_user_id: step.approver_user_id ? String(step.approver_user_id) : "",
+                                    is_required: true,
+                                    label: step.label || "",
+                                  })),
+                                })
+                              }
+                              className="rounded-xl border border-white/10 px-3 py-2 text-xs font-semibold text-white"
+                            >
+                              Editer
+                            </button>
+                            <button type="button" onClick={() => deleteRuleMutation.mutate(rule.id)} className="rounded-xl border border-rose-400/30 bg-rose-400/10 px-3 py-2 text-xs font-semibold text-rose-100">Supprimer</button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div className="mt-6 rounded-2xl border border-cyan-400/20 bg-cyan-400/10 p-4">
+                  <div className="font-semibold text-white">Editeur complet de circuit</div>
+                  <div className="mt-4 grid gap-3 md:grid-cols-3">
+                    <select value={ruleEditor.leave_type_code} onChange={(event) => setRuleEditor((current) => ({ ...current, leave_type_code: event.target.value }))} className={inputClass}>
+                      {leaveTypes.map((item) => <option key={item.id} value={item.code}>{item.label}</option>)}
+                    </select>
+                    <select value={ruleEditor.approval_mode} onChange={(event) => setRuleEditor((current) => ({ ...current, approval_mode: event.target.value }))} className={inputClass}>
+                      <option value="sequential">Sequentiel</option>
+                      <option value="parallel">Parallele</option>
+                    </select>
+                    <select value={ruleEditor.fallback_on_reject} onChange={(event) => setRuleEditor((current) => ({ ...current, fallback_on_reject: event.target.value }))} className={inputClass}>
+                      <option value="reject">Rejet final</option>
+                      <option value="return_to_employee">Retour salarie</option>
+                      <option value="rh_arbitration">Arbitrage RH</option>
+                    </select>
+                  </div>
+                  <div className="mt-4 space-y-3">
+                    {ruleEditor.steps.map((step, index) => (
+                      <div key={`editor-step-${index}`} className="grid gap-3 rounded-2xl border border-white/10 bg-slate-950/40 p-4 md:grid-cols-6">
+                        <input value={step.step_order} onChange={(event) => setRuleEditor((current) => ({ ...current, steps: current.steps.map((item, itemIndex) => itemIndex === index ? { ...item, step_order: Number(event.target.value) } : item) }))} className={inputClass} placeholder="Ordre" />
+                        <input value={step.parallel_group} onChange={(event) => setRuleEditor((current) => ({ ...current, steps: current.steps.map((item, itemIndex) => itemIndex === index ? { ...item, parallel_group: Number(event.target.value) } : item) }))} className={inputClass} placeholder="Groupe" />
+                        <select value={step.approver_kind} onChange={(event) => setRuleEditor((current) => ({ ...current, steps: current.steps.map((item, itemIndex) => itemIndex === index ? { ...item, approver_kind: event.target.value } : item) }))} className={inputClass}>
+                          <option value="manager">N+1</option>
+                          <option value="n_plus_2">N+2</option>
+                          <option value="rh">RH</option>
+                          <option value="direction">Direction</option>
+                          <option value="site_manager">Responsable site/service</option>
+                          <option value="specific">Validateur specifique</option>
+                        </select>
+                        <select value={step.approver_role_code} onChange={(event) => setRuleEditor((current) => ({ ...current, steps: current.steps.map((item, itemIndex) => itemIndex === index ? { ...item, approver_role_code: event.target.value } : item) }))} className={inputClass}>
+                          <option value="">Role libre</option>
+                          <option value="manager">manager</option>
+                          <option value="rh">rh</option>
+                          <option value="direction">direction</option>
+                          <option value="departement">departement</option>
+                        </select>
+                        <select value={step.approver_user_id} onChange={(event) => setRuleEditor((current) => ({ ...current, steps: current.steps.map((item, itemIndex) => itemIndex === index ? { ...item, approver_user_id: event.target.value } : item) }))} className={inputClass}>
+                          <option value="">Utilisateur specifique</option>
+                          {users.map((user) => <option key={user.id} value={user.id}>{user.full_name || user.username} ({user.role_code})</option>)}
+                        </select>
+                        <input value={step.label} onChange={(event) => setRuleEditor((current) => ({ ...current, steps: current.steps.map((item, itemIndex) => itemIndex === index ? { ...item, label: event.target.value } : item) }))} className={inputClass} placeholder="Libelle" />
+                        <label className="md:col-span-5 flex items-center gap-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-300"><input type="checkbox" checked={step.is_required} onChange={(event) => setRuleEditor((current) => ({ ...current, steps: current.steps.map((item, itemIndex) => itemIndex === index ? { ...item, is_required: event.target.checked } : item) }))} /> Validateur requis</label>
+                        <button type="button" onClick={() => setRuleEditor((current) => ({ ...current, steps: current.steps.filter((_, itemIndex) => itemIndex !== index) }))} className="rounded-xl border border-rose-400/30 bg-rose-400/10 px-3 py-2 text-xs font-semibold text-rose-100">Retirer</button>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <button type="button" onClick={() => setRuleEditor((current) => ({ ...current, steps: [...current.steps, { step_order: current.steps.length + 1, parallel_group: 1, approver_kind: "manager", approver_role_code: "manager", approver_user_id: "", is_required: true, label: "" }] }))} className="rounded-xl border border-white/10 px-3 py-2 text-xs font-semibold text-white">Ajouter une etape</button>
+                    <button type="button" onClick={() => saveRuleMutation.mutate()} className="rounded-xl bg-cyan-400 px-4 py-2 text-xs font-semibold text-slate-950">Enregistrer le circuit</button>
+                  </div>
+                </div>
+              </>
+            ) : <div className="mt-6 text-sm text-slate-400">Acces reserve RH / administration.</div>}
+          </div>
+        </section>
+      ) : null}
+
+      {canAdmin ? (
+        <section className={panelClass}>
+          <h2 className="text-xl font-semibold text-white">Planification intelligente du conge annuel</h2>
+          <p className="text-sm text-slate-400">Scoring legal + anciennete + reliquats + continuite de service.</p>
+          <div className="mt-6 grid gap-3 md:grid-cols-4">
+            <input value={planningForm.title} onChange={(event) => setPlanningForm((current) => ({ ...current, title: event.target.value }))} className={inputClass} placeholder="Titre du cycle" />
+            <input type="number" value={planningForm.planning_year} onChange={(event) => setPlanningForm((current) => ({ ...current, planning_year: Number(event.target.value) }))} className={inputClass} />
+            <input type="date" value={planningForm.start_date} onChange={(event) => setPlanningForm((current) => ({ ...current, start_date: event.target.value }))} className={inputClass} />
+            <input type="date" value={planningForm.end_date} onChange={(event) => setPlanningForm((current) => ({ ...current, end_date: event.target.value }))} className={inputClass} />
+          </div>
+          <button type="button" onClick={() => createCycleMutation.mutate()} disabled={!effectiveEmployerId} className="mt-4 rounded-2xl bg-cyan-400 px-5 py-3 text-sm font-semibold text-slate-950 disabled:opacity-40">Generer des propositions</button>
+          <div className="mt-6 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {proposals.map((proposal) => (
+              <div key={proposal.id} className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                <div className="font-semibold text-white">{proposal.worker_name}</div>
+                <div className="mt-1 text-sm text-slate-400">Score {proposal.score.toFixed(1)}</div>
+                <div className="mt-3 space-y-2 text-sm text-slate-300">
+                  {proposal.rationale.map((item, index) => <div key={`${proposal.id}-${index}`}>{item.message} ({item.weight})</div>)}
+                </div>
+              </div>
+            ))}
+            {!proposals.length ? <div className="rounded-2xl border border-white/10 bg-white/5 p-6 text-sm text-slate-400">Aucune proposition. Creez un cycle pour lancer le scoring.</div> : null}
+          </div>
+        </section>
+      ) : null}
+
+      {canValidate ? (
+        <section className={panelClass}>
+          <h2 className="text-xl font-semibold text-white">Rapprochement absence / pointage</h2>
+          <p className="text-sm text-slate-400">Vue RH dediee aux demandes integrees et aux ecarts detectes.</p>
+          <div className="mt-6 grid gap-3">
+            {reconciliationRows.map((row) => (
+              <div key={row.id} className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                  <div>
+                    <div className="font-semibold text-white">{row.request_ref || `Demande #${row.leave_request_id}`} | {row.worker_name || `Salarie #${row.worker_id}`}</div>
+                    <div className="mt-1 text-sm text-slate-400">
+                      {row.start_date && row.end_date ? `${row.start_date} -> ${row.end_date}` : `Periode ${row.period}`}
+                      {row.leave_type_code ? ` | ${row.leave_type_code}` : ""}
+                    </div>
+                    {row.subject ? <div className="mt-1 text-sm text-slate-300">{row.subject}</div> : null}
+                  </div>
+                  <div className="flex gap-2">
+                    <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${badge(row.status)}`}>{row.status}</span>
+                    <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${badge(row.discrepancy_level)}`}>{row.discrepancy_level}</span>
+                  </div>
+                </div>
+                <div className="mt-3 grid gap-3 md:grid-cols-2 text-sm text-slate-300">
+                  <div className="rounded-xl border border-white/10 bg-slate-950/40 p-3">
+                    <div className="text-xs uppercase tracking-[0.22em] text-slate-500">Pointage / absences paie</div>
+                    <pre className="mt-2 whitespace-pre-wrap break-words text-xs text-slate-300">{JSON.stringify(row.attendance_payload, null, 2)}</pre>
+                  </div>
+                  <div className="rounded-xl border border-white/10 bg-slate-950/40 p-3">
+                    <div className="text-xs uppercase tracking-[0.22em] text-slate-500">Demande RH</div>
+                    <pre className="mt-2 whitespace-pre-wrap break-words text-xs text-slate-300">{JSON.stringify(row.leave_payload, null, 2)}</pre>
+                  </div>
+                </div>
+                <div className="mt-3 text-sm text-amber-200">{row.notes}</div>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <button type="button" onClick={() => decisionMutation.mutate({ requestId: row.leave_request_id, action: "cancel", comment: "Annulation suite a conflit pointage/conge" })} className="rounded-xl border border-white/10 px-3 py-2 text-xs font-semibold text-white">
+                    Annuler la demande
+                  </button>
+                  <button type="button" onClick={() => { const newType = window.prompt("Nouveau type (ex: PERMISSION_LEGALE)", row.leave_type_code || "PERMISSION_LEGALE"); const comment = window.prompt("Commentaire obligatoire pour la requalification", "Requalification suite a conflit pointage/conge"); if (newType && comment) requalifyMutation.mutate({ requestId: row.leave_request_id, newType, comment }); }} className="rounded-xl border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-xs font-semibold text-amber-100">
+                    Requalifier
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (window.confirm(`Supprimer la demande ${row.request_ref || row.leave_request_id} ?`)) {
+                        deleteRequestMutation.mutate(row.leave_request_id);
+                      }
+                    }}
+                    className="rounded-xl border border-rose-400/30 bg-rose-400/10 px-3 py-2 text-xs font-semibold text-rose-100"
+                  >
+                    Supprimer
+                  </button>
+                </div>
+              </div>
+            ))}
+            {!reconciliationRows.length ? <div className="rounded-2xl border border-white/10 bg-white/5 p-6 text-sm text-slate-400">Aucune reconciliation disponible sur le scope courant.</div> : null}
+          </div>
+        </section>
+      ) : null}
+
+      {effectiveEmployerId ? (
+        <WorkCalendar
+          isOpen={isCalendarOpen}
+          onClose={() => setIsCalendarOpen(false)}
+          employerId={effectiveEmployerId}
+          initialPeriod={dashboard?.period ?? new Date().toISOString().slice(0, 7)}
+          title={`Calendrier ${calendarScope === "global" ? "global" : calendarScope === "team" ? "équipe" : "personnel"}`}
+          workerId={effectiveCalendarWorkerId}
+          editable={canAdmin}
+          showAgenda
+        />
+      ) : null}
+    </div>
+  );
 }

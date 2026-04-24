@@ -116,6 +116,9 @@ const SimpleOrganizationalDeleteModal: React.FC<SimpleOrganizationalDeleteModalP
 
   if (!constraints) return null;
 
+  const constraintChildren = constraints.children ?? [];
+  const constraintWorkers = constraints.workers ?? [];
+
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
       <div className="bg-white rounded-lg p-6 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
@@ -182,11 +185,11 @@ const SimpleOrganizationalDeleteModal: React.FC<SimpleOrganizationalDeleteModalP
             </div>
 
             {/* Détails des contraintes */}
-            {constraints.children_count > 0 && (
+            {constraintChildren.length > 0 && (
               <div className="mb-4">
-                <h5 className="font-medium mb-2">Sous-structures ({constraints.children_count}) :</h5>
+                <h5 className="font-medium mb-2">Sous-structures ({constraintChildren.length}) :</h5>
                 <div className="bg-gray-50 rounded p-3 max-h-32 overflow-y-auto">
-                  {constraints.children.map((child) => (
+                  {constraintChildren.map((child) => (
                     <div key={child.id} className="text-sm py-1">
                       {child.name} ({getLevelDisplayName(child.level)})
                     </div>
@@ -195,11 +198,11 @@ const SimpleOrganizationalDeleteModal: React.FC<SimpleOrganizationalDeleteModalP
               </div>
             )}
 
-            {constraints.direct_workers_count > 0 && (
+            {constraintWorkers.length > 0 && (
               <div className="mb-4">
                 <h5 className="font-medium mb-2">Salariés directement assignés ({constraints.direct_workers_count}) :</h5>
                 <div className="bg-gray-50 rounded p-3 max-h-32 overflow-y-auto">
-                  {constraints.workers.map((worker) => (
+                  {constraintWorkers.map((worker) => (
                     <div key={worker.id} className="text-sm py-1">
                       {worker.prenom} {worker.nom} ({worker.matricule})
                     </div>

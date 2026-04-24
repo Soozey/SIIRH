@@ -13,7 +13,8 @@ import {
     FunnelIcon,
     IdentificationIcon,
     MagnifyingGlassIcon,
-    ExclamationTriangleIcon
+    ExclamationTriangleIcon,
+    QuestionMarkCircleIcon
 } from "@heroicons/react/24/outline";
 
 interface Field {
@@ -22,15 +23,56 @@ interface Field {
     category: string;
 }
 
+interface OrganizationalOption {
+    id: number;
+    name: string;
+    code?: string;
+}
+
 interface OrganizationalData {
-    etablissements: string[];
-    departements: string[];
-    services: string[];
-    unites: string[];
+    etablissements: OrganizationalOption[];
+    departements: OrganizationalOption[];
+    services: OrganizationalOption[];
+    unites: OrganizationalOption[];
+}
+
+interface Employer {
+    id: number;
+    raison_sociale: string;
+}
+
+type ReportValue = string | number | null;
+type ReportRow = Record<string, ReportValue>;
+
+interface ReportingMetadataResponse {
+    fields: Field[];
+}
+
+function InlineHelp({
+    text,
+    className = ""
+}: {
+    text: string;
+    className?: string;
+}) {
+    return (
+        <div className={`group relative inline-flex items-center ${className}`}>
+            <button
+                type="button"
+                className="inline-flex h-5 w-5 items-center justify-center rounded-full text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+                aria-label={text}
+            >
+                <QuestionMarkCircleIcon className="h-4 w-4" />
+            </button>
+            <div className="pointer-events-none absolute left-1/2 top-full z-20 mt-2 hidden w-64 -translate-x-1/2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs leading-5 text-slate-600 shadow-xl group-hover:block group-focus-within:block">
+                {text}
+            </div>
+        </div>
+    );
 }
 
 export default function Reporting() {
-    const [employers, setEmployers] = useState<any[]>([]);
+    const [employers, setEmployers] = useState<Employer[]>([]);
     const [selectedEmployerId, setSelectedEmployerId] = useState<number | "">("");
     const [startPeriod, setStartPeriod] = useState(new Date().toISOString().substring(0, 7));
     const [endPeriod, setEndPeriod] = useState(new Date().toISOString().substring(0, 7));
@@ -54,7 +96,7 @@ export default function Reporting() {
     });
     const [isLoadingOrgData, setIsLoadingOrgData] = useState(false);
 
-    const [reportData, setReportData] = useState<any[]>([]);
+    const [reportData, setReportData] = useState<ReportRow[]>([]);
     const [isGenerating, setIsGenerating] = useState(false);
     const [isExporting, setIsExporting] = useState(false);
     const [isExportingPdf, setIsExportingPdf] = useState(false);
@@ -71,7 +113,7 @@ export default function Reporting() {
     useEffect(() => {
         const fetchEmployers = async () => {
             try {
-                const res = await api.get("/employers");
+                const res = await api.get<Employer[]>("/employers");
                 setEmployers(res.data);
                 if (res.data.length > 0) setSelectedEmployerId(res.data[0].id);
             } catch (err) {
@@ -85,7 +127,7 @@ export default function Reporting() {
     useEffect(() => {
         if (selectedEmployerId) {
             setIsLoadingMeta(true);
-            api.get(`/reporting/metadata`, { params: { employer_id: selectedEmployerId } })
+            api.get<ReportingMetadataResponse>(`/reporting/metadata`, { params: { employer_id: selectedEmployerId } })
                 .then(res => {
                     setAvailableFields(res.data.fields);
                     // Sélection par défaut étendue pour un aperçu plus complet avec matricules
@@ -114,20 +156,49 @@ export default function Reporting() {
                 .catch(err => console.error("Erreur chargement metadata:", err))
                 .finally(() => setIsLoadingMeta(false));
         }
-    }, [selectedEmployerId]);
+    }, [selectedEmployerId, selectedFields.length]);
 
-    // Charger les données organisationnelles quand l'employeur change
+    const getOptionLabel = (options: OrganizationalOption[], id: string) => {
+        const match = options.find((item) => String(item.id) === id);
+        return match ? match.name : id;
+    };
+
+    // Charger les données organisationnelles canonique quand l'employeur ou les parents changent
     useEffect(() => {
         if (!selectedEmployerId) return;
         
         const fetchOrgData = async () => {
             setIsLoadingOrgData(true);
             try {
-                const response = await api.get(`/employers/${selectedEmployerId}/organizational-data/workers`);
-                setOrgData(response.data);
+                const [etabRes, deptRes, serviceRes, uniteRes] = await Promise.all([
+                    api.get<OrganizationalOption[]>(`/organization/employers/${selectedEmployerId}/units`, {
+                        params: { level: "etablissement" }
+                    }),
+                    filterEtab
+                        ? api.get<OrganizationalOption[]>(`/organization/employers/${selectedEmployerId}/units`, {
+                            params: { level: "departement", parent_id: Number(filterEtab) }
+                        })
+                        : Promise.resolve({ data: [] as OrganizationalOption[] }),
+                    filterDept
+                        ? api.get<OrganizationalOption[]>(`/organization/employers/${selectedEmployerId}/units`, {
+                            params: { level: "service", parent_id: Number(filterDept) }
+                        })
+                        : Promise.resolve({ data: [] as OrganizationalOption[] }),
+                    filterService
+                        ? api.get<OrganizationalOption[]>(`/organization/employers/${selectedEmployerId}/units`, {
+                            params: { level: "unite", parent_id: Number(filterService) }
+                        })
+                        : Promise.resolve({ data: [] as OrganizationalOption[] }),
+                ]);
+
+                setOrgData({
+                    etablissements: etabRes.data ?? [],
+                    departements: deptRes.data ?? [],
+                    services: serviceRes.data ?? [],
+                    unites: uniteRes.data ?? [],
+                });
             } catch (error) {
                 console.error('Erreur chargement données organisationnelles:', error);
-                // Réinitialiser les données en cas d'erreur
                 setOrgData({
                     etablissements: [],
                     departements: [],
@@ -140,45 +211,14 @@ export default function Reporting() {
         };
 
         fetchOrgData();
-        // Réinitialiser les filtres quand l'employeur change
+    }, [selectedEmployerId, filterEtab, filterDept, filterService]);
+
+    useEffect(() => {
         setFilterEtab("");
         setFilterDept("");
         setFilterService("");
         setFilterUnite("");
     }, [selectedEmployerId]);
-
-    // Charger les données filtrées quand les filtres changent (filtrage en cascade)
-    useEffect(() => {
-        if (!selectedEmployerId) return;
-        
-        const fetchFilteredData = async () => {
-            try {
-                const params: any = {};
-                if (filterEtab) params.etablissement = filterEtab;
-                if (filterDept) params.departement = filterDept;
-                if (filterService) params.service = filterService;
-                
-                const response = await api.get(`/employers/${selectedEmployerId}/organizational-data/filtered`, {
-                    params
-                });
-                
-                // Mettre à jour seulement les niveaux inférieurs
-                setOrgData(prevData => ({
-                    etablissements: prevData.etablissements, // Garder la liste complète des établissements
-                    departements: filterEtab ? response.data.departements : prevData.departements,
-                    services: (filterEtab || filterDept) ? response.data.services : prevData.services,
-                    unites: (filterEtab || filterDept || filterService) ? response.data.unites : prevData.unites
-                }));
-            } catch (error) {
-                console.error('Erreur chargement données filtrées:', error);
-            }
-        };
-
-        // Déclencher le filtrage seulement si au moins un filtre est appliqué
-        if (filterEtab || filterDept || filterService) {
-            fetchFilteredData();
-        }
-    }, [selectedEmployerId, filterEtab, filterDept, filterService]);
 
     const handleOrganizationalFilterChange = (field: string, value: string) => {
         switch (field) {
@@ -222,7 +262,7 @@ export default function Reporting() {
         setReportData([]);
         setHomonymDetected(false);
         try {
-            const res = await api.post("/reporting/generate", {
+            const res = await api.post<ReportRow[]>("/reporting/generate", {
                 employer_id: selectedEmployerId,
                 start_period: startPeriod,
                 end_period: endPeriod,
@@ -238,12 +278,13 @@ export default function Reporting() {
                 group_by_matricule: groupByMatricule
             });
             
-            setReportData(res.data);
+            const rows = res.data ?? [];
+            setReportData(rows);
             
             // NEW: Detect homonyms in the report data
-            if (res.data && res.data.length > 0) {
-                const nameGroups: { [name: string]: any[] } = {};
-                res.data.forEach((worker: any) => {
+            if (rows.length > 0) {
+                const nameGroups: Record<string, ReportRow[]> = {};
+                rows.forEach((worker) => {
                     const fullName = `${worker.prenom || ''} ${worker.nom || ''}`.trim().toLowerCase();
                     if (!nameGroups[fullName]) {
                         nameGroups[fullName] = [];
@@ -333,99 +374,32 @@ export default function Reporting() {
         }
     };
 
+    const toNumericValue = (value: ReportValue | undefined): number => {
+        if (typeof value === 'number') return value;
+        if (typeof value === 'string') {
+            const parsed = Number(value);
+            return Number.isFinite(parsed) ? parsed : 0;
+        }
+        return 0;
+    };
+
     const categories = Array.from(new Set(availableFields.map(f => f.category)));
     const filteredAvailable = availableFields.filter(f => f.category === activeCategory);
 
     return (
-        <>
-            <style>{`
-                .glass-card {
-                    background: rgba(255, 255, 255, 0.95);
-                    backdrop-filter: blur(10px);
-                    border: 1px solid rgba(255, 255, 255, 0.2);
-                    border-radius: 16px;
-                    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
-                }
-                
-                .glass-input {
-                    background: rgba(255, 255, 255, 0.9);
-                    backdrop-filter: blur(5px);
-                    border: 1px solid rgba(226, 232, 240, 0.8);
-                    border-radius: 8px;
-                    transition: all 0.2s ease;
-                }
-                
-                .glass-input:focus {
-                    background: rgba(255, 255, 255, 1);
-                    border-color: #3b82f6;
-                    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
-                    outline: none;
-                }
-                
-                .btn-primary {
-                    background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
-                    color: white;
-                    border: none;
-                    transition: all 0.2s ease;
-                }
-                
-                .btn-primary:hover:not(:disabled) {
-                    background: linear-gradient(135deg, #1d4ed8 0%, #1e40af 100%);
-                    transform: translateY(-1px);
-                }
-                
-                .custom-scrollbar {
-                    scrollbar-width: thin;
-                    scrollbar-color: #cbd5e1 #f1f5f9;
-                }
-                
-                .custom-scrollbar::-webkit-scrollbar {
-                    width: 6px;
-                    height: 6px;
-                }
-                
-                .custom-scrollbar::-webkit-scrollbar-track {
-                    background: #f1f5f9;
-                    border-radius: 3px;
-                }
-                
-                .custom-scrollbar::-webkit-scrollbar-thumb {
-                    background: #cbd5e1;
-                    border-radius: 3px;
-                }
-                
-                .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-                    background: #94a3b8;
-                }
-                
-                .animate-fade-in {
-                    animation: fadeIn 0.5s ease-in-out;
-                }
-                
-                .animate-slide-up {
-                    animation: slideUp 0.3s ease-out;
-                }
-                
-                @keyframes fadeIn {
-                    from { opacity: 0; transform: translateY(10px); }
-                    to { opacity: 1; transform: translateY(0); }
-                }
-                
-                @keyframes slideUp {
-                    from { opacity: 0; transform: translateY(20px); }
-                    to { opacity: 1; transform: translateY(0); }
-                }
-            `}</style>
-        <div className="min-h-screen p-6 md:p-10 max-w-[1600px] mx-auto space-y-8 animate-fade-in">
+        <div className="siirh-page min-h-screen p-6 md:p-10 max-w-[1600px] mx-auto">
             {/* Header */}
-            <div className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-blue-600 to-indigo-700 p-8 shadow-2xl shadow-blue-500/20">
+            <div className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-slate-900 via-blue-900 to-cyan-900 p-8 shadow-xl shadow-slate-900/20">
                 <div className="relative z-10 flex flex-col md:flex-row md:items-center md:justify-between gap-6">
                     <div className="flex items-center gap-6">
                         <div className="p-4 bg-white/20 backdrop-blur-md rounded-2xl border border-white/10">
                             <ChartBarIcon className="h-10 w-10 text-white" />
                         </div>
                         <div>
-                            <h1 className="text-3xl font-bold text-white tracking-tight">Reporting Dynamique</h1>
+                            <div className="flex items-center gap-2">
+                                <h1 className="text-3xl font-bold text-white tracking-tight">Reporting Dynamique</h1>
+                                <InlineHelp text="Construisez un rapport sur mesure en choisissant les variables a afficher, puis generez un apercu ou un export." />
+                            </div>
                             <p className="text-blue-100 mt-1 text-lg">Construisez vos rapports personnalisés sur mesure</p>
                         </div>
                     </div>
@@ -439,7 +413,11 @@ export default function Reporting() {
                         <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
                             <AdjustmentsHorizontalIcon className="h-6 w-6 text-blue-500" />
                             Configuration
+                            <InlineHelp text="Choisissez l'employeur, la periode et les filtres avant de generer le rapport." />
                         </h2>
+                        <div className="rounded-2xl border border-cyan-200 bg-cyan-50 px-4 py-3 text-sm text-cyan-900">
+                            Les champs identite, contrat, poste et structure sont deja servis par la vue maitre canonique cote backend quand elle existe. Le reporting reste donc aligne avec les autres portails sans toucher aux calculs paie.
+                        </div>
 
                         {/* Employeur & Période */}
                         <div className="space-y-4">
@@ -484,6 +462,7 @@ export default function Reporting() {
                                 <div className="flex items-center gap-2">
                                     <FunnelIcon className="h-4 w-4 text-slate-400" />
                                     <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Filtres Organisationnels</span>
+                                    <InlineHelp text="Affinez le rapport par etablissement, departement, service ou unite. Les listes se filtrent en cascade." />
                                     {(filterEtab || filterDept || filterService || filterUnite) && (
                                         <span className="px-2 py-1 bg-blue-100 text-blue-700 text-xs font-medium rounded-full">
                                             {[filterEtab, filterDept, filterService, filterUnite].filter(Boolean).length} actif{[filterEtab, filterDept, filterService, filterUnite].filter(Boolean).length > 1 ? 's' : ''}
@@ -508,9 +487,9 @@ export default function Reporting() {
                                             className="glass-input w-full px-3 py-2 text-sm"
                                         >
                                             <option value="">Tous les établissements</option>
-                                            {orgData.etablissements.map((item, index) => (
-                                                <option key={index} value={item}>
-                                                    {item}
+                                            {orgData.etablissements.map((item) => (
+                                                <option key={item.id} value={String(item.id)}>
+                                                    {item.name}{item.code ? ` (${item.code})` : ""}
                                                 </option>
                                             ))}
                                         </select>
@@ -522,7 +501,7 @@ export default function Reporting() {
                                             Département
                                             {filterEtab && (
                                                 <span className="text-xs text-blue-600 ml-1">
-                                                    (filtré par {filterEtab})
+                                                    (filtré par {getOptionLabel(orgData.etablissements, filterEtab)})
                                                 </span>
                                             )}
                                         </label>
@@ -540,9 +519,9 @@ export default function Reporting() {
                                                     : 'Tous les départements'
                                                 }
                                             </option>
-                                            {orgData.departements.map((item, index) => (
-                                                <option key={index} value={item}>
-                                                    {item}
+                                            {orgData.departements.map((item) => (
+                                                <option key={item.id} value={String(item.id)}>
+                                                    {item.name}{item.code ? ` (${item.code})` : ""}
                                                 </option>
                                             ))}
                                         </select>
@@ -559,7 +538,10 @@ export default function Reporting() {
                                             Service
                                             {(filterEtab || filterDept) && (
                                                 <span className="text-xs text-blue-600 ml-1">
-                                                    (filtre par {[filterEtab, filterDept].filter(Boolean).join(" -> ")})
+                                                    (filtre par {[
+                                                        filterEtab ? getOptionLabel(orgData.etablissements, filterEtab) : "",
+                                                        filterDept ? getOptionLabel(orgData.departements, filterDept) : "",
+                                                    ].filter(Boolean).join(" -> ")})
                                                 </span>
                                             )}
                                         </label>
@@ -577,9 +559,9 @@ export default function Reporting() {
                                                     : 'Tous les services'
                                                 }
                                             </option>
-                                            {orgData.services.map((item, index) => (
-                                                <option key={index} value={item}>
-                                                    {item}
+                                            {orgData.services.map((item) => (
+                                                <option key={item.id} value={String(item.id)}>
+                                                    {item.name}{item.code ? ` (${item.code})` : ""}
                                                 </option>
                                             ))}
                                         </select>
@@ -596,7 +578,11 @@ export default function Reporting() {
                                             Unité
                                             {(filterEtab || filterDept || filterService) && (
                                                 <span className="text-xs text-blue-600 ml-1">
-                                                    (filtre par {[filterEtab, filterDept, filterService].filter(Boolean).join(" -> ")})
+                                                    (filtre par {[
+                                                        filterEtab ? getOptionLabel(orgData.etablissements, filterEtab) : "",
+                                                        filterDept ? getOptionLabel(orgData.departements, filterDept) : "",
+                                                        filterService ? getOptionLabel(orgData.services, filterService) : "",
+                                                    ].filter(Boolean).join(" -> ")})
                                                 </span>
                                             )}
                                         </label>
@@ -614,9 +600,9 @@ export default function Reporting() {
                                                     : 'Toutes les unités'
                                                 }
                                             </option>
-                                            {orgData.unites.map((item, index) => (
-                                                <option key={index} value={item}>
-                                                    {item}
+                                            {orgData.unites.map((item) => (
+                                                <option key={item.id} value={String(item.id)}>
+                                                    {item.name}{item.code ? ` (${item.code})` : ""}
                                                 </option>
                                             ))}
                                         </select>
@@ -653,6 +639,7 @@ export default function Reporting() {
                             <div className="flex items-center gap-2 mb-3">
                                 <IdentificationIcon className="h-4 w-4 text-slate-400" />
                                 <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Recherche par Matricule</span>
+                                <InlineHelp text="Retrouvez rapidement un salarie par matricule ou par nom, et gardez une trace fiable meme en cas d'homonymie ou de changement de nom." />
                             </div>
                             
                             {/* Matricule Search */}
@@ -772,15 +759,18 @@ export default function Reporting() {
 
                 {/* Center: Column Builder */}
                 <div className="xl:col-span-3 space-y-8">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    <div className="grid grid-cols-1 items-start md:grid-cols-2 gap-8">
                         {/* Library of fields */}
-                        <div className="glass-card overflow-hidden flex flex-col h-[600px]">
+                        <div className="glass-card flex flex-col">
                             <div className="bg-slate-50 p-4 border-b border-slate-200">
-                                <h3 className="font-bold text-slate-800">Bibliothèque de Variables</h3>
+                                <div className="flex items-center gap-2">
+                                    <h3 className="font-bold text-slate-800">Bibliothèque de Variables</h3>
+                                    <InlineHelp text="Cliquez sur une variable pour l'ajouter au rapport. Les variables sont classees par famille metier." />
+                                </div>
                             </div>
-                            <div className="flex flex-1 overflow-hidden">
+                            <div className="flex">
                                 {/* Vertical Tabs for Categories */}
-                                <div className="w-1/3 bg-slate-50/50 border-r border-slate-100 overflow-y-auto">
+                                <div className="w-1/3 bg-slate-50/50 border-r border-slate-100">
                                     {categories.map(cat => (
                                         <button
                                             key={cat}
@@ -795,7 +785,7 @@ export default function Reporting() {
                                     ))}
                                 </div>
                                 {/* Fields List */}
-                                <div className="flex-1 p-4 overflow-y-auto custom-scrollbar space-y-2">
+                                <div className="flex-1 p-4 space-y-2">
                                     {isLoadingMeta ? (
                                         <div className="flex justify-center py-10"><ArrowPathIcon className="h-8 w-8 text-slate-300 animate-spin" /></div>
                                     ) : filteredAvailable.map(field => {
@@ -820,9 +810,12 @@ export default function Reporting() {
                         </div>
 
                         {/* Selected Fields */}
-                        <div className="glass-card flex flex-col h-[600px]">
+                        <div className="glass-card flex flex-col">
                             <div className="bg-blue-50 p-4 border-b border-blue-100 flex justify-between items-center">
-                                <h3 className="font-bold text-blue-900">Colonnes Sélectionnées ({selectedFields.length})</h3>
+                                <div className="flex items-center gap-2">
+                                    <h3 className="font-bold text-blue-900">Colonnes Sélectionnées ({selectedFields.length})</h3>
+                                    <InlineHelp text="Cette liste construit l'ordre final des colonnes du rapport. Retirez une colonne pour l'exclure de l'aperçu et des exports." />
+                                </div>
                                 <div className="flex gap-2">
                                     <button
                                         onClick={() => {
@@ -844,9 +837,9 @@ export default function Reporting() {
                                     </button>
                                 </div>
                             </div>
-                            <div className="flex-1 p-4 overflow-y-auto custom-scrollbar space-y-2">
+                            <div className="p-4 space-y-2">
                                 {selectedFields.length === 0 ? (
-                                    <div className="h-full flex flex-col items-center justify-center text-slate-400 space-y-4">
+                                    <div className="min-h-[220px] flex flex-col items-center justify-center text-slate-400 space-y-4">
                                         <AdjustmentsHorizontalIcon className="h-12 w-12 opacity-20" />
                                         <p className="text-sm italic">Aucune colonne sélectionnée</p>
                                     </div>
@@ -1064,19 +1057,19 @@ export default function Reporting() {
                                     </div>
                                     <div className="bg-white p-3 rounded-lg shadow-sm">
                                         <div className="text-2xl font-bold text-green-600">
-                                            {reportData.reduce((sum, row) => sum + (row.brut_total || 0), 0).toLocaleString('fr-FR', { maximumFractionDigits: 0 })}
+                                            {reportData.reduce((sum, row) => sum + toNumericValue(row.brut_total), 0).toLocaleString('fr-FR', { maximumFractionDigits: 0 })}
                                         </div>
                                         <div className="text-xs text-slate-500 uppercase tracking-wide">Total Brut (Ar)</div>
                                     </div>
                                     <div className="bg-white p-3 rounded-lg shadow-sm">
                                         <div className="text-2xl font-bold text-purple-600">
-                                            {reportData.reduce((sum, row) => sum + (row.net_a_payer || 0), 0).toLocaleString('fr-FR', { maximumFractionDigits: 0 })}
+                                            {reportData.reduce((sum, row) => sum + toNumericValue(row.net_a_payer), 0).toLocaleString('fr-FR', { maximumFractionDigits: 0 })}
                                         </div>
                                         <div className="text-xs text-slate-500 uppercase tracking-wide">Total Net (Ar)</div>
                                     </div>
                                     <div className="bg-white p-3 rounded-lg shadow-sm">
                                         <div className="text-2xl font-bold text-orange-600">
-                                            {reportData.reduce((sum, row) => sum + (row.cout_total_employeur || 0), 0).toLocaleString('fr-FR', { maximumFractionDigits: 0 })}
+                                            {reportData.reduce((sum, row) => sum + toNumericValue(row.cout_total_employeur), 0).toLocaleString('fr-FR', { maximumFractionDigits: 0 })}
                                         </div>
                                         <div className="text-xs text-slate-500 uppercase tracking-wide">Coût Total (Ar)</div>
                                     </div>
@@ -1115,7 +1108,6 @@ export default function Reporting() {
                 </div>
             </div>
         </div>
-        </>
     );
 }
 

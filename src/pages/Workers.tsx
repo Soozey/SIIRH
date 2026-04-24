@@ -1,13 +1,19 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { api } from "../api";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Dialog } from "@headlessui/react";
+import { useNavigate } from "react-router-dom";
 import WorkCertificate from "../components/WorkCertificate";
 import EmploymentAttestation from "../components/EmploymentAttestation";
 import EmploymentContract from "../components/EmploymentContract";
 import ImportWorkersDialog from "../components/ImportWorkersDialog";
 import { CascadingOrganizationalSelect } from "../components/CascadingOrganizationalSelect";
+import type { CascadingSelectValue } from "../components/CascadingOrganizationalSelection";
 import { Skeleton } from "../components/ui/Skeleton";
+import { useAuth } from "../contexts/AuthContext";
+import { useWorkerData } from "../hooks/useConstants";
+import { hasModulePermission, sessionHasRole } from "../rbac";
+import { formatAriary } from "../utils/ariary";
 // ❌ SYSTÈME MATRICULE SUSPENDU - Ne pas utiliser
 // import { MatriculeWorkerSelect } from "../components/MatriculeWorkerSelect";
 import {
@@ -25,7 +31,6 @@ import {
   MagnifyingGlassIcon,
   XMarkIcon,
   ArrowPathIcon,
-  PrinterIcon,
   BuildingOfficeIcon
 } from "@heroicons/react/24/outline";
 
@@ -41,27 +46,176 @@ type Employer = {
   raison_sociale: string;
 };
 
+type WorkerValidationError = {
+  loc?: Array<string | number>;
+  msg?: string;
+};
+
+type WorkerApiError = {
+  response?: {
+    data?: {
+      detail?: string | WorkerValidationError[];
+      message?: string;
+    };
+  };
+  message?: string;
+};
+
+type WorkerPositionHistory = {
+  id: number;
+  poste?: string | null;
+  organizational_unit_id?: number | null;
+  start_date?: string | null;
+};
+
+type WorkerRecord = {
+  id: number;
+  employer_id: number;
+  is_active?: boolean;
+  deleted_at?: string | null;
+  matricule: string;
+  nom: string;
+  prenom: string;
+  sexe?: string | null;
+  situation_familiale?: string | null;
+  date_naissance?: string | null;
+  lieu_naissance?: string | null;
+  adresse?: string | null;
+  telephone?: string | null;
+  email?: string | null;
+  cin?: string | null;
+  cin_delivre_le?: string | null;
+  cin_lieu?: string | null;
+  cnaps_num?: string | null;
+  nombre_enfant?: number | string | null;
+  date_embauche?: string | null;
+  nature_contrat?: string | null;
+  duree_essai_jours?: number | null;
+  date_fin_essai?: string | null;
+  etablissement?: string | null;
+  departement?: string | null;
+  service?: string | null;
+  unite?: string | null;
+  organizational_unit_id?: number | null;
+  indice?: string | null;
+  valeur_point?: number | null;
+  secteur?: string | null;
+  mode_paiement?: string | null;
+  rib?: string | null;
+  code_banque?: string | null;
+  code_guichet?: string | null;
+  compte_num?: string | null;
+  cle_rib?: string | null;
+  nom_guichet?: string | null;
+  banque?: string | null;
+  bic?: string | null;
+  categorie_prof?: string | null;
+  poste?: string | null;
+  date_debauche?: string | null;
+  type_sortie?: string | null;
+  groupe_preavis?: number | null;
+  jours_preavis_deja_faits?: number | null;
+  type_regime_id?: number | null;
+  salaire_base?: number | null;
+  salaire_horaire?: number | null;
+  vhm?: number | null;
+  horaire_hebdo?: number | null;
+  avantage_vehicule?: number | null;
+  avantage_logement?: number | null;
+  avantage_telephone?: number | null;
+  avantage_autres?: number | null;
+  taux_sal_cnaps_override?: number | null;
+  taux_sal_smie_override?: number | null;
+  taux_pat_cnaps_override?: number | null;
+  taux_pat_smie_override?: number | null;
+  taux_pat_fmfp_override?: number | null;
+  solde_conge_initial?: number | null;
+  position_history?: WorkerPositionHistory[];
+};
+
 type PaginatedWorkersResponse = {
-  items: any[];
+  items: WorkerRecord[];
   total: number;
   page: number;
   page_size: number;
   total_pages: number;
 };
 
+type WorkerResetMode = "soft" | "hard";
+type ResetFeedback = { type: "success" | "error"; message: string } | null;
+
+type RecruitmentLibraryItem = {
+  id: number;
+  category: string;
+  label: string;
+  description: string | null;
+  payload?: Record<string, unknown>;
+};
+
+type ClassificationOption = {
+  code: string;
+  label: string;
+  family: string;
+  group?: number;
+  description: string;
+};
+
+function WorkerCanonicalSummary({ worker }: { worker: WorkerRecord }) {
+  const { data: workerData } = useWorkerData(worker.id);
+  const name = `${workerData?.prenom || worker.prenom} ${workerData?.nom || worker.nom}`.trim();
+  const meta = [
+    workerData?.matricule || worker.matricule,
+    workerData?.poste || worker.poste,
+    workerData?.departement,
+  ]
+    .filter(Boolean)
+    .join(" | ");
+
+  return (
+    <>
+      <h3 className="text-lg font-semibold text-gray-900 truncate flex items-center gap-2">
+        {name}
+      </h3>
+      <div className="flex flex-wrap gap-4 text-sm text-gray-600">
+        <div className="flex items-center gap-1">
+          <IdentificationIcon className="h-4 w-4" />
+          <span className="font-medium">Référence: {workerData?.matricule || worker.matricule}</span>
+        </div>
+        {meta ? (
+          <div className="flex items-center gap-1">
+            <BriefcaseIcon className="h-4 w-4" />
+            <span>{meta}</span>
+          </div>
+        ) : null}
+      </div>
+    </>
+  );
+}
+
 export default function Workers() {
+  const navigate = useNavigate();
   const qc = useQueryClient();
+  const { session } = useAuth();
+  const isInspector = sessionHasRole(session, ["inspecteur", "inspection_travail", "labor_inspector", "labor_inspector_supervisor"]);
+  const canWriteWorkforce = hasModulePermission(session, "workforce", "write") && !isInspector;
+  const isAdmin = sessionHasRole(session, ["admin", "system_admin", "super_administrateur_systeme"]);
+  const canDeleteWorkers = canWriteWorkforce && sessionHasRole(session, ["drh", "rh"]);
   const [openModal, setOpenModal] = useState(false);
-  const [editingWorker, setEditingWorker] = useState<any | null>(null);
+  const [editingWorker, setEditingWorker] = useState<WorkerRecord | null>(null);
 
   // NEW: Document Modal State
   // NEW: Document Modal State
   const [documentModalOpen, setDocumentModalOpen] = useState(false);
   const [importModalOpen, setImportModalOpen] = useState(false); // NEW Import Modal State
-  const [selectedDocumentWorker, setSelectedDocumentWorker] = useState<any>(null);
+  const [selectedDocumentWorker, setSelectedDocumentWorker] = useState<WorkerRecord | null>(null);
   // Type of document to show: 'certificate' | 'attestation' | 'contract'
   const [documentType, setDocumentType] = useState<'certificate' | 'attestation' | 'contract'>('attestation');
   const [bankModalOpen, setBankModalOpen] = useState(false);
+  const [resetModalOpen, setResetModalOpen] = useState(false);
+  const [resetMode, setResetMode] = useState<WorkerResetMode>("soft");
+  const [resetConfirmationText, setResetConfirmationText] = useState("");
+  const [resetFeedback, setResetFeedback] = useState<ResetFeedback>(null);
+  const { data: selectedDocumentWorkerData } = useWorkerData(selectedDocumentWorker?.id || 0);
 
   const { data: employers = [] } = useQuery({
     queryKey: ["employers"],
@@ -99,6 +253,7 @@ export default function Workers() {
     departement: "",
     service: "",
     unite: "",
+    organizational_unit_id: null as number | null,
     indice: "",
     valeur_point: 0,
     secteur: "",
@@ -133,28 +288,56 @@ export default function Workers() {
     taux_pat_fmfp_override: null as number | null,
     solde_conge_initial: 0 as number | string,
   });
+  const [organizationalSelection, setOrganizationalSelection] = useState<CascadingSelectValue>({});
+
+  const { data: classificationLibrary = [] } = useQuery({
+    queryKey: ["recruitment-library-classification", form.employer_id],
+    enabled: Number(form.employer_id) > 0,
+    queryFn: async () =>
+      (
+        await api.get<RecruitmentLibraryItem[]>("/recruitment/library-items", {
+          params: {
+            employer_id: form.employer_id,
+            category: "professional_classification",
+          },
+        })
+      ).data,
+  });
+
+  const classificationOptions = useMemo<ClassificationOption[]>(() => {
+    return classificationLibrary.map((item) => {
+      const payload = item.payload ?? {};
+      const payloadCode = typeof payload.code === "string" ? payload.code.trim() : "";
+      const fallbackCode = item.label.includes(" - ") ? item.label.split(" - ")[0].trim() : item.label.trim();
+      const code = payloadCode || fallbackCode;
+      const label = typeof payload.label === "string" ? payload.label.trim() : item.label.replace(`${code} -`, "").trim();
+      const family = typeof payload.family === "string" ? payload.family : "";
+      const group = typeof payload.group === "number" ? payload.group : undefined;
+      const description = typeof payload.description === "string" ? payload.description : item.description || "";
+      return { code, label, family, group, description };
+    });
+  }, [classificationLibrary]);
+
+  const selectedClassification = useMemo(() => {
+    const raw = String(form.categorie_prof || "").trim().toLowerCase();
+    if (!raw) return null;
+    return (
+      classificationOptions.find((option) => option.code.toLowerCase() === raw || `${option.code} - ${option.label}`.toLowerCase() === raw) ||
+      null
+    );
+  }, [classificationOptions, form.categorie_prof]);
 
   // Fetch organizational data for selected employer - NOUVEAU: Utilisation du système hiérarchique
-  const { data: organizationalData = { etablissements: [], departements: [], services: [], unites: [] } } = useQuery({
-    queryKey: ["organizationalData", form.employer_id],
-    queryFn: async () => {
-      if (!form.employer_id) return { etablissements: [], departements: [], services: [], unites: [] };
-      // Garder l'ancien système pour compatibilité temporaire
-      return (await api.get(`/employers/${form.employer_id}/organizational-data/workers`)).data;
-    },
-    enabled: !!form.employer_id && employers.length > 0
-  });
+  // Ancienne requete organization supprimee : non utilisee dans ce composant.
+  
 
   // Search State
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [selectedEmployerFilter, setSelectedEmployerFilter] = useState<number | "all">("all");
   const [page, setPage] = useState(1);
   const pageSize = 25;
   
-  // NEW: Matricule-based worker selection state
-  const [selectedWorkerMatricule, setSelectedWorkerMatricule] = useState<string | null>(null);
-  const [selectedWorkerInfo, setSelectedWorkerInfo] = useState<any>(null);
-
   useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedSearch(search);
@@ -164,13 +347,18 @@ export default function Workers() {
 
   useEffect(() => {
     setPage(1);
-  }, [debouncedSearch]);
+  }, [debouncedSearch, selectedEmployerFilter]);
 
   const { data: workersResponse, isLoading: workersLoading } = useQuery({
-    queryKey: ["workers", debouncedSearch, page, pageSize],
+    queryKey: ["workers", debouncedSearch, selectedEmployerFilter, page, pageSize],
     queryFn: async () => (
       await api.get("/workers/paginated", {
-        params: { q: debouncedSearch, page, page_size: pageSize }
+        params: {
+          q: debouncedSearch,
+          page,
+          page_size: pageSize,
+          ...(selectedEmployerFilter !== "all" ? { employer_id: selectedEmployerFilter } : {})
+        }
       })
     ).data as PaginatedWorkersResponse
   });
@@ -207,7 +395,7 @@ export default function Workers() {
     if (selectedIds.size === workers.length && workers.length > 0) {
       setSelectedIds(new Set());
     } else {
-      setSelectedIds(new Set(workers.map((w: any) => w.id)));
+      setSelectedIds(new Set(workers.map((w) => w.id)));
     }
   };
 
@@ -226,6 +414,27 @@ export default function Workers() {
       vhm: selectedRegime?.vhm || 200
     }));
   };
+
+  const getWorkerErrorMessage = (error: unknown, fallback: string): string => {
+    const typedError = error as WorkerApiError;
+    if (typedError.response?.data?.detail && Array.isArray(typedError.response.data.detail)) {
+      return typedError.response.data.detail
+        .map((item) => `${item.loc?.join(".")} : ${item.msg}`)
+        .join("\n");
+    }
+    if (typedError.response?.data?.detail) {
+      return String(typedError.response.data.detail);
+    }
+    if (typedError.response?.data?.message) {
+      return typedError.response.data.message;
+    }
+    if (typedError.message) {
+      return typedError.message;
+    }
+    return fallback;
+  };
+
+  const resetConfirmationExpected = resetMode === "hard" ? "RESET EMPLOYEES HARD" : "RESET EMPLOYEES";
 
   const create = useMutation({
     mutationFn: async () => {
@@ -270,24 +479,13 @@ export default function Workers() {
       setOpenModal(false);
       resetForm();
     },
-    onError: (error: any) => {
+    onError: (error: unknown) => {
       console.error("Erreur lors de la création:", error);
-      
-      let errorMessage = "Erreur inconnue lors de la création du travailleur";
 
-      if (error.response) {
-        const data = error.response.data;
-        if (data?.detail && Array.isArray(data.detail)) {
-          // Pydantic validation error array
-          errorMessage = data.detail.map((e: any) => `${e.loc?.join('.')} : ${e.msg}`).join('\n');
-        } else if (data?.detail) {
-          errorMessage = String(data.detail);
-        } else if (data?.message) {
-          errorMessage = data.message;
-        }
-      } else if (error.message) {
-        errorMessage = error.message;
-      }
+      const errorMessage = getWorkerErrorMessage(
+        error,
+        "Erreur inconnue lors de la creation du travailleur"
+      );
 
       alert(`Erreur lors de la création du travailleur:\n${errorMessage}`);
     }
@@ -319,6 +517,7 @@ export default function Workers() {
       departement: "",
       service: "",
       unite: "",
+      organizational_unit_id: null,
       indice: "",
       valeur_point: 0,
       secteur: "",
@@ -353,13 +552,11 @@ export default function Workers() {
       taux_pat_fmfp_override: null,
       solde_conge_initial: 0
     });
+    setOrganizationalSelection({});
     
-    // NEW: Reset matricule selection state
-    setSelectedWorkerMatricule(null);
-    setSelectedWorkerInfo(null);
   };
 
-  const handleOpenDocument = (worker: any) => {
+  const handleOpenDocument = (worker: WorkerRecord) => {
     setSelectedDocumentWorker(worker);
     // Default logic: Terminated -> Certificate, Active -> Attestation
     if (worker.date_debauche) {
@@ -372,28 +569,76 @@ export default function Workers() {
 
 
   const deleteWorker = useMutation({
-    mutationFn: async (id: number) => await api.delete(`/workers/${id}`),
-    onSuccess: () => {
+    mutationFn: async (id: number) => (await api.delete<{ message?: string }>(`/workers/${id}`)).data,
+    onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ["workers"] });
-    }
+      alert(data.message || "Travailleur désactivé avec succès.");
+    },
+    onError: (error: unknown) => {
+      alert(getWorkerErrorMessage(error, "Erreur lors de la désactivation du travailleur."));
+    },
   });
 
   const deleteBatch = useMutation({
-    mutationFn: async (ids: number[]) => await api.post("/workers/delete_batch", { ids }),
-    onSuccess: (data: any) => {
+    mutationFn: async (ids: number[]) => (await api.post<{ message?: string }>("/workers/delete_batch", { ids })).data,
+    onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ["workers"] });
-      alert(data.message || "Travailleurs supprimés avec succès.");
+      alert(data.message || "Travailleurs désactivés avec succès.");
       setSelectedIds(new Set()); // Clear selection
     },
-    onError: () => {
-      alert("Erreur lors de la suppression de la sélection.");
+    onError: (error: unknown) => {
+      alert(getWorkerErrorMessage(error, "Erreur lors de la désactivation de la sélection."));
     }
   });
+
+  const resetWorkers = useMutation({
+    mutationFn: async () => {
+      const payload = {
+        employer_id: selectedEmployerFilter === "all" ? null : selectedEmployerFilter,
+        mode: resetMode,
+        confirmation_text: resetConfirmationText.trim(),
+      };
+      console.info("workers.reset submit", payload);
+      const response = await api.post<{ message: string; count: number; mode: WorkerResetMode }>("/workers/reset", payload);
+      return response.data;
+    },
+    onSuccess: (data) => {
+      console.info("workers.reset success", data);
+      qc.invalidateQueries({ queryKey: ["workers"] });
+      setSelectedIds(new Set());
+      setResetFeedback({ type: "success", message: data.message || "Réinitialisation des employés effectuée." });
+      setResetConfirmationText("");
+      setTimeout(() => {
+        setResetModalOpen(false);
+        setResetMode("soft");
+        setResetFeedback(null);
+      }, 800);
+    },
+    onError: (error: unknown) => {
+      const message = getWorkerErrorMessage(error, "Erreur lors de la réinitialisation des employés.");
+      console.error("workers.reset error", error);
+      setResetFeedback({ type: "error", message });
+    },
+  });
+
+  const handleResetSubmit = () => {
+    const normalizedConfirmation = resetConfirmationText.trim().toUpperCase();
+    if (!normalizedConfirmation) {
+      setResetFeedback({ type: "error", message: "Saisissez le texte de confirmation avant de lancer la réinitialisation." });
+      return;
+    }
+    if (normalizedConfirmation !== resetConfirmationExpected) {
+      setResetFeedback({ type: "error", message: `Texte invalide. Saisissez exactement: ${resetConfirmationExpected}` });
+      return;
+    }
+    setResetFeedback(null);
+    resetWorkers.mutate();
+  };
 
   const handleDeleteSelection = async () => {
     if (selectedIds.size === 0) return;
 
-    if (window.confirm(`Êtes-vous sûr de vouloir supprimer ces ${selectedIds.size} travailleur(s) ?`)) {
+    if (window.confirm(`Êtes-vous sûr de vouloir désactiver ces ${selectedIds.size} travailleur(s) ?`)) {
       deleteBatch.mutate(Array.from(selectedIds));
     }
   };
@@ -447,30 +692,10 @@ export default function Workers() {
       setEditingWorker(null);
       resetForm();
     },
-    onError: (error: any) => {
+    onError: (error: unknown) => {
       console.error("Erreur lors de la mise à jour:", error);
       console.error("Détails de l'erreur:", JSON.stringify(error, null, 2));
-
-      let errorMessage = "Erreur inconnue";
-
-      if (error.response) {
-        // Erreur de réponse du serveur
-        const data = error.response.data;
-        if (data?.detail && Array.isArray(data.detail)) {
-          // Pydantic validation error array
-          errorMessage = data.detail.map((e: any) => `${e.loc?.join('.')} : ${e.msg}`).join('\n');
-        } else if (data?.detail) {
-          errorMessage = String(data.detail);
-        } else if (data?.message) {
-          errorMessage = data.message;
-        } else {
-          errorMessage = JSON.stringify(data);
-        }
-
-      } else if (error.message) {
-        errorMessage = error.message;
-      }
-
+      const errorMessage = getWorkerErrorMessage(error, "Erreur inconnue");
       alert(`Erreur lors de la mise à jour:\n${errorMessage}`);
     }
   });
@@ -501,12 +726,7 @@ export default function Workers() {
     return regime ? regime.label : "Non défini";
   };
 
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('fr-MG', {
-      style: 'currency',
-      currency: 'MGA'
-    }).format(amount);
-  };
+  const formatCurrency = (amount: number) => formatAriary(amount);
 
   const getInitials = (prenom: string, nom: string) => {
     return `${prenom?.[0] || ''}${nom?.[0] || ''}`.toUpperCase();
@@ -576,10 +796,10 @@ export default function Workers() {
   const noticeBalance = Math.max(0, legalNotice - form.jours_preavis_deja_faits);
 
   // NEW: Homonym detection for worker list
-  const detectHomonyms = (workers: any[]) => {
-    const nameGroups: { [fullName: string]: any[] } = {};
+  const detectHomonyms = (workerList: WorkerRecord[]) => {
+    const nameGroups: Record<string, WorkerRecord[]> = {};
     
-    workers.forEach(worker => {
+    workerList.forEach(worker => {
       const fullName = `${worker.prenom} ${worker.nom}`.toLowerCase();
       if (!nameGroups[fullName]) {
         nameGroups[fullName] = [];
@@ -588,7 +808,7 @@ export default function Workers() {
     });
 
     return Object.fromEntries(
-      Object.entries(nameGroups).filter(([_, workers]) => workers.length > 1)
+      Object.entries(nameGroups).filter(([, groupedWorkers]) => groupedWorkers.length > 1)
     );
   };
 
@@ -596,7 +816,7 @@ export default function Workers() {
   const hasHomonyms = Object.keys(homonymGroups).length > 0;
 
   // Function to check if a worker is a homonym
-  const isHomonym = (worker: any) => {
+  const isHomonym = (worker: WorkerRecord) => {
     const fullName = `${worker.prenom} ${worker.nom}`.toLowerCase();
     return homonymGroups[fullName]?.length > 1;
   };
@@ -630,7 +850,7 @@ export default function Workers() {
       const val = BigInt(b) * 89n + BigInt(g) * 15n + BigInt(c) * 3n;
       const key = 97n - (val % 97n);
       return key.toString().padStart(2, '0');
-    } catch (e) {
+    } catch {
       return "";
     }
   };
@@ -642,12 +862,20 @@ export default function Workers() {
         setForm(f => ({ ...f, cle_rib: key }));
       }
     }
-  }, [form.code_banque, form.code_guichet, form.compte_num]);
+  }, [form.code_banque, form.code_guichet, form.compte_num, form.cle_rib]);
 
   return (
-    <div className="min-h-screen bg-gray-50 p-4 md:p-6">
+    <div className="siirh-page min-h-screen bg-gray-50 p-4 md:p-6">
+      <datalist id="workers-professional-classification">
+        {classificationOptions.map((option) => (
+          <option key={`${option.code}-${option.label}`} value={option.code}>
+            {option.label}
+            {option.group ? ` | Groupe ${option.group}` : ""}
+          </option>
+        ))}
+      </datalist>
       {/* Header */}
-      <div className="bg-gradient-to-r from-blue-600 to-blue-700 rounded-2xl p-6 mb-6 shadow-lg print:hidden">
+      <div className="bg-gradient-to-r from-slate-900 via-blue-900 to-cyan-900 rounded-2xl p-6 mb-6 shadow-lg print:hidden">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div className="flex items-center gap-4">
             <div className="p-3 bg-white/20 rounded-xl backdrop-blur-sm">
@@ -658,7 +886,7 @@ export default function Workers() {
                 Gestion des Travailleurs
               </h1>
               <p className="text-blue-100 mt-1">
-                {workers.length} travailleur(s) enregistré(s)
+                {totalWorkers} travailleur(s) enregistré(s)
                 {hasHomonyms && (
                   <span className="ml-2 inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-yellow-500/20 text-yellow-100 border border-yellow-400/30">
                     <ExclamationTriangleIcon className="h-3 w-3 mr-1" />
@@ -690,21 +918,33 @@ export default function Workers() {
             </div>
           </div>
           <div className="flex gap-3 w-full md:w-auto">
-            <button
-              onClick={() => setImportModalOpen(true)}
-              className="flex-1 md:flex-none inline-flex items-center justify-center gap-2 px-4 py-2 bg-white/20 hover:bg-white/30 text-white font-medium rounded-xl transition-all backdrop-blur-sm"
-            >
-              <DocumentTextIcon className="h-5 w-5" />
-              Importer Excel
-            </button>
+            {canWriteWorkforce ? (
+              <button
+                onClick={() => setImportModalOpen(true)}
+                className="flex-1 md:flex-none inline-flex items-center justify-center gap-2 px-4 py-2 bg-white/20 hover:bg-white/30 text-white font-medium rounded-xl transition-all backdrop-blur-sm"
+              >
+                <DocumentTextIcon className="h-5 w-5" />
+                Importer Excel
+              </button>
+            ) : null}
+            {isAdmin ? (
+              <button
+                type="button"
+                onClick={() => setResetModalOpen(true)}
+                className="flex-1 md:flex-none inline-flex items-center justify-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white font-medium rounded-xl transition-all shadow-lg"
+              >
+                <ArrowPathIcon className="h-5 w-5" />
+                Réinitialiser employés
+              </button>
+            ) : null}
             {/* Bouton Supprimer Sélection */}
-            {selectedIds.size > 0 && (
+            {canDeleteWorkers && selectedIds.size > 0 && (
               <button
                 onClick={handleDeleteSelection}
                 className="flex-1 md:flex-none inline-flex items-center justify-center gap-2 px-4 py-2 bg-red-500 hover:bg-red-600 text-white font-medium rounded-xl transition-all shadow-lg animate-in fade-in zoom-in duration-200"
               >
                 <TrashIcon className="h-5 w-5" />
-                Supprimer ({selectedIds.size})
+                Désactiver ({selectedIds.size})
               </button>
             )}
             {/* Bouton Tout Supprimer (Discret ou caché) -> Caché car remplacé par sélection */}
@@ -715,10 +955,12 @@ export default function Workers() {
                Tout Supprimer
             </button>
             */}
-            <button
-              onClick={() => {
-                setEditingWorker(null);
-                setForm({
+            {canWriteWorkforce ? (
+              <button
+                onClick={() => {
+                  setEditingWorker(null);
+                  setOrganizationalSelection({});
+                  setForm({
                   employer_id: employers.length > 0 ? employers[0].id : 1,
                   matricule: "",
                   nom: "",
@@ -743,6 +985,7 @@ export default function Workers() {
                   departement: "",
                   service: "",
                   unite: "",
+                  organizational_unit_id: null,
                   indice: "",
                   valeur_point: 0,
                   secteur: "",
@@ -777,16 +1020,54 @@ export default function Workers() {
                   cle_rib: "",
                   nom_guichet: ""
                 });
-                // NEW: Reset matricule selection
-                setSelectedWorkerMatricule(null);
-                setSelectedWorkerInfo(null);
-                setOpenModal(true);
+                  setOpenModal(true);
+                }}
+                className="inline-flex items-center gap-2 bg-white text-blue-600 hover:bg-gray-50 px-6 py-3 rounded-xl font-semibold shadow-lg transition-all duration-200 hover:shadow-xl transform hover:-translate-y-0.5"
+              >
+                <PlusIcon className="h-5 w-5" />
+                Nouveau Travailleur
+              </button>
+            ) : null}
+          </div>
+        </div>
+      </div>
+
+      {/* Employer Filter */}
+      <div className="bg-white rounded-2xl p-5 mb-6 shadow-sm border border-gray-200 print:hidden">
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div className="flex items-start gap-3">
+            <div className="p-2 bg-blue-100 rounded-lg">
+              <BuildingOfficeIcon className="h-5 w-5 text-blue-600" />
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold text-gray-900">Filtrer par Employeur</h2>
+              <p className="text-sm text-gray-600">
+                Selectionnez un employeur pour filtrer la liste des travailleurs.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-2 md:flex-row md:items-center">
+            <label htmlFor="workers-employer-filter" className="text-sm font-medium text-gray-700">
+              Employeur :
+            </label>
+            <select
+              id="workers-employer-filter"
+              value={selectedEmployerFilter}
+              onChange={(e) => {
+                const value = e.target.value;
+                setSelectedEmployerFilter(value === "all" ? "all" : Number(value));
               }}
-              className="inline-flex items-center gap-2 bg-white text-blue-600 hover:bg-gray-50 px-6 py-3 rounded-xl font-semibold shadow-lg transition-all duration-200 hover:shadow-xl transform hover:-translate-y-0.5"
+              className="min-w-[220px] rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
             >
-              <PlusIcon className="h-5 w-5" />
-              Nouveau Travailleur
-            </button>
+              <option value="all">Tous les employeurs</option>
+              {employers.map((emp) => (
+                <option key={emp.id} value={emp.id}>
+                  {emp.raison_sociale}
+                </option>
+              ))}
+            </select>
+            <span className="text-sm text-gray-500">{totalWorkers} affiche(s)</span>
           </div>
         </div>
       </div>
@@ -825,7 +1106,23 @@ export default function Workers() {
                   <div className="space-y-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Société Employeur</label>
-                      <select value={form.employer_id} onChange={(e) => setForm(f => ({ ...f, employer_id: Number(e.target.value) }))} className="w-full px-3 py-2 border border-gray-300 rounded-lg">
+                      <select
+                        value={form.employer_id}
+                        onChange={(e) => {
+                          const employerId = Number(e.target.value);
+                          setForm((f) => ({
+                            ...f,
+                            employer_id: employerId,
+                            etablissement: "",
+                            departement: "",
+                            service: "",
+                            unite: "",
+                            organizational_unit_id: null,
+                          }));
+                          setOrganizationalSelection({});
+                        }}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                      >
                         {employers.map((emp) => (
                           <option key={emp.id} value={emp.id}>{emp.raison_sociale}</option>
                         ))}
@@ -946,19 +1243,16 @@ export default function Workers() {
                         </h4>
                         <CascadingOrganizationalSelect
                           employerId={form.employer_id}
-                          value={{
-                            etablissement: form.etablissement ? Number(form.etablissement) : undefined,
-                            departement: form.departement ? Number(form.departement) : undefined,
-                            service: form.service ? Number(form.service) : undefined,
-                            unite: form.unite ? Number(form.unite) : undefined
-                          }}
+                          value={organizationalSelection}
                           onChange={(values) => {
+                            setOrganizationalSelection(values);
                             setForm(f => ({
                               ...f,
-                              etablissement: values.etablissement ? String(values.etablissement) : '',
-                              departement: values.departement ? String(values.departement) : '',
-                              service: values.service ? String(values.service) : '',
-                              unite: values.unite ? String(values.unite) : ''
+                              etablissement: '',
+                              departement: '',
+                              service: '',
+                              unite: '',
+                              organizational_unit_id: values.unite ?? values.service ?? values.departement ?? values.etablissement ?? null
                             }));
                           }}
                         />
@@ -1003,7 +1297,35 @@ export default function Workers() {
                     )}
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Catégorie Professionnelle</label>
-                      <input type="text" value={form.categorie_prof} onChange={e => setForm(f => ({ ...f, categorie_prof: e.target.value }))} className="w-full px-3 py-2 border border-gray-300 rounded-lg" />
+                      <input
+                        type="text"
+                        list="workers-professional-classification"
+                        value={form.categorie_prof}
+                        onChange={e => setForm(f => ({ ...f, categorie_prof: e.target.value }))}
+                        onBlur={e => {
+                          const raw = e.target.value.trim().toLowerCase();
+                          if (!raw) return;
+                          const match = classificationOptions.find(
+                            (option) =>
+                              option.code.toLowerCase() === raw ||
+                              `${option.code} - ${option.label}`.toLowerCase() === raw,
+                          );
+                          if (match && match.code !== e.target.value) {
+                            setForm((f) => ({ ...f, categorie_prof: match.code }));
+                          }
+                        }}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                        placeholder="M1, OS2, OP2B, 3A..."
+                      />
+                      {selectedClassification ? (
+                        <p className="mt-1 text-xs text-blue-700">
+                          {selectedClassification.family}
+                          {selectedClassification.group ? ` | Groupe ${selectedClassification.group}` : ""}
+                          {selectedClassification.description ? ` | ${selectedClassification.description}` : ""}
+                        </p>
+                      ) : (
+                        <p className="mt-1 text-xs text-gray-500">Code libre autorisé si non présent dans les suggestions.</p>
+                      )}
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Type de Régime</label>
@@ -1094,11 +1416,13 @@ export default function Workers() {
                     <div>
                       <h3 className="text-lg font-black text-slate-800 mb-6 flex items-center gap-2">Historique</h3>
                       <div className="space-y-4">
-                        {editingWorker.position_history?.map((h: any) => (
+                        {editingWorker.position_history?.map((h) => (
                           <div key={h.id} className="p-4 bg-white rounded-2xl border border-slate-100 flex justify-between items-center group">
                             <div>
                               <p className="font-bold text-slate-700">{h.poste}</p>
-                              <p className="text-xs text-slate-400 font-medium">{new Date(h.start_date).toLocaleDateString()}</p>
+                              <p className="text-xs text-slate-400 font-medium">
+                                {h.start_date ? new Date(h.start_date).toLocaleDateString() : "-"}
+                              </p>
                             </div>
                           </div>
                         ))}
@@ -1226,7 +1550,13 @@ export default function Workers() {
                 Annuler
               </button>
               <div className="flex gap-4">
-                <button onClick={() => { editingWorker ? updateWorker.mutate() : create.mutate() }} disabled={create.isPending || updateWorker.isPending} className="px-10 py-4 bg-blue-600 text-white rounded-2xl font-black shadow-2xl shadow-blue-200 hover:bg-blue-700 hover:-translate-y-1 transition-all flex items-center gap-3 disabled:bg-slate-300 disabled:shadow-none">
+                <button onClick={() => {
+                  if (editingWorker) {
+                    updateWorker.mutate();
+                  } else {
+                    create.mutate();
+                  }
+                }} disabled={create.isPending || updateWorker.isPending} className="px-10 py-4 bg-blue-600 text-white rounded-2xl font-black shadow-2xl shadow-blue-200 hover:bg-blue-700 hover:-translate-y-1 transition-all flex items-center gap-3 disabled:bg-slate-300 disabled:shadow-none">
                   {(create.isPending || updateWorker.isPending) ? <ArrowPathIcon className="h-5 w-5 animate-spin" /> : <PlusIcon className="h-5 w-5" />}
                   {editingWorker ? "METTRE À JOUR" : "VALIDER L'INSCRIPTION"}
                 </button>
@@ -1257,7 +1587,7 @@ export default function Workers() {
         </div>
 
         {/* Bulk Selection Header */}
-        {workers.length > 0 && (
+        {workers.length > 0 && canDeleteWorkers && (
           <div className="px-6 py-2 bg-gray-50 border-b border-gray-200 flex items-center gap-3">
             <input
               type="checkbox"
@@ -1297,34 +1627,38 @@ export default function Workers() {
               <p className="text-gray-600 mb-6">
                 Commencez par ajouter votre premier travailleur au système.
               </p>
-              <button
-                onClick={() => setOpenModal(true)}
-                className="inline-flex items-center gap-2 bg-blue-600 text-white px-6 py-3 rounded-xl hover:bg-blue-700 transition-colors font-medium"
-              >
-                <PlusIcon className="h-5 w-5" />
-                Ajouter un travailleur
-              </button>
+              {canWriteWorkforce ? (
+                <button
+                  onClick={() => setOpenModal(true)}
+                  className="inline-flex items-center gap-2 bg-blue-600 text-white px-6 py-3 rounded-xl hover:bg-blue-700 transition-colors font-medium"
+                >
+                  <PlusIcon className="h-5 w-5" />
+                  Ajouter un travailleur
+                </button>
+              ) : null}
             </div>
           ) : (
             <div className="grid gap-4">
-              {workers.map((worker: any) => (
+              {workers.map((worker) => (
                 <div
                   key={worker.id}
                   className="flex items-center justify-between p-4 border border-gray-200 rounded-xl hover:border-blue-300 hover:shadow-md transition-all duration-200"
                 >
                   <div className="flex items-center gap-4 flex-1">
                     {/* Checkbox */}
-                    <div className="flex-shrink-0">
-                      <input
-                        type="checkbox"
-                        className="h-5 w-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                        checked={selectedIds.has(worker.id)}
-                        onChange={(e) => {
-                          e.stopPropagation();
-                          toggleSelection(worker.id);
-                        }}
-                      />
-                    </div>
+                    {canDeleteWorkers ? (
+                      <div className="flex-shrink-0">
+                        <input
+                          type="checkbox"
+                          className="h-5 w-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                          checked={selectedIds.has(worker.id)}
+                          onChange={(e) => {
+                            e.stopPropagation();
+                            toggleSelection(worker.id);
+                          }}
+                        />
+                      </div>
+                    ) : null}
 
                     {/* Avatar */}
                     <div className="flex-shrink-0">
@@ -1336,29 +1670,27 @@ export default function Workers() {
                     {/* Info */}
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-3 mb-2 flex-wrap">
-                        <h3 className="text-lg font-semibold text-gray-900 truncate flex items-center gap-2">
-                          {worker.prenom} {worker.nom}
+                        <div className="truncate">
+                          <WorkerCanonicalSummary worker={worker} />
+                        </div>
+                        <div className="flex items-center gap-2">
                           {isHomonym(worker) && (
                             <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800 border border-yellow-200">
                               <ExclamationTriangleIcon className="h-3 w-3 mr-1" />
                               Homonyme
                             </span>
                           )}
-                        </h3>
-                        <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium border ${getSecteurColor(worker.type_regime_id)}`}>
-                          <span className={`h-2 w-2 rounded-full ${getSecteurDot(worker.type_regime_id)}`}></span>
-                          {getSecteurLabel(worker.type_regime_id)}
+                        </div>
+                        <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium border ${getSecteurColor(worker.type_regime_id ?? 0)}`}>
+                          <span className={`h-2 w-2 rounded-full ${getSecteurDot(worker.type_regime_id ?? 0)}`}></span>
+                          {getSecteurLabel(worker.type_regime_id ?? 0)}
                         </span>
                       </div>
 
                       <div className="flex flex-wrap gap-4 text-sm text-gray-600">
                         <div className="flex items-center gap-1">
-                          <IdentificationIcon className="h-4 w-4" />
-                          <span className="font-medium">Matricule: {worker.matricule}</span>
-                        </div>
-                        <div className="flex items-center gap-1">
                           <CurrencyDollarIcon className="h-4 w-4" />
-                          <span>Base: {formatCurrency(worker.salaire_base)}</span>
+                          <span>Base: {formatCurrency(Number(worker.salaire_base || 0))}</span>
                         </div>
                         <div className="flex items-center gap-1">
                           <ClockIcon className="h-4 w-4" />
@@ -1366,7 +1698,7 @@ export default function Workers() {
                         </div>
                         <div className="flex items-center gap-1">
                           <TagIcon className="h-4 w-4" />
-                          <span>VHM: {formatCurrency(worker.vhm)}</span>
+                          <span>VHM: {formatCurrency(Number(worker.vhm || 0))}</span>
                         </div>
                       </div>
                     </div>
@@ -1374,25 +1706,24 @@ export default function Workers() {
 
                   <div className="flex items-center gap-2 flex-shrink-0 ml-4">
                     <button
+                      onClick={() => navigate(`/employee-360?employer_id=${worker.employer_id}&worker_id=${worker.id}`)}
+                      className="p-2 text-gray-400 hover:text-cyan-600 hover:bg-cyan-50 rounded-lg transition-colors"
+                      title="Dossier permanent RH"
+                    >
+                      <IdentificationIcon className="h-5 w-5" />
+                    </button>
+                    <button
                       onClick={() => handleOpenDocument(worker)}
                       className="p-2 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded-lg transition-colors"
                       title="Documents administratifs"
                     >
                       <DocumentTextIcon className="h-5 w-5" />
                     </button>
-                    <button
-                      onClick={() => {
-                        setEditingWorker(worker);
-                        // NEW: Set matricule selection for editing
-                        setSelectedWorkerMatricule(worker.matricule);
-                        setSelectedWorkerInfo({
-                          matricule: worker.matricule,
-                          full_name: `${worker.prenom} ${worker.nom}`,
-                          nom: worker.nom,
-                          prenom: worker.prenom,
-                          employer_id: worker.employer_id
-                        });
-                        setForm({
+                    {canWriteWorkforce ? (
+                      <button
+                        onClick={() => {
+                          setEditingWorker(worker);
+                          setForm({
                           employer_id: worker.employer_id || (employers.length > 0 ? employers[0].id : 1),
                           matricule: worker.matricule || "",
                           nom: worker.nom || "",
@@ -1408,7 +1739,7 @@ export default function Workers() {
                           cin_delivre_le: worker.cin_delivre_le || "",
                           cin_lieu: worker.cin_lieu || "",
                           cnaps_num: worker.cnaps_num || "",
-                          nombre_enfant: worker.nombre_enfant || "",
+                          nombre_enfant: worker.nombre_enfant != null ? String(worker.nombre_enfant) : "",
                           date_embauche: worker.date_embauche || "",
                           nature_contrat: worker.nature_contrat || "CDI",
                           duree_essai_jours: worker.duree_essai_jours || 0,
@@ -1417,6 +1748,7 @@ export default function Workers() {
                           departement: worker.departement || "",
                           service: worker.service || "",
                           unite: worker.unite || "",
+                          organizational_unit_id: worker.organizational_unit_id || null,
                           indice: worker.indice || "",
                           valeur_point: worker.valeur_point || 0,
                           secteur: worker.secteur || "",
@@ -1451,24 +1783,32 @@ export default function Workers() {
                           cle_rib: worker.cle_rib || "",
                           nom_guichet: worker.nom_guichet || ""
                         });
-                        setOpenModal(true);
-                      }}
-                      className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                      title="Modifier"
-                    >
-                      <PencilIcon className="h-5 w-5" />
-                    </button>
-                    <button
-                      onClick={() => {
-                        if (window.confirm(`Êtes-vous sûr de vouloir supprimer ${worker.prenom} ${worker.nom} ?`)) {
-                          deleteWorker.mutate(worker.id);
-                        }
-                      }}
-                      className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                      title="Supprimer"
-                    >
-                      <TrashIcon className="h-5 w-5" />
-                    </button>
+                        setOrganizationalSelection(
+                          worker.organizational_unit_id
+                            ? { unite: worker.organizational_unit_id }
+                            : {}
+                        );
+                          setOpenModal(true);
+                        }}
+                        className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                        title="Modifier"
+                      >
+                        <PencilIcon className="h-5 w-5" />
+                      </button>
+                    ) : null}
+                    {canDeleteWorkers ? (
+                      <button
+                        onClick={() => {
+                          if (window.confirm(`Êtes-vous sûr de vouloir désactiver ${worker.prenom} ${worker.nom} ?`)) {
+                            deleteWorker.mutate(worker.id);
+                          }
+                        }}
+                        className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                        title="Désactiver"
+                      >
+                        <TrashIcon className="h-5 w-5" />
+                      </button>
+                    ) : null}
                   </div>
                 </div>
               ))}
@@ -1504,6 +1844,114 @@ export default function Workers() {
           ) : null}
         </div>
       </div>
+      <Dialog
+        open={resetModalOpen}
+        onClose={() => {
+          if (resetWorkers.isPending) return;
+          setResetModalOpen(false);
+        }}
+        className="relative z-50"
+      >
+        <div className="fixed inset-0 bg-black/40" aria-hidden="true" />
+        <div className="fixed inset-0 flex items-center justify-center p-4">
+          <Dialog.Panel className="w-full max-w-xl rounded-2xl bg-white shadow-2xl">
+            <div className="border-b border-gray-200 px-6 py-4">
+              <Dialog.Title className="text-lg font-semibold text-gray-900">
+                Réinitialiser les employés
+              </Dialog.Title>
+              <p className="mt-2 text-sm text-gray-600">
+                Action réservée aux administrateurs. Le mode soft désactive les employés. Le mode hard purge les données employé dans l'ordre sécurisé.
+              </p>
+            </div>
+            <div className="space-y-5 px-6 py-5">
+              <div className="grid gap-3 md:grid-cols-2">
+                <button
+                  type="button"
+                  onClick={() => setResetMode("soft")}
+                  className={`rounded-xl border px-4 py-3 text-left transition ${resetMode === "soft" ? "border-blue-500 bg-blue-50 text-blue-700" : "border-gray-200 bg-white text-gray-700 hover:border-gray-300"}`}
+                >
+                  <div className="font-semibold">Soft reset</div>
+                  <div className="mt-1 text-sm">Désactive tous les employés du périmètre sélectionné.</div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setResetMode("hard")}
+                  className={`rounded-xl border px-4 py-3 text-left transition ${resetMode === "hard" ? "border-red-500 bg-red-50 text-red-700" : "border-gray-200 bg-white text-gray-700 hover:border-gray-300"}`}
+                >
+                  <div className="font-semibold">Hard reset</div>
+                  <div className="mt-1 text-sm">Suppression définitive admin only avec purge contrôlée des dépendances.</div>
+                </button>
+              </div>
+              <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-700">
+                <div className="font-medium text-gray-900">Périmètre</div>
+                <div className="mt-1">
+                  {selectedEmployerFilter === "all"
+                    ? "Tous les employeurs visibles"
+                    : `Employeur ID ${selectedEmployerFilter}`}
+                </div>
+                <div className="mt-2">
+                  Texte attendu: <span className="font-mono text-xs">{resetConfirmationExpected}</span>
+                </div>
+              </div>
+              <div>
+                <label htmlFor="reset-confirmation" className="block text-sm font-medium text-gray-700">
+                  Confirmation obligatoire
+                </label>
+                <input
+                  id="reset-confirmation"
+                  type="text"
+                  value={resetConfirmationText}
+                  onChange={(e) => {
+                    setResetConfirmationText(e.target.value);
+                    if (resetFeedback) {
+                      setResetFeedback(null);
+                    }
+                  }}
+                  placeholder={resetConfirmationExpected}
+                  className="mt-2 block w-full rounded-xl border border-gray-300 px-4 py-3 text-sm text-gray-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+                />
+              </div>
+              {resetFeedback ? (
+                <div className={`rounded-xl border px-4 py-3 text-sm ${resetFeedback.type === "error" ? "border-red-200 bg-red-50 text-red-700" : "border-green-200 bg-green-50 text-green-700"}`}>
+                  {resetFeedback.message}
+                </div>
+              ) : null}
+              {resetMode === "hard" ? (
+                <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                  Le hard reset supprime définitivement les travailleurs et leurs dépendances employé. Utiliser uniquement pour une purge contrôlée.
+                </div>
+              ) : (
+                <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-700">
+                  Le soft reset conserve l'historique et retire les employés des listes actives.
+                </div>
+              )}
+            </div>
+            <div className="flex items-center justify-end gap-3 border-t border-gray-200 px-6 py-4">
+              <button
+                type="button"
+                onClick={() => {
+                  setResetModalOpen(false);
+                  setResetConfirmationText("");
+                  setResetMode("soft");
+                  setResetFeedback(null);
+                }}
+                disabled={resetWorkers.isPending}
+                className="rounded-xl border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                onClick={handleResetSubmit}
+                disabled={resetWorkers.isPending}
+                className={`rounded-xl px-4 py-2 text-sm font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-50 ${resetMode === "hard" ? "bg-red-600 hover:bg-red-700" : "bg-blue-600 hover:bg-blue-700"}`}
+              >
+                {resetWorkers.isPending ? "Réinitialisation..." : resetMode === "hard" ? "Lancer le hard reset" : "Lancer le soft reset"}
+              </button>
+            </div>
+          </Dialog.Panel>
+        </div>
+      </Dialog>
       {/* NEW: DOCUMENT MODAL */}
       <Dialog
         open={documentModalOpen}
@@ -1520,7 +1968,7 @@ export default function Workers() {
             {/* Header with Switcher - Hidden on Print */}
             <div className="bg-white border-b border-gray-200 px-6 py-4 flex justify-between items-center flex-shrink-0 print:hidden">
               <Dialog.Title className="text-lg font-bold text-gray-900">
-                Documents Administratifs - {selectedDocumentWorker?.prenom} {selectedDocumentWorker?.nom}
+                Documents Administratifs - {selectedDocumentWorkerData?.prenom || selectedDocumentWorker?.prenom} {selectedDocumentWorkerData?.nom || selectedDocumentWorker?.nom}
               </Dialog.Title>
 
               {/* Document Switcher */}
@@ -1564,7 +2012,10 @@ export default function Workers() {
               {selectedDocumentWorker && (
                 <>
                   {(() => {
-                    const currentEmployer = employers.find(e => e.id === selectedDocumentWorker.employer_id) || (employers.length > 0 ? employers[0] : null);
+                    const currentEmployer = employers.find(e => e.id === selectedDocumentWorker.employer_id) || employers[0];
+                    if (!currentEmployer) {
+                      return null;
+                    }
                     return (
                       <>
                         {documentType === 'attestation' && (

@@ -99,7 +99,6 @@ export const OrganizationalFilterModal: React.FC<OrganizationalFilterModalProps>
         const hasHierarchicalData = Object.values(orgData).some((arr) => (arr as string[]).length > 0);
         
         if (!hasHierarchicalData) {
-          console.log('Aucune structure hiérarchique trouvée, utilisation des données des salariés');
           response = await api.get(`/employers/${selectedEmployerId}/organizational-data/workers`);
           orgData = response.data;
         }
@@ -128,7 +127,7 @@ export const OrganizationalFilterModal: React.FC<OrganizationalFilterModalProps>
     
     const fetchFilteredData = async () => {
       try {
-        const params: any = {};
+        const params: Record<string, string> = {};
         if (filters.etablissement) params.etablissement = filters.etablissement;
         if (filters.departement) params.departement = filters.departement;
         if (filters.service) params.service = filters.service;
@@ -144,7 +143,6 @@ export const OrganizationalFilterModal: React.FC<OrganizationalFilterModalProps>
         const hasFilteredData = Object.values(filteredData).some((arr) => (arr as string[]).length > 0);
         
         if (!hasFilteredData) {
-          console.log('Aucune donnée hiérarchique filtrée, utilisation du filtrage des salariés');
           response = await api.get(`/employers/${selectedEmployerId}/organizational-data/filtered`, {
             params
           });
@@ -218,7 +216,7 @@ export const OrganizationalFilterModal: React.FC<OrganizationalFilterModalProps>
 
   const handleConfirmFiltered = () => {
     const activeFilters = Object.fromEntries(
-      Object.entries(filters).filter(([_, value]) => value && value !== '')
+      Object.entries(filters).filter((entry) => entry[1] && entry[1] !== '')
     );
     onConfirm(selectedEmployerId, activeFilters);
     onClose();

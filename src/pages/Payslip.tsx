@@ -1,8 +1,17 @@
-import { useParams } from "react-router-dom";
 import { useEffect, useState } from "react";
-import { api } from "../api";
+import { useParams } from "react-router-dom";
 import { ArrowPathIcon } from "@heroicons/react/24/outline";
+import { api } from "../api";
 import PayslipDocument, { type PayslipData } from "../components/PayslipDocument";
+
+interface ApiErrorPayload {
+  response?: {
+    data?: {
+      detail?: string;
+    };
+  };
+  message?: string;
+}
 
 export default function Payslip() {
   const { workerId, period } = useParams();
@@ -14,29 +23,30 @@ export default function Payslip() {
     const fetchData = async () => {
       if (!workerId || !period) {
         setIsLoading(false);
-        setError("Aucun salarié ou période sélectionné.");
+        setError("Aucun salarie ou periode selectionne.");
         return;
       }
+
       setIsLoading(true);
       setError(null);
       try {
-        const r: any = await api.get("/payroll/preview", {
+        const response = await api.get<PayslipData>("/payroll/preview", {
           params: { worker_id: workerId, period },
         });
-        if (!r || r.success === false) {
-          setError(r?.error?.message || "Erreur lors du chargement du bulletin.");
-          setIsLoading(false);
-          return;
-        }
-        setData(r.data as PayslipData);
-      } catch (e: any) {
-        console.error("Erreur lors du chargement:", e);
-        setError(e?.message || "Erreur inconnue lors du chargement.");
+        setData(response.data);
+      } catch (e: unknown) {
+        const apiError = e as ApiErrorPayload;
+        setError(
+          apiError.response?.data?.detail ||
+          apiError.message ||
+          "Erreur inconnue lors du chargement."
+        );
       } finally {
         setIsLoading(false);
       }
     };
-    fetchData();
+
+    void fetchData();
   }, [workerId, period]);
 
   if (isLoading) {
@@ -54,7 +64,7 @@ export default function Payslip() {
       <div className="p-8 max-w-2xl mx-auto mt-10">
         <div className="bg-white p-8 border-l-4 border-red-500 shadow-lg">
           <h3 className="text-xl font-bold text-red-600 mb-2">Erreur</h3>
-          <p className="text-slate-600 mb-4">Impossible de charger l'aperçu du bulletin.</p>
+          <p className="text-slate-600 mb-4">Impossible de charger l'apercu du bulletin.</p>
           {error && <div className="text-sm text-red-700 font-medium">{error}</div>}
         </div>
       </div>
@@ -63,7 +73,7 @@ export default function Payslip() {
 
   return (
     <div className="p-4 md:p-8 max-w-5xl mx-auto bg-gray-50 min-h-screen font-sans">
-      <PayslipDocument data={data} showPrintButton={true} />
+      <PayslipDocument data={data} showPrintButton />
     </div>
   );
 }

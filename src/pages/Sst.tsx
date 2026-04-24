@@ -1,12 +1,15 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  ArrowDownTrayIcon,
+  ArrowUpTrayIcon,
   ExclamationTriangleIcon,
   LifebuoyIcon,
   ShieldExclamationIcon,
 } from "@heroicons/react/24/outline";
 
-import { api } from "../api";
+import { api, downloadSstIncidentsTemplate, importSstIncidents, type TabularImportReport } from "../api";
+import { useWorkerData } from "../hooks/useConstants";
 
 
 interface Employer {
@@ -59,6 +62,9 @@ export default function Sst() {
     action_taken: "",
     witnesses: "",
   });
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [importReport, setImportReport] = useState<TabularImportReport | null>(null);
 
   const { data: employers = [] } = useQuery({
     queryKey: ["sst", "employers"],
@@ -93,6 +99,18 @@ export default function Sst() {
       })
     ).data,
   });
+  const { data: selectedWorkerData } = useWorkerData(selectedWorkerId || 0);
+  const selectedWorker = workers.find((worker) => worker.id === selectedWorkerId) ?? null;
+  const selectedWorkerLabel = selectedWorker
+    ? `${selectedWorkerData?.nom || selectedWorker.nom} ${selectedWorkerData?.prenom || selectedWorker.prenom}`
+    : null;
+  const selectedWorkerSummary = [
+    selectedWorkerData?.poste || selectedWorker?.poste,
+    selectedWorkerData?.departement,
+    selectedWorkerData?.matricule || selectedWorker?.matricule,
+  ]
+    .filter(Boolean)
+    .join(" | ");
 
   const createIncidentMutation = useMutation({
     mutationFn: async () => {
@@ -132,6 +150,46 @@ export default function Sst() {
       setFeedback(error instanceof Error ? error.message : "Declaration impossible.");
     },
   });
+
+  const handleDownloadTemplate = async (prefilled: boolean) => {
+    try {
+      await downloadSstIncidentsTemplate({
+        employerId: selectedEmployerId ?? undefined,
+        prefilled,
+      });
+    } catch (error) {
+      setFeedback(error instanceof Error ? error.message : "Téléchargement du modèle impossible.");
+    }
+  };
+
+  const handleImport = async () => {
+    if (!importFile) return;
+    setImporting(true);
+    setImportReport(null);
+    try {
+      const report = await importSstIncidents(importFile, { updateExisting: true });
+      setImportReport(report);
+      await queryClient.invalidateQueries({ queryKey: ["sst", "incidents"] });
+      setFeedback(`Import SST: ${report.created} création(s), ${report.updated} mise(s) à jour.`);
+    } catch (error) {
+      setFeedback(error instanceof Error ? error.message : "Import impossible.");
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const handleDownloadErrorReport = () => {
+    const csv = importReport?.error_report_csv;
+    if (!csv) return;
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.setAttribute("download", "sst_import_errors.csv");
+    document.body.appendChild(link);
+    link.click();
+    link.parentNode?.removeChild(link);
+  };
 
   return (
     <div className="space-y-8">
@@ -207,6 +265,66 @@ export default function Sst() {
                 ))}
               </select>
             </div>
+          </div>
+
+          {selectedWorker ? (
+            <div className="mt-6 rounded-[1.5rem] border border-white/10 bg-white/5 p-4">
+              <div className="text-sm font-semibold text-white">{selectedWorkerLabel}</div>
+              <div className="mt-2 text-xs text-cyan-200">{selectedWorkerSummary || "Aucune vue canonique complementaire disponible."}</div>
+            </div>
+          ) : null}
+
+          <div className="mt-6 rounded-[1.25rem] border border-white/10 bg-slate-900/50 p-4">
+            <div className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Import / Export incidents</div>
+            <div className="mt-3 grid gap-3">
+              <input
+                type="file"
+                accept=".xlsx,.xls,.csv"
+                onChange={(event) => setImportFile(event.target.files?.[0] || null)}
+                className={inputClassName}
+              />
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleDownloadTemplate(false)}
+                  className="inline-flex items-center gap-2 rounded-xl border border-white/20 px-3 py-2 text-xs font-semibold text-white"
+                >
+                  <ArrowDownTrayIcon className="h-4 w-4" />
+                  Modèle vide
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleDownloadTemplate(true)}
+                  className="inline-flex items-center gap-2 rounded-xl border border-white/20 px-3 py-2 text-xs font-semibold text-white"
+                >
+                  <ArrowDownTrayIcon className="h-4 w-4" />
+                  Export existant
+                </button>
+                <button
+                  type="button"
+                  onClick={handleImport}
+                  disabled={!importFile || importing}
+                  className="inline-flex items-center gap-2 rounded-xl bg-cyan-400 px-3 py-2 text-xs font-semibold text-slate-950 disabled:opacity-60"
+                >
+                  <ArrowUpTrayIcon className="h-4 w-4" />
+                  {importing ? "Import..." : "Importer"}
+                </button>
+              </div>
+            </div>
+            {importReport ? (
+              <div className="mt-3 rounded-xl border border-cyan-400/20 bg-cyan-400/10 p-3 text-xs text-cyan-100">
+                <div>{importReport.created} création(s), {importReport.updated} mise(s) à jour, {importReport.failed} échec(s).</div>
+                {importReport.error_report_csv ? (
+                  <button
+                    type="button"
+                    onClick={handleDownloadErrorReport}
+                    className="mt-2 underline"
+                  >
+                    Télécharger rapport d'erreurs
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
           </div>
 
           {feedback ? (

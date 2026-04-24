@@ -1,8 +1,12 @@
-import React, { useState, useEffect } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
+  api,
   calculateHSBackendHS,
   getAllHSCalculationsHS,
   deleteHSCalculationHS,
+  exportHSCalculationToPayroll,
+  downloadHsImportTemplate,
+  previewHsImport,
 } from "../api";
 import WorkerSearchSelect from "../components/WorkerSearchSelect";
 
@@ -20,6 +24,10 @@ type JourHS = {
 type HSResult = {
   id_HS: number;
   worker_id_HS: number;
+  worker_matricule_HS?: string | null;
+  worker_nom_HS?: string | null;
+  worker_prenom_HS?: string | null;
+  worker_display_name_HS?: string | null;
   mois_HS: string;
   base_hebdo_heures_HS: number;
   total_HSNI_130_heures_HS: number;
@@ -34,15 +42,180 @@ type HSResult = {
   updated_at_HS: string;
 };
 
+type HSMajoratedHoursKeyHS =
+  | "total_HSNI_130_heures_HS"
+  | "total_HSI_130_heures_HS"
+  | "total_HSNI_150_heures_HS"
+  | "total_HSI_150_heures_HS"
+  | "total_HMNH_30_heures_HS"
+  | "total_HMNO_50_heures_HS"
+  | "total_HMD_40_heures_HS"
+  | "total_HMJF_50_heures_HS";
+
+type ApiValidationIssue = {
+  loc?: Array<string | number>;
+  msg?: string;
+};
+
+type GlobalNightMode = "NONE" | "H" | "O";
+
+type HSExportRates = {
+  taux_hs130: number;
+  taux_hs150: number;
+  taux_hmnh: number;
+  taux_hmno: number;
+  taux_hmd: number;
+  taux_hmjf: number;
+};
+
+type WeeklyWorkSummaryHS = {
+  totalHours: number;
+  startDate: string;
+  endDate: string;
+  isPartial: boolean;
+};
+
+type Employer = {
+  id: number;
+  raison_sociale: string;
+};
+
+const dayFormatterHS = new Intl.DateTimeFormat("fr-FR", { weekday: "long" });
+const shortDateFormatterHS = new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "2-digit" });
+const majoratedHoursColumnsHS: Array<{ key: HSMajoratedHoursKeyHS; label: string }> = [
+  { key: "total_HSNI_130_heures_HS", label: "HSNI 130%" },
+  { key: "total_HSI_130_heures_HS", label: "HSI 130%" },
+  { key: "total_HSNI_150_heures_HS", label: "HSNI 150%" },
+  { key: "total_HSI_150_heures_HS", label: "HSI 150%" },
+  { key: "total_HMNH_30_heures_HS", label: "HMNH 30%" },
+  { key: "total_HMNO_50_heures_HS", label: "HMNO 50%" },
+  { key: "total_HMD_40_heures_HS", label: "HMD 40%" },
+  { key: "total_HMJF_50_heures_HS", label: "HMJF 50%" },
+];
+
+const parseLocalDateHS = (value: string): Date | null => {
+  const [year, month, day] = value.split("-").map(Number);
+  if (!year || !month || !day) return null;
+  const date = new Date(year, month - 1, day);
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
+const getDayNameHS = (value: string) => {
+  const date = parseLocalDateHS(value);
+  return date ? dayFormatterHS.format(date) : "";
+};
+
+const formatShortDateHS = (value: string) => {
+  const date = parseLocalDateHS(value);
+  return date ? shortDateFormatterHS.format(date) : value;
+};
+
+const getDayOfWeekHS = (value: string) => parseLocalDateHS(value)?.getDay();
+
+const getWorkerLabelHS = (row: HSResult) => {
+  const displayName = (
+    row.worker_display_name_HS ||
+    [row.worker_nom_HS, row.worker_prenom_HS].filter(Boolean).join(" ")
+  ).trim();
+  const matricule = row.worker_matricule_HS?.trim();
+  if (displayName && matricule) return `${matricule} - ${displayName}`;
+  if (displayName) return displayName;
+  if (matricule) return matricule;
+  return `ID salarié ${row.worker_id_HS}`;
+};
+
+const formatHoursHS = (value: number) => `${(Number(value) || 0).toFixed(2)} h`;
+
+const parseTimeToMinutesHS = (value: string) => {
+  if (!/^\d{2}:\d{2}$/.test(value)) return null;
+  const [hours, minutes] = value.split(":").map(Number);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
+  return hours * 60 + minutes;
+};
+
+const calculateWorkDurationHoursHS = (jour: JourHS) => {
+  const entreeMinutes = parseTimeToMinutesHS(jour.entree_HS);
+  let sortieMinutes = parseTimeToMinutesHS(jour.sortie_HS);
+  if (entreeMinutes === null || sortieMinutes === null) return 0;
+  if (sortieMinutes < entreeMinutes) {
+    sortieMinutes += 24 * 60;
+  }
+  const pauseMinutes = Math.max(0, Number(jour.duree_pause_minutes_HS) || 0);
+  return Math.max(0, sortieMinutes - entreeMinutes - pauseMinutes) / 60;
+};
+
+const buildWeeklyWorkSummariesHS = (jours: JourHS[]) => {
+  const summaries = new Map<number, WeeklyWorkSummaryHS>();
+  let totalHours = 0;
+  let startDate = "";
+
+  jours.forEach((jour, index) => {
+    if (!startDate) {
+      startDate = jour.date_HS;
+    }
+    totalHours += calculateWorkDurationHoursHS(jour);
+
+    const isSunday = getDayOfWeekHS(jour.date_HS) === 0;
+    const isLastRow = index === jours.length - 1;
+    if (isSunday || isLastRow) {
+      summaries.set(index, {
+        totalHours,
+        startDate,
+        endDate: jour.date_HS,
+        isPartial: !isSunday,
+      });
+      totalHours = 0;
+      startDate = "";
+    }
+  });
+
+  return summaries;
+};
+
 const HeuresSupplementairesPageHS: React.FC = () => {
-  const [workerIdHS, setWorkerIdHS] = useState<number>(2022); // ID d'un travailleur existant
-  const [moisHS, setMoisHS] = useState<string>("2025-12");
+  const currentMonth = new Date().toISOString().slice(0, 7);
+  const [workerIdHS, setWorkerIdHS] = useState<number | null>(null);
+  const [moisHS, setMoisHS] = useState<string>(currentMonth);
   const [baseHebdoHS, setBaseHebdoHS] = useState<number>(40);
   const [activeTab, setActiveTab] = useState<"calcul" | "historique">("calcul");
+  const [historySearchHS, setHistorySearchHS] = useState<string>("");
+  const [payrollRunIdHS, setPayrollRunIdHS] = useState<string>("");
+  const [globalNightModeHS, setGlobalNightModeHS] = useState<GlobalNightMode>("O");
+  const [importInfoHS, setImportInfoHS] = useState<string | null>(null);
+  const [loadingImportHS, setLoadingImportHS] = useState(false);
+  const [employersHS, setEmployersHS] = useState<Employer[]>([]);
+  const [selectedEmployerIdHS, setSelectedEmployerIdHS] = useState<number | null>(null);
+  const [ratesHS, setRatesHS] = useState<HSExportRates>({
+    taux_hs130: 130,
+    taux_hs150: 150,
+    taux_hmnh: 30,
+    taux_hmno: 50,
+    taux_hmd: 40,
+    taux_hmjf: 50,
+  });
+  const importFileRefHS = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadEmployers = async () => {
+      try {
+        const response = await api.get<Employer[]>("/employers");
+        if (cancelled) return;
+        setEmployersHS(response.data);
+        setSelectedEmployerIdHS((current) => current ?? response.data[0]?.id ?? null);
+      } catch (error) {
+        console.error("Erreur chargement employeurs:", error);
+      }
+    };
+    void loadEmployers();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const [joursHS, setJoursHS] = useState<JourHS[]>([
     {
-      date_HS: "2025-12-01",
+      date_HS: `${currentMonth}-01`,
       type_jour_HS: "N",
       entree_HS: "08:00",
       sortie_HS: "18:00",
@@ -56,6 +229,7 @@ const HeuresSupplementairesPageHS: React.FC = () => {
   const [errorHS, setErrorHS] = useState<string | null>(null);
   const [historiqueHS, setHistoriqueHS] = useState<HSResult[]>([]);
   const [loadingHistoriqueHS, setLoadingHistoriqueHS] = useState<boolean>(false);
+  const weeklyWorkSummariesHS = buildWeeklyWorkSummariesHS(joursHS);
 
   const handleJourChangeHS = (
     index: number,
@@ -63,7 +237,10 @@ const HeuresSupplementairesPageHS: React.FC = () => {
     value: string
   ) => {
     const copie = [...joursHS];
-    copie[index] = { ...copie[index], [field]: value };
+    copie[index] = {
+      ...copie[index],
+      [field]: field === "duree_pause_minutes_HS" ? Number(value) || 0 : value,
+    };
     setJoursHS(copie);
   };
 
@@ -75,10 +252,58 @@ const HeuresSupplementairesPageHS: React.FC = () => {
         type_jour_HS: "N",
         entree_HS: "08:00",
         sortie_HS: "17:00",
-        type_nuit_HS: "",
+        type_nuit_HS: globalNightModeHS === "NONE" ? "" : globalNightModeHS,
         duree_pause_minutes_HS: 60, // 1 heure par défaut
       },
     ]);
+  };
+
+  const handleAddWeekHS = () => {
+    const parseDate = (value: string) => {
+      const date = new Date(value);
+      return Number.isNaN(date.getTime()) ? null : date;
+    };
+
+    const sortedDates = joursHS
+      .map((row) => parseDate(row.date_HS))
+      .filter((row): row is Date => row instanceof Date)
+      .sort((a, b) => a.getTime() - b.getTime());
+
+    const startDate = sortedDates.length > 0
+      ? new Date(sortedDates[sortedDates.length - 1].getTime())
+      : new Date(`${moisHS}-01`);
+
+    if (sortedDates.length > 0) {
+      startDate.setDate(startDate.getDate() + 1);
+    }
+
+    const generatedWeek: JourHS[] = Array.from({ length: 7 }).map((_, index) => {
+      const currentDate = new Date(startDate.getTime());
+      currentDate.setDate(startDate.getDate() + index);
+      const weekday = currentDate.getDay(); // 0 = dimanche
+      const isSunday = weekday === 0;
+      return {
+        date_HS: currentDate.toISOString().slice(0, 10),
+        type_jour_HS: isSunday ? "F" : "N",
+        entree_HS: "08:00",
+        sortie_HS: "17:00",
+        type_nuit_HS: globalNightModeHS === "NONE" ? "" : globalNightModeHS,
+        duree_pause_minutes_HS: 60,
+      };
+    });
+
+    setJoursHS((prev) => [...prev, ...generatedWeek]);
+  };
+
+  const handleResetRatesHS = () => {
+    setRatesHS({
+      taux_hs130: 130,
+      taux_hs150: 150,
+      taux_hmnh: 30,
+      taux_hmno: 50,
+      taux_hmd: 40,
+      taux_hmjf: 50,
+    });
   };
 
   const handleRemoveRowHS = (index: number) => {
@@ -87,21 +312,125 @@ const HeuresSupplementairesPageHS: React.FC = () => {
     }
   };
 
-  const loadHistoriqueHS = async () => {
+  const handleApplyGlobalNightToRowsHS = (forceAll: boolean) => {
+    const mode = globalNightModeHS === "NONE" ? "" : globalNightModeHS;
+    setJoursHS((prev) =>
+      prev.map((row) => {
+        if (forceAll || !row.type_nuit_HS) {
+          return { ...row, type_nuit_HS: mode };
+        }
+        return row;
+      })
+    );
+  };
+
+  const handleDownloadHsTemplate = async () => {
+    try {
+      await downloadHsImportTemplate({ employerId: selectedEmployerIdHS ?? undefined });
+    } catch (error) {
+      console.error("Erreur telechargement template HS:", error);
+      setErrorHS("Impossible de telecharger le modele Excel Heures.");
+    }
+  };
+
+  const handleImportHsFile = async (file?: File) => {
+    if (!file) return;
+    setLoadingImportHS(true);
+    setImportInfoHS(null);
+    setErrorHS(null);
+    try {
+      const preview = await previewHsImport(file);
+      const rows = preview.data ?? [];
+      const selectedWorkerRows =
+        typeof workerIdHS === "number" && workerIdHS > 0
+          ? rows.filter((item) => item.worker_id_HS === workerIdHS)
+          : rows;
+
+      let rowsToApply = selectedWorkerRows;
+      if ((!workerIdHS || workerIdHS <= 0) && rows.length > 0) {
+        const uniqueWorkerIds = Array.from(
+          new Set(rows.map((item) => item.worker_id_HS).filter((value): value is number => typeof value === "number"))
+        );
+        if (uniqueWorkerIds.length === 1) {
+          setWorkerIdHS(uniqueWorkerIds[0]);
+          rowsToApply = rows.filter((item) => item.worker_id_HS === uniqueWorkerIds[0]);
+        } else if (uniqueWorkerIds.length > 1) {
+          setErrorHS("Le fichier contient plusieurs salaries. Selectionnez un salarie puis reimportez.");
+          return;
+        }
+      }
+
+      if (rowsToApply.length === 0) {
+        setErrorHS("Aucune ligne importable pour le salarie selectionne.");
+        return;
+      }
+
+      setJoursHS(
+        rowsToApply.map((item) => ({
+          date_HS: item.date_HS,
+          type_jour_HS: item.type_jour_HS || "N",
+          entree_HS: item.entree_HS,
+          sortie_HS: item.sortie_HS,
+          type_nuit_HS:
+            item.type_nuit_HS ??
+            (globalNightModeHS === "NONE" ? "" : globalNightModeHS),
+          duree_pause_minutes_HS: Number(item.duree_pause_minutes_HS) || 60,
+        }))
+      );
+      const firstDate = rowsToApply[0]?.date_HS;
+      if (firstDate && firstDate.length >= 7) {
+        setMoisHS(firstDate.slice(0, 7));
+      }
+      const warnings = preview.errors?.length ?? 0;
+      setImportInfoHS(
+        warnings > 0
+          ? `${rowsToApply.length} ligne(s) chargee(s), ${warnings} avertissement(s) detecte(s).`
+          : `${rowsToApply.length} ligne(s) chargee(s) depuis le fichier.`
+      );
+    } catch (error) {
+      const detail =
+        typeof error === "object" && error !== null && "response" in error
+          ? (error as { response?: { data?: { detail?: unknown } } }).response?.data?.detail
+          : undefined;
+      setErrorHS(detail ? String(detail) : "Import HS impossible.");
+    } finally {
+      setLoadingImportHS(false);
+      if (importFileRefHS.current) {
+        importFileRefHS.current.value = "";
+      }
+    }
+  };
+
+  const loadHistoriqueHS = useCallback(async (useFilters: boolean = false) => {
     try {
       setLoadingHistoriqueHS(true);
-      const data: HSResult[] = await getAllHSCalculationsHS();
+      const data: HSResult[] = await getAllHSCalculationsHS(
+        useFilters && typeof workerIdHS === "number" && workerIdHS > 0 ? workerIdHS : undefined,
+        useFilters ? moisHS : undefined
+      );
       setHistoriqueHS(data);
     } catch (err) {
       console.error("Erreur lors du chargement de l'historique HS :", err);
     } finally {
       setLoadingHistoriqueHS(false);
     }
-  };
+  }, [moisHS, workerIdHS]);
 
   useEffect(() => {
     loadHistoriqueHS();
-  }, []);
+  }, [loadHistoriqueHS]);
+
+  const filteredHistoriqueHS = historiqueHS.filter((row) => {
+    const query = historySearchHS.trim().toLowerCase();
+    if (!query) return true;
+    const workerLabel = getWorkerLabelHS(row).toLowerCase();
+    return (
+      String(row.id_HS).includes(query) ||
+      String(row.worker_id_HS).includes(query) ||
+      workerLabel.includes(query) ||
+      row.mois_HS.toLowerCase().includes(query)
+    );
+  });
 
   const handleDeleteHS = async (id_HS: number) => {
     const ok = window.confirm(
@@ -121,21 +450,27 @@ const HeuresSupplementairesPageHS: React.FC = () => {
 
   const handleSubmitHS = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (!workerIdHS || workerIdHS <= 0) {
+      setErrorHS("Veuillez sélectionner un salarié avant de lancer le calcul.");
+      return;
+    }
+
     setLoadingHS(true);
     setErrorHS(null);
     setResultatHS(null);
 
     try {
       const payloadHS = {
-        worker_id_HS: Number(workerIdHS),
+        worker_id_HS: workerIdHS,
         mois_HS: moisHS,
         base_hebdo_heures_HS: Number(baseHebdoHS),
+        mode_nuit_HS: globalNightModeHS === "NONE" ? null : globalNightModeHS,
         jours_HS: joursHS.map((j) => ({
           date_HS: j.date_HS,
           type_jour_HS: j.type_jour_HS || "N",
           entree_HS: j.entree_HS,
           sortie_HS: j.sortie_HS,
-          type_nuit_HS: j.type_nuit_HS || null,
+          type_nuit_HS: j.type_nuit_HS || (globalNightModeHS === "NONE" ? null : globalNightModeHS),
           duree_pause_minutes_HS: Number(j.duree_pause_minutes_HS) || 60, // Passing pause duration
         })),
       };
@@ -144,28 +479,57 @@ const HeuresSupplementairesPageHS: React.FC = () => {
       setResultatHS(res);
       await loadHistoriqueHS();
       setActiveTab("historique");
-    } catch (err: any) {
-      console.error("Full error object:", err);
-      console.error("Error response:", err.response?.data);
+    } catch (error: unknown) {
+      console.error("Full error object:", error);
+      const responseData = typeof error === "object" && error !== null && "response" in error
+        ? (error as { response?: { data?: { detail?: unknown } } }).response?.data
+        : undefined;
+      console.error("Error response:", responseData);
 
       let errorMessage = "Erreur lors du calcul des heures supplémentaires.";
+      const detail = responseData?.detail;
 
-      if (err.response?.data?.detail) {
+      if (detail) {
         // Pydantic validation errors are in detail
-        if (Array.isArray(err.response.data.detail)) {
-          errorMessage = err.response.data.detail.map((e: any) =>
-            `${e.loc?.join(' -> ')}: ${e.msg}`
+        if (Array.isArray(detail)) {
+          errorMessage = detail.map((entry: unknown) => {
+            const issue = entry as ApiValidationIssue;
+            return `${issue.loc?.join(" -> ") ?? "champ"}: ${issue.msg ?? "invalide"}`;
+          }
           ).join('\n');
         } else {
-          errorMessage = err.response.data.detail;
+          errorMessage = String(detail);
         }
-      } else if (err.message) {
-        errorMessage = err.message;
+      } else if (error instanceof Error && error.message) {
+        errorMessage = error.message;
       }
 
       setErrorHS(errorMessage);
     } finally {
       setLoadingHS(false);
+    }
+  };
+
+  const handleExportToPayrollHS = async (hsId: number) => {
+    const payrollRunId = Number(payrollRunIdHS);
+    if (!Number.isFinite(payrollRunId) || payrollRunId <= 0) {
+      alert("Renseignez un ID de run de paie valide avant l'export.");
+      return;
+    }
+
+    try {
+      const result = await exportHSCalculationToPayroll(hsId, payrollRunId, ratesHS);
+      alert(result?.message ?? "Export vers la paie effectué.");
+    } catch (error: unknown) {
+      const responseDetail = typeof error === "object" && error !== null && "response" in error
+        ? (error as { response?: { data?: { detail?: unknown } } }).response?.data?.detail
+        : undefined;
+      const message = responseDetail
+        ? String(responseDetail)
+        : error instanceof Error && error.message
+          ? error.message
+          : "Erreur lors de l'export vers la paie.";
+      alert(message);
     }
   };
 
@@ -228,6 +592,60 @@ const HeuresSupplementairesPageHS: React.FC = () => {
             <div className="p-6 lg:p-8">
               <form onSubmit={handleSubmitHS} className="space-y-8">
 
+                <div className="rounded-2xl border border-indigo-100 bg-indigo-50/70 p-5">
+                  <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <h3 className="text-base font-semibold text-indigo-900">Parametrage des taux de majoration</h3>
+                      <p className="text-xs text-indigo-700">Convention collective appliquee a l export vers la paie.</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleResetRatesHS}
+                      className="rounded-lg px-3 py-2 text-xs font-semibold text-indigo-700 hover:bg-white"
+                    >
+                      Reinitialiser aux taux legaux
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3 md:grid-cols-6">
+                    {[
+                      { key: "taux_hs130", label: "HS 130%" },
+                      { key: "taux_hs150", label: "HS 150%" },
+                      { key: "taux_hmnh", label: "HMNH" },
+                      { key: "taux_hmno", label: "HMNO" },
+                      { key: "taux_hmd", label: "HMD" },
+                      { key: "taux_hmjf", label: "HMJF" },
+                    ].map((item) => (
+                      <label key={item.key} className="text-xs font-semibold text-indigo-900">
+                        {(() => {
+                          const rateKey = item.key as keyof HSExportRates;
+                          return (
+                            <>
+                              {item.label}
+                              <div className="mt-1 flex items-center gap-1">
+                                <input
+                                  type="number"
+                                  min={0}
+                                  step={0.1}
+                                  value={ratesHS[rateKey]}
+                                  onChange={(event) => {
+                                    const nextValue = Number(event.target.value);
+                                    setRatesHS((prev) => ({
+                                      ...prev,
+                                      [rateKey]: Number.isFinite(nextValue) ? nextValue : 0,
+                                    }));
+                                  }}
+                                  className="w-full rounded-lg border border-indigo-200 bg-white px-2 py-2 text-sm text-slate-800 focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-200"
+                                />
+                                <span className="text-indigo-500">%</span>
+                              </div>
+                            </>
+                          );
+                        })()}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
                 {/* Informations de base */}
                 <div className="bg-gradient-to-r from-blue-500 to-indigo-600 rounded-2xl p-6 text-white">
                   <div className="flex items-center gap-3 mb-4">
@@ -244,7 +662,7 @@ const HeuresSupplementairesPageHS: React.FC = () => {
                         Salarié
                       </label>
                       <WorkerSearchSelect
-                        selectedId={workerIdHS}
+                        selectedId={workerIdHS ?? undefined}
                         onSelect={(id) => setWorkerIdHS(Number(id))}
                         className="text-gray-900"
                       />
@@ -273,6 +691,85 @@ const HeuresSupplementairesPageHS: React.FC = () => {
                         className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl focus:outline-none focus:ring-2 focus:ring-white/50 text-white placeholder-white/70"
                         placeholder="Ex: 35 heures"
                       />
+                    </div>
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="rounded-xl border border-white/20 bg-white/10 p-4">
+                      <label className="block text-sm font-medium mb-2 opacity-90">
+                        Regle globale travail de nuit
+                      </label>
+                      <select
+                        value={globalNightModeHS}
+                        onChange={(event) => setGlobalNightModeHS(event.target.value as GlobalNightMode)}
+                        className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl focus:outline-none focus:ring-2 focus:ring-white/50 text-white"
+                      >
+                        <option className="text-gray-900" value="NONE">Aucune regle globale</option>
+                        <option className="text-gray-900" value="H">Nuit habituelle (H)</option>
+                        <option className="text-gray-900" value="O">Nuit occasionnelle (O)</option>
+                      </select>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleApplyGlobalNightToRowsHS(false)}
+                          className="px-3 py-2 rounded-lg bg-white/20 hover:bg-white/30 text-xs font-semibold"
+                        >
+                          Appliquer aux lignes vides
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleApplyGlobalNightToRowsHS(true)}
+                          className="px-3 py-2 rounded-lg bg-white/20 hover:bg-white/30 text-xs font-semibold"
+                        >
+                          Forcer toutes les lignes
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl border border-white/20 bg-white/10 p-4">
+                      <div className="text-sm font-medium mb-2 opacity-90">Import / modele Excel</div>
+                      <select
+                        value={selectedEmployerIdHS ?? ""}
+                        onChange={(event) => setSelectedEmployerIdHS(event.target.value ? Number(event.target.value) : null)}
+                        className="mb-3 w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl focus:outline-none focus:ring-2 focus:ring-white/50 text-white"
+                      >
+                        <option className="text-gray-900" value="">Choisir un employeur</option>
+                        {employersHS.map((employer) => (
+                          <option key={`hs-employer-${employer.id}`} className="text-gray-900" value={employer.id}>
+                            {employer.raison_sociale}
+                          </option>
+                        ))}
+                      </select>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={handleDownloadHsTemplate}
+                          className="px-3 py-2 rounded-lg bg-white/20 hover:bg-white/30 text-xs font-semibold"
+                        >
+                          Telecharger modele
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => importFileRefHS.current?.click()}
+                          className="px-3 py-2 rounded-lg bg-white/20 hover:bg-white/30 text-xs font-semibold disabled:opacity-60"
+                          disabled={loadingImportHS}
+                        >
+                          {loadingImportHS ? "Import..." : "Importer planning Excel"}
+                        </button>
+                        <input
+                          ref={importFileRefHS}
+                          type="file"
+                          accept=".xlsx,.xls,.csv"
+                          className="hidden"
+                          onChange={(event) => {
+                            const selectedFile = event.target.files?.[0];
+                            void handleImportHsFile(selectedFile);
+                          }}
+                        />
+                      </div>
+                      <p className="mt-2 text-xs text-white/80">
+                        L import charge les lignes de temps; le calcul paie reste inchange.
+                      </p>
                     </div>
                   </div>
                 </div>
@@ -316,6 +813,9 @@ const HeuresSupplementairesPageHS: React.FC = () => {
                             Durée Pause (min)
                           </th>
                           <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                            Durée de Travail
+                          </th>
+                          <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
                             Travail de Nuit
                           </th>
                           <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
@@ -324,8 +824,12 @@ const HeuresSupplementairesPageHS: React.FC = () => {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-200">
-                        {joursHS.map((jour, index) => (
-                          <tr key={index} className="hover:bg-gray-50 transition-colors group">
+                        {joursHS.map((jour, index) => {
+                          const durationHoursHS = calculateWorkDurationHoursHS(jour);
+                          const weeklySummaryHS = weeklyWorkSummariesHS.get(index);
+                          return (
+                            <React.Fragment key={index}>
+                              <tr className="hover:bg-gray-50 transition-colors group">
                             <td className="px-6 py-4 whitespace-nowrap">
                               <input
                                 type="date"
@@ -335,6 +839,9 @@ const HeuresSupplementairesPageHS: React.FC = () => {
                                 }
                                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors"
                               />
+                              <div className="mt-1 text-xs font-semibold capitalize text-blue-600">
+                                {getDayNameHS(jour.date_HS)}
+                              </div>
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap">
                               <select
@@ -346,6 +853,7 @@ const HeuresSupplementairesPageHS: React.FC = () => {
                               >
                                 <option value="N">🟢 Normal</option>
                                 <option value="JF">🔴 Jour Férié</option>
+                                <option value="F">⚪ Fermé</option>
                               </select>
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap">
@@ -382,6 +890,11 @@ const HeuresSupplementairesPageHS: React.FC = () => {
                               />
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap">
+                              <div className="rounded-lg bg-slate-100 px-3 py-2 text-sm font-bold text-slate-800">
+                                {durationHoursHS.toFixed(2)} h
+                              </div>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
                               <select
                                 value={jour.type_nuit_HS}
                                 onChange={(e) =>
@@ -407,8 +920,25 @@ const HeuresSupplementairesPageHS: React.FC = () => {
                                 Supprimer
                               </button>
                             </td>
-                          </tr>
-                        ))}
+                              </tr>
+                              {weeklySummaryHS && (
+                                <tr className="bg-blue-50/80">
+                                  <td colSpan={5} className="px-6 py-3 text-right text-sm font-bold text-blue-900">
+                                    {weeklySummaryHS.isPartial ? "Total semaine en cours" : "Total semaine"} du{" "}
+                                    {formatShortDateHS(weeklySummaryHS.startDate)} au{" "}
+                                    {formatShortDateHS(weeklySummaryHS.endDate)}
+                                  </td>
+                                  <td className="px-6 py-3 text-sm font-extrabold text-blue-900">
+                                    {weeklySummaryHS.totalHours.toFixed(2)} h
+                                  </td>
+                                  <td colSpan={2} className="px-6 py-3 text-xs font-medium text-blue-700">
+                                    Total calculé sur entrée/sortie moins pause.
+                                  </td>
+                                </tr>
+                              )}
+                            </React.Fragment>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
@@ -416,20 +946,33 @@ const HeuresSupplementairesPageHS: React.FC = () => {
 
                 {/* Boutons d'action */}
                 <div className="flex flex-col sm:flex-row gap-4 justify-between items-center pt-4">
-                  <button
-                    type="button"
-                    onClick={handleAddRowHS}
-                    className="px-6 py-3 bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 transition-colors flex items-center gap-2 shadow-sm"
-                  >
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                    </svg>
-                    Ajouter un jour
-                  </button>
+                  <div className="flex flex-col gap-3 sm:flex-row">
+                    <button
+                      type="button"
+                      onClick={handleAddRowHS}
+                      className="px-6 py-3 bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 transition-colors flex items-center gap-2 shadow-sm"
+                    >
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                      </svg>
+                      Ajouter un jour
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleAddWeekHS}
+                      className="px-6 py-3 bg-blue-500 text-white rounded-xl hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors flex items-center gap-2 shadow-sm"
+                    >
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                      </svg>
+                      Ajouter une semaine
+                    </button>
+                  </div>
 
                   <button
                     type="submit"
-                    disabled={loadingHS}
+                    disabled={loadingHS || !workerIdHS}
                     className="px-8 py-3 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-xl hover:from-blue-600 hover:to-indigo-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-all transform hover:scale-105 shadow-lg flex items-center gap-2 font-semibold"
                   >
                     {loadingHS ? (
@@ -448,6 +991,17 @@ const HeuresSupplementairesPageHS: React.FC = () => {
                   </button>
                 </div>
               </form>
+
+              {importInfoHS && (
+                <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-xl flex items-start gap-3">
+                  <div className="flex-shrink-0 w-5 h-5 mt-0.5 text-blue-500">
+                    <svg fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M18 10A8 8 0 112 10a8 8 0 0116 0zm-7-4a1 1 0 10-2 0v4a1 1 0 102 0V6zm-1 8a1.25 1.25 0 100-2.5A1.25 1.25 0 0010 14z" clipRule="evenodd" />
+                    </svg>
+                  </div>
+                  <p className="text-blue-700">{importInfoHS}</p>
+                </div>
+              )}
 
               {/* Messages d'erreur */}
               {errorHS && (
@@ -527,7 +1081,7 @@ const HeuresSupplementairesPageHS: React.FC = () => {
                   </p>
                 </div>
                 <button
-                  onClick={loadHistoriqueHS}
+                  onClick={() => loadHistoriqueHS(false)}
                   disabled={loadingHistoriqueHS}
                   className="px-6 py-3 bg-white border border-gray-300 text-gray-700 rounded-xl hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 transition-colors flex items-center gap-2"
                 >
@@ -538,99 +1092,146 @@ const HeuresSupplementairesPageHS: React.FC = () => {
                 </button>
               </div>
 
+              <div className="mb-6 grid grid-cols-1 md:grid-cols-4 gap-3">
+                <input
+                  type="text"
+                  value={historySearchHS}
+                  onChange={(e) => setHistorySearchHS(e.target.value)}
+                  placeholder="Recherche (ID calcul, salarié, période)"
+                  className="px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <input
+                  type="number"
+                  min={1}
+                  value={payrollRunIdHS}
+                  onChange={(e) => setPayrollRunIdHS(e.target.value)}
+                  placeholder="ID run paie pour export"
+                  className="px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <button
+                  type="button"
+                  onClick={() => loadHistoriqueHS(true)}
+                  className="px-4 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-colors"
+                >
+                  Filtrer par salarié/période
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setHistorySearchHS("");
+                    setPayrollRunIdHS("");
+                    loadHistoriqueHS(false);
+                  }}
+                  className="px-4 py-3 border border-gray-300 text-gray-700 rounded-xl hover:bg-gray-50 transition-colors"
+                >
+                  Réinitialiser filtres
+                </button>
+              </div>
+
               {loadingHistoriqueHS ? (
                 <div className="flex justify-center items-center py-12">
                   <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
                 </div>
-              ) : historiqueHS.length === 0 ? (
+              ) : filteredHistoriqueHS.length === 0 ? (
                 <div className="text-center py-12">
                   <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                   </svg>
                   <h3 className="mt-4 text-lg font-medium text-gray-900">Aucun calcul</h3>
                   <p className="mt-2 text-gray-500">
-                    Aucun calcul d'heures supplémentaires n'a été enregistré pour le moment.
+                    Aucun calcul d'heures supplémentaires ne correspond aux critères.
                   </p>
                 </div>
               ) : (
                 <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
                   <div className="overflow-x-auto">
-                    <table className="min-w-full divide-y divide-gray-200">
+                    <table className="min-w-[1120px] divide-y divide-gray-200 text-sm">
                       <thead className="bg-gray-50">
                         <tr>
-                          <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                            Détails
+                          <th rowSpan={2} className="px-4 py-3 text-left align-middle text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                            Salarié
                           </th>
-                          <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                          <th rowSpan={2} className="px-3 py-3 text-left align-middle text-xs font-semibold text-gray-600 uppercase tracking-wider">
                             Période
                           </th>
-                          <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                          <th
+                            colSpan={majoratedHoursColumnsHS.length}
+                            className="border-b border-gray-200 px-2 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider"
+                          >
                             Heures Majorées
                           </th>
-                          <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                          <th rowSpan={2} className="px-3 py-3 text-left align-middle text-xs font-semibold text-gray-600 uppercase tracking-wider">
                             Date
                           </th>
-                          <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                          <th rowSpan={2} className="sticky right-0 z-20 bg-gray-50 px-3 py-3 text-left align-middle text-xs font-semibold text-gray-600 uppercase tracking-wider shadow-[-8px_0_12px_-12px_rgba(15,23,42,0.55)]">
                             Actions
                           </th>
                         </tr>
+                        <tr>
+                          {majoratedHoursColumnsHS.map((column) => (
+                            <th
+                              key={column.key}
+                              className="px-2 py-3 text-right text-[11px] font-semibold text-gray-600 uppercase tracking-wide"
+                            >
+                              {column.label}
+                            </th>
+                          ))}
+                        </tr>
                       </thead>
                       <tbody className="bg-white divide-y divide-gray-200">
-                        {historiqueHS.map((h) => (
-                          <tr key={h.id_HS} className="hover:bg-gray-50 transition-colors">
-                            <td className="px-6 py-4 whitespace-nowrap">
+                        {filteredHistoriqueHS.map((h) => (
+                          <tr key={h.id_HS} className="group hover:bg-gray-50 transition-colors">
+                            <td className="px-4 py-3 whitespace-nowrap">
                               <div>
                                 <p className="text-sm font-medium text-gray-900">
-                                  Salarié #{h.worker_id_HS}
+                                  {getWorkerLabelHS(h)}
                                 </p>
-                                <p className="text-sm text-gray-500">
+                                <p className="text-xs text-gray-500">
                                   Base: {h.base_hebdo_heures_HS}h/semaine
                                 </p>
                               </div>
                             </td>
-                            <td className="px-6 py-4 whitespace-nowrap">
-                              <span className="px-3 py-1 bg-blue-100 text-blue-800 text-sm rounded-full font-medium">
+                            <td className="px-3 py-3 whitespace-nowrap">
+                              <span className="px-2.5 py-1 bg-blue-100 text-blue-800 text-xs rounded-full font-medium">
                                 {h.mois_HS}
                               </span>
                             </td>
-                            <td className="px-6 py-4">
-                              <div className="grid grid-cols-2 gap-2 text-sm">
-                                <div className="text-gray-600">HSNI 130%:</div>
-                                <div className="font-medium">{h.total_HSNI_130_heures_HS.toFixed(2)}h</div>
-                                <div className="text-gray-600">HSI 130%:</div>
-                                <div className="font-medium">{h.total_HSI_130_heures_HS.toFixed(2)}h</div>
-                                <div className="text-gray-600">HSNI 150%:</div>
-                                <div className="font-medium">{h.total_HSNI_150_heures_HS.toFixed(2)}h</div>
-                                <div className="text-gray-600">HSI 150%:</div>
-                                <div className="font-medium">{h.total_HSI_150_heures_HS.toFixed(2)}h</div>
-                                <div className="text-gray-600">HMNH 30%:</div>
-                                <div className="font-medium">{h.total_HMNH_30_heures_HS.toFixed(2)}h</div>
-                                <div className="text-gray-600">HMNO 50%:</div>
-                                <div className="font-medium">{h.total_HMNO_50_heures_HS.toFixed(2)}h</div>
-                                <div className="text-gray-600">HMD 40%:</div>
-                                <div className="font-medium">{h.total_HMD_40_heures_HS.toFixed(2)}h</div>
-                                <div className="text-gray-600">HMJF 50%:</div>
-                                <div className="font-medium">{h.total_HMJF_50_heures_HS.toFixed(2)}h</div>
-                              </div>
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            {majoratedHoursColumnsHS.map((column) => (
+                              <td
+                                key={column.key}
+                                className="px-2 py-3 whitespace-nowrap text-right text-xs font-semibold text-gray-900"
+                              >
+                                {formatHoursHS(h[column.key])}
+                              </td>
+                            ))}
+                            <td className="px-3 py-3 whitespace-nowrap text-xs text-gray-500">
                               {new Date(h.created_at_HS).toLocaleDateString('fr-FR')}
                               <br />
                               <span className="text-gray-400">
                                 {new Date(h.created_at_HS).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
                               </span>
                             </td>
-                            <td className="px-6 py-4 whitespace-nowrap">
-                              <button
-                                type="button"
-                                onClick={() => handleDeleteHS(h.id_HS)}
-                                className="px-3 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 transition-colors flex items-center gap-2 text-sm"
-                              >
-                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                </svg>
-                                Supprimer
-                              </button>
+                            <td className="sticky right-0 z-10 whitespace-nowrap bg-white px-3 py-3 shadow-[-8px_0_12px_-12px_rgba(15,23,42,0.55)] group-hover:bg-gray-50">
+                              <div className="flex gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => handleExportToPayrollHS(h.id_HS)}
+                                  disabled={!payrollRunIdHS}
+                                  className="rounded-md bg-emerald-600 px-2.5 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                  Export paie
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteHS(h.id_HS)}
+                                  className="flex items-center gap-1 rounded-md bg-red-500 px-2.5 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
+                                >
+                                  <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                  </svg>
+                                  Supprimer
+                                </button>
+                              </div>
                             </td>
                           </tr>
                         ))}

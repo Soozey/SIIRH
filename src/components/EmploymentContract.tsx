@@ -1,38 +1,75 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { usePrint } from '../hooks/usePrint';
 import ConstantsPalette from './ConstantsPalette';
+import { useAuth } from '../contexts/AuthContext';
+import { hasModulePermission } from '../rbac';
 import { 
     useWorkerDefaultContract, 
-    useCreateCustomContract, 
-    useUpdateCustomContract,
-    useWorkerContracts 
 } from '../hooks/useCustomContracts';
 import { useWorkerData, useEmployerData, useSystemData } from '../hooks/useConstants';
 import { useDocumentTemplates, useApplyTemplate, useCreateDocumentTemplate, useDeleteDocumentTemplate } from '../hooks/useDocumentTemplates';
+import { formatAriary } from "../utils/ariary";
+
+interface WorkerSummary {
+    id: number;
+    nom?: string | null;
+    prenom?: string | null;
+    matricule?: string | null;
+    poste?: string | null;
+    categorie_prof?: string | null;
+    nature_contrat?: string | null;
+    date_embauche?: string | null;
+    date_naissance?: string | null;
+    lieu_naissance?: string | null;
+    cin?: string | null;
+    cin_delivre_le?: string | null;
+    cin_lieu?: string | null;
+    adresse?: string | null;
+    duree_essai_jours?: number | null;
+    salaire_base?: number | null;
+    horaire_hebdo?: number | null;
+}
+
+interface EmployerSummary {
+    id: number;
+    raison_sociale?: string | null;
+    forme_juridique?: string | null;
+    adresse?: string | null;
+    ville?: string | null;
+    pays?: string | null;
+    nif?: string | null;
+    stat?: string | null;
+    representant?: string | null;
+    logo_path?: string | null;
+}
+
+interface TemplateItem {
+    id: number;
+    name: string;
+    description?: string | null;
+    content?: string;
+}
 
 interface EmploymentContractProps {
-    worker: any;
-    employer: any;
+    worker: WorkerSummary;
+    employer: EmployerSummary;
     onClose?: () => void;
 }
 
-export default function EmploymentContract({ worker, employer, onClose }: EmploymentContractProps) {
+export default function EmploymentContract({ worker, employer }: EmploymentContractProps) {
+    const { session } = useAuth();
     const componentRef = useRef<HTMLDivElement>(null);
     const [isPaletteOpen, setIsPaletteOpen] = useState(false);
-    const [showSavedContracts, setShowSavedContracts] = useState(false);
     const [showTemplates, setShowTemplates] = useState(false);
     const [showDeleteTemplates, setShowDeleteTemplates] = useState(false);
 
-    const handlePrint = usePrint(`Contrat_Travail_${worker.nom}_${worker.prenom}`);
-
     const [contractTitle, setContractTitle] = useState("CONTRAT DE TRAVAIL A DUREE INDETERMINEE");
     const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+    const canReadContracts = hasModulePermission(session, "contracts", "read");
+    const canWriteContracts = hasModulePermission(session, "contracts", "write");
 
     // Hooks pour les contrats personnalisés (ancienne méthode)
     const { data: defaultContract } = useWorkerDefaultContract(worker?.id, 'employment_contract');
-    const { data: savedContracts } = useWorkerContracts(worker?.id, 'employment_contract');
-    const createContract = useCreateCustomContract();
-    const updateContract = useUpdateCustomContract();
 
     // Hooks pour les templates globaux (nouvelle méthode)
     const { data: templates } = useDocumentTemplates(employer?.id, 'contract');
@@ -44,13 +81,24 @@ export default function EmploymentContract({ worker, employer, onClose }: Employ
     const { data: workerData } = useWorkerData(worker?.id || 0);
     const { data: employerData } = useEmployerData(employer?.id || 0);
     const { data: systemData } = useSystemData();
+    const templateRows = templates ?? [];
 
     // Combiner toutes les données pour le remplacement des placeholders
-    const allConstantsData = {
+    const allConstantsData = useMemo(() => ({
         ...(workerData || {}),
         ...(employerData || {}),
         ...(systemData || {})
+    }), [workerData, employerData, systemData]);
+    const displayWorker = {
+        nom: workerData?.nom || worker?.nom || "",
+        prenom: workerData?.prenom || worker?.prenom || "",
+        matricule: workerData?.matricule || worker?.matricule || "",
+        poste: workerData?.poste || worker?.poste || "",
+        categorie_prof: workerData?.categorie_prof || worker?.categorie_prof || "",
+        nature_contrat: workerData?.nature_contrat || worker?.nature_contrat || "",
+        date_embauche: workerData?.date_embauche || worker?.date_embauche || "",
     };
+    const handlePrint = usePrint(`Contrat_Travail_${displayWorker.nom}_${displayWorker.prenom}`);
 
     const today = new Date().toLocaleDateString('fr-FR', {
         day: 'numeric',
@@ -59,7 +107,7 @@ export default function EmploymentContract({ worker, employer, onClose }: Employ
     });
 
     // Fonction pour remplacer les placeholders par les vraies valeurs
-    const replacePlaceholders = (content: string) => {
+    const replacePlaceholders = useCallback((content: string) => {
         if (!allConstantsData) return content;
         
         let replacedContent = content;
@@ -82,7 +130,7 @@ export default function EmploymentContract({ worker, employer, onClose }: Employ
         });
         
         return replacedContent;
-    };
+    }, [allConstantsData]);
 
     // Charger le contrat par défaut au montage du composant
     useEffect(() => {
@@ -90,13 +138,12 @@ export default function EmploymentContract({ worker, employer, onClose }: Employ
             // Ne charger que si pas de modifications en cours
             const contentWithValues = replacePlaceholders(defaultContract.content);
             componentRef.current.innerHTML = contentWithValues;
-            setContractTitle(defaultContract.title);
-            setHasUnsavedChanges(false);
         }
-    }, [defaultContract, allConstantsData]);
+    }, [defaultContract, allConstantsData, hasUnsavedChanges, replacePlaceholders]);
 
     // Détecter les modifications
     const handleContentChange = () => {
+        if (!canWriteContracts) return;
         setHasUnsavedChanges(true);
     };
 
@@ -121,60 +168,9 @@ export default function EmploymentContract({ worker, employer, onClose }: Employ
         return tempDiv.innerHTML;
     };
 
-    // Sauvegarder le contrat actuel
-    const handleSaveContract = async () => {
-        if (!componentRef.current || !worker || !employer) return;
-
-        const rawContent = componentRef.current.innerHTML;
-        const contentWithPlaceholders = convertToPlaceholders(rawContent);
-        
-        const contractData = {
-            worker_id: worker.id,
-            employer_id: employer.id,
-            title: contractTitle,
-            content: contentWithPlaceholders, // Sauvegarder avec placeholders
-            template_type: 'employment_contract',
-            is_default: true // Toujours sauvegarder comme défaut pour l'instant
-        };
-
-        try {
-            if (defaultContract) {
-                // Mettre à jour le contrat existant
-                await updateContract.mutateAsync({
-                    contractId: defaultContract.id,
-                    updates: {
-                        title: contractTitle,
-                        content: contentWithPlaceholders
-                    }
-                });
-            } else {
-                // Créer un nouveau contrat
-                await createContract.mutateAsync(contractData);
-            }
-            
-            setHasUnsavedChanges(false);
-            alert('Contrat sauvegardé avec succès !');
-        } catch (error) {
-            console.error('Erreur lors de la sauvegarde:', error);
-            alert('Erreur lors de la sauvegarde du contrat');
-        }
-    };
-
-    // Charger un contrat sauvegardé
-    const handleLoadContract = (contract: any) => {
-        if (componentRef.current && allConstantsData) {
-            // Remplacer les placeholders avant d'afficher
-            const contentWithValues = replacePlaceholders(contract.content);
-            componentRef.current.innerHTML = contentWithValues;
-            setContractTitle(contract.title);
-            setHasUnsavedChanges(false);
-            setShowSavedContracts(false);
-        }
-    };
-
     // Appliquer un template global à ce travailleur
-    const handleApplyTemplate = async (template: any) => {
-        if (!worker || !componentRef.current) return;
+    const handleApplyTemplate = async (template: TemplateItem) => {
+        if (!worker || !componentRef.current || !canReadContracts) return;
 
         try {
             const result = await applyTemplate.mutateAsync({
@@ -196,7 +192,7 @@ export default function EmploymentContract({ worker, employer, onClose }: Employ
 
     // Sauvegarder le contrat actuel comme template global
     const handleSaveAsTemplate = async () => {
-        if (!componentRef.current || !employer) return;
+        if (!componentRef.current || !employer || !canWriteContracts) return;
 
         const templateName = prompt('Nom du template (ex: "Contrat CDI Standard"):', contractTitle);
         if (!templateName) return;
@@ -207,14 +203,14 @@ export default function EmploymentContract({ worker, employer, onClose }: Employ
         const templateData = {
             employer_id: employer.id,
             name: templateName,
-            description: `Template créé à partir du contrat de ${worker.prenom} ${worker.nom}`,
+            description: `Template créé à partir du contrat de ${displayWorker.prenom} ${displayWorker.nom}`,
             template_type: 'contract',
             content: contentWithPlaceholders,
             is_active: true
         };
 
         try {
-            const newTemplate = await createTemplate.mutateAsync(templateData);
+            await createTemplate.mutateAsync(templateData);
             alert(`Template "${templateName}" sauvegardé avec succès ! Il sera disponible pour tous les salariés.`);
             
         } catch (error) {
@@ -225,6 +221,7 @@ export default function EmploymentContract({ worker, employer, onClose }: Employ
 
     // Fonction pour insérer une constante dans le texte éditable
     const handleInsertConstant = (constantKey: string, placeholder: string) => {
+        if (!canWriteContracts) return;
         const selection = window.getSelection();
         if (selection && selection.rangeCount > 0) {
             const range = selection.getRangeAt(0);
@@ -270,6 +267,7 @@ export default function EmploymentContract({ worker, employer, onClose }: Employ
     // Gérer le drop dans le contenu éditable
     const handleDrop = (e: React.DragEvent) => {
         e.preventDefault();
+        if (!canWriteContracts) return;
         
         try {
             const data = e.dataTransfer.getData('application/json');
@@ -287,7 +285,7 @@ export default function EmploymentContract({ worker, employer, onClose }: Employ
                     }
                 }
             }
-        } catch (error) {
+        } catch (error: unknown) {
             console.error('Erreur lors du drop:', error);
         }
     };
@@ -307,7 +305,7 @@ export default function EmploymentContract({ worker, employer, onClose }: Employ
                     </p>
                 </div>
                 <div className="flex gap-2">
-                    <button
+                    {canWriteContracts && <button
                         onClick={() => setIsPaletteOpen(!isPaletteOpen)}
                         className={`flex items-center justify-center px-3 py-2 h-9 text-xs font-medium rounded-md transition-colors min-w-[100px] ${
                             isPaletteOpen 
@@ -316,17 +314,17 @@ export default function EmploymentContract({ worker, employer, onClose }: Employ
                         }`}
                     >
                         {isPaletteOpen ? 'Fermer' : 'Palette'}
-                    </button>
+                    </button>}
 
-                    <button
+                    {canWriteContracts && <button
                         onClick={handleSaveAsTemplate}
                         disabled={createTemplate.isPending}
                         className="flex items-center justify-center px-3 py-2 h-9 text-xs font-medium text-white bg-purple-600 rounded-md hover:bg-purple-700 disabled:opacity-50 min-w-[100px]"
                     >
                         {createTemplate.isPending ? 'Création...' : 'Créer'}
-                    </button>
+                    </button>}
 
-                    <div className="relative">
+                    {canWriteContracts && <div className="relative">
                         <button
                             onClick={() => setShowDeleteTemplates(!showDeleteTemplates)}
                             className="flex items-center justify-center px-3 py-2 h-9 text-xs font-medium text-white bg-red-600 rounded-md hover:bg-red-700 min-w-[100px]"
@@ -334,11 +332,11 @@ export default function EmploymentContract({ worker, employer, onClose }: Employ
                             Supprimer
                         </button>
                         
-                        {showDeleteTemplates && templates && templates.length > 0 && (
+                        {showDeleteTemplates && templateRows.length > 0 && (
                             <div className="absolute right-0 top-full mt-1 w-80 bg-white border border-gray-200 rounded-md shadow-lg z-10">
                                 <div className="p-2">
                                     <div className="text-xs font-medium text-gray-500 mb-2">Cliquez sur un template pour le supprimer</div>
-                                    {templates.map((template) => (
+                                    {templateRows.map((template) => (
                                         <button
                                             key={template.id}
                                             onClick={async () => {
@@ -376,7 +374,7 @@ export default function EmploymentContract({ worker, employer, onClose }: Employ
                             </div>
                         )}
                         
-                        {showDeleteTemplates && (!templates || templates.length === 0) && (
+                        {showDeleteTemplates && templateRows.length === 0 && (
                             <div className="absolute right-0 top-full mt-1 w-80 bg-white border border-gray-200 rounded-md shadow-lg z-10">
                                 <div className="p-4 text-center text-gray-500">
                                     <div className="text-sm">Aucun template à supprimer</div>
@@ -384,9 +382,9 @@ export default function EmploymentContract({ worker, employer, onClose }: Employ
                                 </div>
                             </div>
                         )}
-                    </div>
+                    </div>}
 
-                    <button
+                    {canWriteContracts && <button
                         onClick={() => {
                             if (componentRef.current) {
                                 componentRef.current.innerHTML = `
@@ -403,9 +401,9 @@ export default function EmploymentContract({ worker, employer, onClose }: Employ
                         className="flex items-center justify-center px-3 py-2 h-9 text-xs font-medium text-white bg-green-600 rounded-md hover:bg-green-700 min-w-[100px]"
                     >
                         Nouveau
-                    </button>
+                    </button>}
 
-                    <button
+                    {canWriteContracts && <button
                         onClick={() => {
                             if (componentRef.current) {
                                 componentRef.current.setAttribute('contenteditable', 'true');
@@ -415,9 +413,9 @@ export default function EmploymentContract({ worker, employer, onClose }: Employ
                         className="flex items-center justify-center px-3 py-2 h-9 text-xs font-medium text-gray-700 bg-gray-200 rounded-md hover:bg-gray-300 min-w-[100px]"
                     >
                         Édition
-                    </button>
+                    </button>}
 
-                    <div className="relative">
+                    {canReadContracts && <div className="relative">
                         <button
                             onClick={() => setShowTemplates(!showTemplates)}
                             className="flex items-center justify-center px-3 py-2 h-9 text-xs font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700 min-w-[100px]"
@@ -425,11 +423,11 @@ export default function EmploymentContract({ worker, employer, onClose }: Employ
                             Templates
                         </button>
                         
-                        {showTemplates && templates && templates.length > 0 && (
+                        {showTemplates && templateRows.length > 0 && (
                             <div className="absolute right-0 top-full mt-1 w-80 bg-white border border-gray-200 rounded-md shadow-lg z-10">
                                 <div className="p-2">
                                     <div className="text-xs font-medium text-gray-500 mb-2">Templates disponibles pour tous les salariés</div>
-                                    {templates.map((template) => (
+                                    {templateRows.map((template) => (
                                         <button
                                             key={template.id}
                                             onClick={() => handleApplyTemplate(template)}
@@ -449,7 +447,7 @@ export default function EmploymentContract({ worker, employer, onClose }: Employ
                             </div>
                         )}
                         
-                        {showTemplates && (!templates || templates.length === 0) && (
+                        {showTemplates && templateRows.length === 0 && (
                             <div className="absolute right-0 top-full mt-1 w-80 bg-white border border-gray-200 rounded-md shadow-lg z-10">
                                 <div className="p-4 text-center text-gray-500">
                                     <div className="text-sm">Aucun template global disponible</div>
@@ -457,7 +455,7 @@ export default function EmploymentContract({ worker, employer, onClose }: Employ
                                 </div>
                             </div>
                         )}
-                    </div>
+                    </div>}
 
                     <button
                         onClick={handlePrint}
@@ -473,7 +471,7 @@ export default function EmploymentContract({ worker, employer, onClose }: Employ
                 <div
                     ref={componentRef}
                     className="printable-content mx-auto bg-white p-[20mm] shadow-lg w-[210mm] min-h-0 text-justify text-black font-sans leading-relaxed text-[11pt]"
-                    contentEditable={true}
+                    contentEditable={canWriteContracts}
                     suppressContentEditableWarning
                     onDrop={handleDrop}
                     onDragOver={handleDragOver}
@@ -522,7 +520,7 @@ export default function EmploymentContract({ worker, employer, onClose }: Employ
                             <div
                                 className="text-center font-bold uppercase bg-transparent border-none text-xl tracking-wider w-full p-2 outline-none"
                                 style={{ fontFamily: 'inherit', wordWrap: 'break-word', whiteSpace: 'pre-wrap' }}
-                                contentEditable
+                                contentEditable={canWriteContracts}
                                 suppressContentEditableWarning
                                 onInput={(e) => {
                                     setContractTitle(e.currentTarget.textContent || "");
@@ -547,7 +545,7 @@ export default function EmploymentContract({ worker, employer, onClose }: Employ
 
                         <p><strong>ET :</strong></p>
                         <p>
-                            <strong>M./Mme {worker.nom} {worker.prenom}</strong>, <br />
+                            <strong>M./Mme {displayWorker.nom} {displayWorker.prenom}</strong>, <br />
                             Né(e) le {worker.date_naissance ? new Date(worker.date_naissance).toLocaleDateString('fr-FR') : "..."} à {worker.lieu_naissance || "..."} <br />
                             Titulaire de la CIN n° {worker.cin || "..."} délivrée le {worker.cin_delivre_le ? new Date(worker.cin_delivre_le).toLocaleDateString('fr-FR') : "..."} à {worker.cin_lieu || "..."} <br />
                             Demeurant à {worker.adresse || "..."}.
@@ -565,14 +563,14 @@ export default function EmploymentContract({ worker, employer, onClose }: Employ
                             <h3 className="font-bold underline mb-2">ARTICLE 1 : ENGAGEMENT</h3>
                             <p>
                                 L'Employeur engage le Salarié à compter du <strong>{worker.date_embauche ? new Date(worker.date_embauche).toLocaleDateString('fr-FR') : "..."}</strong>, sous réserve des résultats de la visite médicale d'embauche.
-                                Le présent engagement est conclu pour une durée <strong>{worker.nature_contrat === 'CDD' ? 'déterminée' : 'indéterminée'}</strong>.
+                                Le présent engagement est conclu pour une durée <strong>{displayWorker.nature_contrat === 'CDD' ? 'déterminée' : 'indéterminée'}</strong>.
                             </p>
                         </div>
 
                         <div>
                             <h3 className="font-bold underline mb-2">ARTICLE 2 : FONCTIONS ET ATTRIBUTIONS</h3>
                             <p>
-                                Le Salarié est engagé en qualité de <strong>{worker.poste || "..."}</strong>. <br />
+                                Le Salarié est engagé en qualité de <strong>{displayWorker.poste || "..."}</strong>. <br />
                                 Il exercera ses fonctions sous l'autorité et le contrôle de la Direction ou de toute personne désignée par celle-ci.
                             </p>
                         </div>
@@ -588,7 +586,7 @@ export default function EmploymentContract({ worker, employer, onClose }: Employ
                         <div>
                             <h3 className="font-bold underline mb-2">ARTICLE 4 : REMUNERATION</h3>
                             <p>
-                                En contrepartie de ses services, le Salarié percevra un salaire mensuel de base brut de <strong>{worker.salaire_base ? new Intl.NumberFormat('fr-MG', { style: 'currency', currency: 'MGA' }).format(worker.salaire_base) : "..."}</strong> pour un horaire hebdomadaire de {worker.horaire_hebdo || 40} heures.
+        En contrepartie de ses services, le Salarié percevra un salaire mensuel de base brut de <strong>{worker.salaire_base ? formatAriary(worker.salaire_base) : "..."}</strong> pour un horaire hebdomadaire de {worker.horaire_hebdo || 40} heures.
                             </p>
                         </div>
 
@@ -634,7 +632,7 @@ export default function EmploymentContract({ worker, employer, onClose }: Employ
             <ConstantsPalette
                 workerId={worker?.id}
                 employerId={employer?.id}
-                isOpen={isPaletteOpen}
+                isOpen={canWriteContracts && isPaletteOpen}
                 onClose={() => setIsPaletteOpen(false)}
                 onInsertConstant={handleInsertConstant}
             />

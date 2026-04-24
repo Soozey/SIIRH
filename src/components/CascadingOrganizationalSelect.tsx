@@ -5,26 +5,20 @@ import {
   BuildingOfficeIcon,
   BuildingStorefrontIcon,
   UserGroupIcon,
-  CubeIcon
+  CubeIcon,
 } from '@heroicons/react/24/outline';
+import type { CascadingSelectValue } from './CascadingOrganizationalSelection';
 
 interface OrganizationalOption {
   id: number;
+  employer_id: number;
   parent_id: number | null;
-  level: number;
-  level_name: string;
+  level: 'etablissement' | 'departement' | 'service' | 'unite';
+  level_order: number;
   name: string;
-  code: string | null;
+  code: string;
   description: string | null;
   is_active: boolean;
-  has_children: boolean;
-}
-
-interface CascadingSelectValue {
-  etablissement?: number;
-  departement?: number;
-  service?: number;
-  unite?: number;
 }
 
 interface CascadingOrganizationalSelectProps {
@@ -43,18 +37,31 @@ interface CascadingOrganizationalSelectProps {
 }
 
 const LEVEL_ICONS = {
-  1: BuildingOfficeIcon,
-  2: BuildingStorefrontIcon,
-  3: UserGroupIcon,
-  4: CubeIcon
+  etablissement: BuildingOfficeIcon,
+  departement: BuildingStorefrontIcon,
+  service: UserGroupIcon,
+  unite: CubeIcon,
 };
 
 const LEVEL_LABELS = {
-  1: 'Établissement',
-  2: 'Département',
-  3: 'Service',
-  4: 'Unité'
+  etablissement: 'Établissement',
+  departement: 'Département',
+  service: 'Service',
+  unite: 'Unité',
 };
+
+const emptyValue = (): CascadingSelectValue => ({
+  etablissement: undefined,
+  departement: undefined,
+  service: undefined,
+  unite: undefined,
+});
+
+const valuesEqual = (left: CascadingSelectValue, right: CascadingSelectValue) =>
+  left.etablissement === right.etablissement &&
+  left.departement === right.departement &&
+  left.service === right.service &&
+  left.unite === right.unite;
 
 export const CascadingOrganizationalSelect: React.FC<CascadingOrganizationalSelectProps> = ({
   employerId,
@@ -63,92 +70,151 @@ export const CascadingOrganizationalSelect: React.FC<CascadingOrganizationalSele
   required = {},
   disabled = false,
   showLabels = true,
-  size = 'md'
+  size = 'md',
 }) => {
-  // Fetch establishments (level 1, no parent)
+  const [resolvedValue, setResolvedValue] = React.useState<CascadingSelectValue>(value);
+  const valueSignature = `${value.etablissement ?? ''}:${value.departement ?? ''}:${value.service ?? ''}:${value.unite ?? ''}`;
+  const resolvedValueSignature = `${resolvedValue.etablissement ?? ''}:${resolvedValue.departement ?? ''}:${resolvedValue.service ?? ''}:${resolvedValue.unite ?? ''}`;
+
+  const fetchUnits = async (level: OrganizationalOption['level'], parentId?: number) => {
+    const response = await api.get(`/organization/employers/${employerId}/units`, {
+      params: {
+        level,
+        ...(parentId !== undefined ? { parent_id: parentId } : {}),
+      },
+    });
+    return response.data as OrganizationalOption[];
+  };
+
+  React.useEffect(() => {
+    if (!valuesEqual(resolvedValue, value)) {
+      setResolvedValue(value);
+    }
+  }, [valueSignature]);
+
+  React.useEffect(() => {
+    const deepestSelectedId = value.unite ?? value.service ?? value.departement ?? value.etablissement;
+    if (!employerId || !deepestSelectedId) {
+      if (!deepestSelectedId && !valuesEqual(resolvedValue, emptyValue())) {
+        setResolvedValue(emptyValue());
+      }
+      return;
+    }
+
+    const hasCompleteHierarchy =
+      value.unite !== undefined ||
+      (value.service !== undefined && value.departement !== undefined && value.etablissement !== undefined) ||
+      (value.departement !== undefined && value.etablissement !== undefined) ||
+      value.etablissement !== undefined;
+
+    if (hasCompleteHierarchy && !(
+      value.unite !== undefined && (value.service === undefined || value.departement === undefined || value.etablissement === undefined)
+    )) {
+      return;
+    }
+
+    let isCancelled = false;
+
+    const hydrateHierarchy = async () => {
+      try {
+        const nextValue = emptyValue();
+        let currentUnitId: number | null = deepestSelectedId;
+        const visited = new Set<number>();
+
+        while (currentUnitId) {
+          if (visited.has(currentUnitId)) {
+            break;
+          }
+          visited.add(currentUnitId);
+
+          const response: { data: OrganizationalOption } = await api.get(
+            `/organization/units/${currentUnitId}`,
+          );
+          const unit: OrganizationalOption = response.data;
+
+          if (unit.level === 'etablissement') nextValue.etablissement = unit.id;
+          if (unit.level === 'departement') nextValue.departement = unit.id;
+          if (unit.level === 'service') nextValue.service = unit.id;
+          if (unit.level === 'unite') nextValue.unite = unit.id;
+
+          currentUnitId = unit.parent_id ?? null;
+        }
+
+        if (!isCancelled && !valuesEqual(nextValue, resolvedValue)) {
+          setResolvedValue(nextValue);
+        }
+      } catch (error) {
+        console.error('Erreur lors de la reconstruction de la hiérarchie organisationnelle:', error);
+      }
+    };
+
+    void hydrateHierarchy();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [employerId, resolvedValueSignature, valueSignature]);
+
   const { data: etablissements = [] } = useQuery({
-    queryKey: ['cascading-options', employerId, null],
-    queryFn: async () => {
-      const response = await api.get(`/employers/${employerId}/hierarchical-organization/cascading-options`);
-      return response.data as OrganizationalOption[];
-    },
-    enabled: !!employerId
+    queryKey: ['org-units', employerId, 'etablissement', null],
+    queryFn: async () => fetchUnits('etablissement'),
+    enabled: !!employerId,
   });
 
-  // Fetch departments (level 2, parent = selected establishment)
   const { data: departements = [] } = useQuery({
-    queryKey: ['cascading-options', employerId, value.etablissement],
-    queryFn: async () => {
-      const response = await api.get(`/employers/${employerId}/hierarchical-organization/cascading-options`, {
-        params: { parent_id: value.etablissement }
-      });
-      return response.data as OrganizationalOption[];
-    },
-    enabled: !!employerId && !!value.etablissement
+    queryKey: ['org-units', employerId, 'departement', resolvedValue.etablissement],
+    queryFn: async () => fetchUnits('departement', resolvedValue.etablissement),
+    enabled: !!employerId && !!resolvedValue.etablissement,
   });
 
-  // Fetch services (level 3, parent = selected department)
   const { data: services = [] } = useQuery({
-    queryKey: ['cascading-options', employerId, value.departement],
-    queryFn: async () => {
-      const response = await api.get(`/employers/${employerId}/hierarchical-organization/cascading-options`, {
-        params: { parent_id: value.departement }
-      });
-      return response.data as OrganizationalOption[];
-    },
-    enabled: !!employerId && !!value.departement
+    queryKey: ['org-units', employerId, 'service', resolvedValue.departement],
+    queryFn: async () => fetchUnits('service', resolvedValue.departement),
+    enabled: !!employerId && !!resolvedValue.departement,
   });
 
-  // Fetch units (level 4, parent = selected service)
   const { data: unites = [] } = useQuery({
-    queryKey: ['cascading-options', employerId, value.service],
-    queryFn: async () => {
-      const response = await api.get(`/employers/${employerId}/hierarchical-organization/cascading-options`, {
-        params: { parent_id: value.service }
-      });
-      return response.data as OrganizationalOption[];
-    },
-    enabled: !!employerId && !!value.service
+    queryKey: ['org-units', employerId, 'unite', resolvedValue.service],
+    queryFn: async () => fetchUnits('unite', resolvedValue.service),
+    enabled: !!employerId && !!resolvedValue.service,
   });
+
+  const commitValue = (nextValue: CascadingSelectValue) => {
+    setResolvedValue(nextValue);
+    onChange(nextValue);
+  };
 
   const handleEtablissementChange = (etablissementId: string) => {
-    const newValue: CascadingSelectValue = {
+    commitValue({
       etablissement: etablissementId ? Number(etablissementId) : undefined,
-      // Reset all dependent levels
       departement: undefined,
       service: undefined,
-      unite: undefined
-    };
-    onChange(newValue);
+      unite: undefined,
+    });
   };
 
   const handleDepartementChange = (departementId: string) => {
-    const newValue: CascadingSelectValue = {
-      ...value,
+    commitValue({
+      ...resolvedValue,
       departement: departementId ? Number(departementId) : undefined,
-      // Reset dependent levels
       service: undefined,
-      unite: undefined
-    };
-    onChange(newValue);
+      unite: undefined,
+    });
   };
 
   const handleServiceChange = (serviceId: string) => {
-    const newValue: CascadingSelectValue = {
-      ...value,
+    commitValue({
+      ...resolvedValue,
       service: serviceId ? Number(serviceId) : undefined,
-      // Reset dependent levels
-      unite: undefined
-    };
-    onChange(newValue);
+      unite: undefined,
+    });
   };
 
   const handleUniteChange = (uniteId: string) => {
-    const newValue: CascadingSelectValue = {
-      ...value,
-      unite: uniteId ? Number(uniteId) : undefined
-    };
-    onChange(newValue);
+    commitValue({
+      ...resolvedValue,
+      unite: uniteId ? Number(uniteId) : undefined,
+    });
   };
 
   const getSizeClasses = () => {
@@ -163,15 +229,15 @@ export const CascadingOrganizationalSelect: React.FC<CascadingOrganizationalSele
   };
 
   const renderSelect = (
-    level: number,
+    level: OrganizationalOption['level'],
     options: OrganizationalOption[],
     selectedValue: number | undefined,
     onChangeHandler: (value: string) => void,
-    isEnabled: boolean = true
+    isEnabled: boolean = true,
   ) => {
-    const IconComponent = LEVEL_ICONS[level as keyof typeof LEVEL_ICONS];
-    const levelLabel = LEVEL_LABELS[level as keyof typeof LEVEL_LABELS];
-    const isRequired = required[level === 1 ? 'etablissement' : level === 2 ? 'departement' : level === 3 ? 'service' : 'unite' as keyof typeof required];
+    const IconComponent = LEVEL_ICONS[level];
+    const levelLabel = LEVEL_LABELS[level];
+    const isRequired = required[level];
     const hasOptions = options.length > 0;
 
     return (
@@ -193,26 +259,23 @@ export const CascadingOrganizationalSelect: React.FC<CascadingOrganizationalSele
           className={`
             w-full border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500
             ${getSizeClasses()}
-            ${disabled || !isEnabled || !hasOptions 
-              ? 'bg-gray-100 text-gray-500 cursor-not-allowed' 
+            ${disabled || !isEnabled || !hasOptions
+              ? 'bg-gray-100 text-gray-500 cursor-not-allowed'
               : 'bg-white text-gray-900'
             }
           `}
         >
           <option value="">
-            {!isEnabled 
-              ? `Sélectionnez d'abord ${level === 2 ? 'un établissement' : 
-                  level === 3 ? 'un département' : 'un service'}`
+            {!isEnabled
+              ? `Sélectionnez d'abord ${level === 'departement' ? 'un établissement' : level === 'service' ? 'un département' : 'un service'}`
               : !hasOptions
-                ? `Aucun${level === 4 ? 'e' : ''} ${levelLabel.toLowerCase()} disponible`
-                : `Sélectionner ${level === 1 || level === 3 ? 'un' : level === 4 ? 'une' : 'un'} ${levelLabel.toLowerCase()}`
+                ? `Aucun${level === 'unite' ? 'e' : ''} ${levelLabel.toLowerCase()} disponible`
+                : `Sélectionner ${level === 'etablissement' || level === 'service' ? 'un' : level === 'unite' ? 'une' : 'un'} ${levelLabel.toLowerCase()}`
             }
           </option>
-          {options.map(option => (
+          {options.map((option) => (
             <option key={option.id} value={option.id}>
-              {option.name}
-              {option.code && ` (${option.code})`}
-              {option.has_children && ' •'}
+              {option.name}{option.code ? ` (${option.code})` : ''}
             </option>
           ))}
         </select>
@@ -222,77 +285,37 @@ export const CascadingOrganizationalSelect: React.FC<CascadingOrganizationalSele
 
   return (
     <div className="space-y-4">
-      {/* Établissement */}
-      {renderSelect(
-        1,
-        etablissements,
-        value.etablissement,
-        handleEtablissementChange,
-        true
-      )}
+      {renderSelect('etablissement', etablissements, resolvedValue.etablissement, handleEtablissementChange, true)}
+      {resolvedValue.etablissement && renderSelect('departement', departements, resolvedValue.departement, handleDepartementChange, !!resolvedValue.etablissement)}
+      {resolvedValue.departement && renderSelect('service', services, resolvedValue.service, handleServiceChange, !!resolvedValue.departement)}
+      {resolvedValue.service && renderSelect('unite', unites, resolvedValue.unite, handleUniteChange, !!resolvedValue.service)}
 
-      {/* Département */}
-      {value.etablissement && renderSelect(
-        2,
-        departements,
-        value.departement,
-        handleDepartementChange,
-        !!value.etablissement
-      )}
-
-      {/* Service */}
-      {value.departement && renderSelect(
-        3,
-        services,
-        value.service,
-        handleServiceChange,
-        !!value.departement
-      )}
-
-      {/* Unité */}
-      {value.service && renderSelect(
-        4,
-        unites,
-        value.unite,
-        handleUniteChange,
-        !!value.service
-      )}
-
-      {/* Validation Summary */}
       {(required.etablissement || required.departement || required.service || required.unite) && (
-        <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-          <h4 className="text-sm font-medium text-blue-900 mb-2">Sélection actuelle :</h4>
+        <div className="mt-4 rounded-lg border border-blue-200 bg-blue-50 p-3">
+          <h4 className="mb-2 text-sm font-medium text-blue-900">Sélection actuelle :</h4>
           <div className="space-y-1 text-sm text-blue-800">
-            {value.etablissement && (
+            {resolvedValue.etablissement && (
               <div className="flex items-center gap-2">
                 <BuildingOfficeIcon className="h-4 w-4" />
-                <span>
-                  {etablissements.find(e => e.id === value.etablissement)?.name || 'Établissement sélectionné'}
-                </span>
+                <span>{etablissements.find((item) => item.id === resolvedValue.etablissement)?.name || 'Établissement sélectionné'}</span>
               </div>
             )}
-            {value.departement && (
-              <div className="flex items-center gap-2 ml-4">
+            {resolvedValue.departement && (
+              <div className="ml-4 flex items-center gap-2">
                 <BuildingStorefrontIcon className="h-4 w-4" />
-                <span>
-                  {departements.find(d => d.id === value.departement)?.name || 'Département sélectionné'}
-                </span>
+                <span>{departements.find((item) => item.id === resolvedValue.departement)?.name || 'Département sélectionné'}</span>
               </div>
             )}
-            {value.service && (
-              <div className="flex items-center gap-2 ml-8">
+            {resolvedValue.service && (
+              <div className="ml-8 flex items-center gap-2">
                 <UserGroupIcon className="h-4 w-4" />
-                <span>
-                  {services.find(s => s.id === value.service)?.name || 'Service sélectionné'}
-                </span>
+                <span>{services.find((item) => item.id === resolvedValue.service)?.name || 'Service sélectionné'}</span>
               </div>
             )}
-            {value.unite && (
-              <div className="flex items-center gap-2 ml-12">
+            {resolvedValue.unite && (
+              <div className="ml-12 flex items-center gap-2">
                 <CubeIcon className="h-4 w-4" />
-                <span>
-                  {unites.find(u => u.id === value.unite)?.name || 'Unité sélectionnée'}
-                </span>
+                <span>{unites.find((item) => item.id === resolvedValue.unite)?.name || 'Unité sélectionnée'}</span>
               </div>
             )}
           </div>
@@ -300,69 +323,4 @@ export const CascadingOrganizationalSelect: React.FC<CascadingOrganizationalSele
       )}
     </div>
   );
-};
-
-// Utility hook for easier integration
-export const useOrganizationalSelection = (initialValue: CascadingSelectValue = {}) => {
-  const [value, setValue] = React.useState<CascadingSelectValue>(initialValue);
-
-  const reset = () => setValue({});
-  
-  const setEtablissement = (etablissementId: number | undefined) => {
-    setValue({
-      etablissement: etablissementId,
-      departement: undefined,
-      service: undefined,
-      unite: undefined
-    });
-  };
-
-  const setDepartement = (departementId: number | undefined) => {
-    setValue(prev => ({
-      ...prev,
-      departement: departementId,
-      service: undefined,
-      unite: undefined
-    }));
-  };
-
-  const setService = (serviceId: number | undefined) => {
-    setValue(prev => ({
-      ...prev,
-      service: serviceId,
-      unite: undefined
-    }));
-  };
-
-  const setUnite = (uniteId: number | undefined) => {
-    setValue(prev => ({
-      ...prev,
-      unite: uniteId
-    }));
-  };
-
-  const isComplete = (requiredLevels: (keyof CascadingSelectValue)[] = []) => {
-    return requiredLevels.every(level => value[level] !== undefined);
-  };
-
-  const getPath = () => {
-    const parts = [];
-    if (value.etablissement) parts.push('etablissement');
-    if (value.departement) parts.push('departement');
-    if (value.service) parts.push('service');
-    if (value.unite) parts.push('unite');
-    return parts;
-  };
-
-  return {
-    value,
-    setValue,
-    reset,
-    setEtablissement,
-    setDepartement,
-    setService,
-    setUnite,
-    isComplete,
-    getPath
-  };
 };

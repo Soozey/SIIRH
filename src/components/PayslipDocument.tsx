@@ -109,6 +109,9 @@ type Props = {
 export default function PayslipDocument({ data, showPrintButton = false }: Props) {
     const { employer, worker, totaux, lines, period } = data;
     const contentRef = useRef<HTMLDivElement>(null); // NEW: Ref for PDF generation
+    const handlePrint = usePrint(
+        `${(data?.worker?.matricule || "bulletin").replace(/ /g, "_")}_${data?.period || "periode"}`
+    );
 
 
 
@@ -135,21 +138,23 @@ export default function PayslipDocument({ data, showPrintButton = false }: Props
         if (isNaN(n)) return "";
         
         // Pour l'IRSA, si c'est un entier, forcer l'affichage avec ,00
-        if (isIRSA && Number.isInteger(Math.abs(n))) {
-            return new Intl.NumberFormat("fr-MG", {
-                style: "currency",
-                currency: "MGA",
-                maximumFractionDigits: 2,
-                minimumFractionDigits: 2,
-            }).format(n);
-        }
-        
+    if (isIRSA && Number.isInteger(Math.abs(n))) {
         return new Intl.NumberFormat("fr-MG", {
             style: "currency",
             currency: "MGA",
+            currencyDisplay: "narrowSymbol",
             maximumFractionDigits: 2,
             minimumFractionDigits: 2,
         }).format(n);
+    }
+
+    return new Intl.NumberFormat("fr-MG", {
+        style: "currency",
+        currency: "MGA",
+        currencyDisplay: "narrowSymbol",
+        maximumFractionDigits: 2,
+        minimumFractionDigits: 2,
+    }).format(n);
     };
 
     const formatDate = (dateStr?: string | null) => {
@@ -277,8 +282,6 @@ export default function PayslipDocument({ data, showPrintButton = false }: Props
     const documentTitle = hasTerminationIndemnity ? "Solde de tout compte" : "Bulletin de Paie";
 
 
-    const handlePrint = usePrint(`${documentTitle.replace(/ /g, '_')}_${worker.matricule}_${period}`);
-
     return (
         <div className="max-w-[210mm] mx-auto">
 
@@ -376,7 +379,7 @@ export default function PayslipDocument({ data, showPrintButton = false }: Props
                         Paiement: {worker.mode_paiement || "Virement Bancaire"}
                     </div>
                     <div>
-                        Devise: MGA (Ariary)
+                        Devise: Ar (Ariary)
                     </div>
                 </div>
 

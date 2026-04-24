@@ -1,9 +1,10 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, updateEmployer, deleteEmployer } from "../api";
 import { useMemo, useState } from "react";
-import HierarchyManagerModalEnhanced from '../components/HierarchyManagerModalEnhanced';
-// Import temporairement supprimé pour éviter les erreurs
-// import HierarchicalOrganizationTree from '../components/HierarchicalOrganizationTree';
+import { useNavigate } from "react-router-dom";
+import HierarchicalOrganizationTree from "../components/HierarchicalOrganizationTreeFinal";
+import { useAuth } from "../contexts/AuthContext";
+import { hasModulePermission, sessionHasRole } from "../rbac";
 import {
   PlusIcon,
   BuildingOfficeIcon,
@@ -55,8 +56,39 @@ type Employer = {
   unites?: string[];
 };
 
+type EmployerForm = {
+  raison_sociale: string;
+  adresse: string;
+  cnaps_num: string;
+  type_etab: "general" | "scolaire";
+  taux_pat_cnaps: number;
+  plafond_cnaps_base: number;
+  taux_pat_smie: number;
+  plafond_smie: number;
+  logo_path: string;
+  type_regime_id: number;
+  sm_embauche: number;
+  nif: string;
+  stat: string;
+  representant: string;
+  rep_date_naissance: string | null;
+  rep_cin_num: string;
+  rep_cin_date: string | null;
+  rep_cin_lieu: string;
+  rep_adresse: string;
+  rep_fonction: string;
+  etablissements: string[];
+  departements: string[];
+  services: string[];
+  unites: string[];
+};
+
 export default function Employers() {
   const qc = useQueryClient();
+  const navigate = useNavigate();
+  const { session } = useAuth();
+  const isInspector = sessionHasRole(session, ["inspecteur", "inspection_travail", "labor_inspector", "labor_inspector_supervisor"]);
+  const canWriteWorkforce = hasModulePermission(session, "workforce", "write") && !isInspector;
 
   // États pour les données
   const { data: employers, isLoading, error } = useQuery({
@@ -70,7 +102,7 @@ export default function Employers() {
   });
 
   // État du formulaire
-  const initialFormState = {
+  const initialFormState: EmployerForm = {
     raison_sociale: "",
     adresse: "",
     cnaps_num: "",
@@ -99,12 +131,30 @@ export default function Employers() {
     unites: [] as string[],
   };
 
-  const [form, setForm] = useState(initialFormState);
+  const [form, setForm] = useState<EmployerForm>(initialFormState);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [repModalOpen, setRepModalOpen] = useState(false);
-  const [showHierarchyManager, setShowHierarchyManager] = useState(false);
   // const [logoFile, setLogoFile] = useState<File | null>(null); // Unused for now
+
+  const extractErrorMessage = (error: unknown, fallback: string): string => {
+    if (!error || typeof error !== "object") {
+      return fallback;
+    }
+    const maybeResponse = (error as { response?: { data?: { detail?: unknown } } }).response;
+    const maybeMessage = (error as { message?: string }).message;
+    const detail = maybeResponse?.data?.detail;
+    if (typeof detail === "string" && detail.trim()) {
+      return detail;
+    }
+    if (detail !== undefined) {
+      return JSON.stringify(detail);
+    }
+    if (typeof maybeMessage === "string" && maybeMessage.trim()) {
+      return maybeMessage;
+    }
+    return fallback;
+  };
 
   // Trouver le type de régime sélectionné pour l'aperçu VHM
   const selectedTypeRegime = useMemo(() => {
@@ -124,8 +174,8 @@ export default function Employers() {
       qc.invalidateQueries({ queryKey: ["employers"] });
       resetForm();
     },
-    onError: (err: any) => {
-      alert("Erreur lors de la création: " + (err.response?.data?.detail || err.message));
+    onError: (error: unknown) => {
+      alert(`Erreur lors de la création: ${extractErrorMessage(error, "Erreur inconnue")}`);
     }
   });
 
@@ -138,23 +188,15 @@ export default function Employers() {
       qc.invalidateQueries({ queryKey: ["employers"] });
       resetForm();
     },
-    onError: (err: any) => {
-      console.error("Erreur complète:", err);
-      console.error("Response data:", err.response?.data);
+    onError: (error: unknown) => {
+      console.error("Erreur complète:", error);
+      const responseData = typeof error === "object" && error !== null && "response" in error
+        ? (error as { response?: { data?: unknown } }).response?.data
+        : undefined;
+      console.error("Response data:", responseData);
       console.error("Form data:", form);
-      
-      let errorMessage = "Erreur lors de la modification";
-      if (err.response?.data?.detail) {
-        if (typeof err.response.data.detail === 'string') {
-          errorMessage += ": " + err.response.data.detail;
-        } else {
-          errorMessage += ": " + JSON.stringify(err.response.data.detail);
-        }
-      } else if (err.message) {
-        errorMessage += ": " + err.message;
-      }
-      
-      alert(errorMessage);
+
+      alert(`Erreur lors de la modification: ${extractErrorMessage(error, "Erreur inconnue")}`);
     }
   });
 
@@ -164,8 +206,8 @@ export default function Employers() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["employers"] });
     },
-    onError: (err: any) => {
-      alert("Erreur lors de la suppression: " + (err.response?.data?.detail || err.message));
+    onError: (error: unknown) => {
+      alert(`Erreur lors de la suppression: ${extractErrorMessage(error, "Erreur inconnue")}`);
     }
   });
 
@@ -203,16 +245,20 @@ export default function Employers() {
     // setLogoFile(null); // Unused
   }
 
+  const openCanonicalOrganizationView = (employerId: number) => {
+    navigate(`/organization?employer_id=${employerId}&tab=0`);
+  };
+
   // Fonction pour nettoyer les données avant l'envoi
-  const cleanFormData = (formData: typeof form) => {
+  const cleanFormData = (formData: EmployerForm): EmployerForm => {
     const cleaned = { ...formData };
     
     // Convertir les chaînes vides en null pour les champs de date
     if (cleaned.rep_date_naissance === "") {
-      cleaned.rep_date_naissance = null as any;
+      cleaned.rep_date_naissance = null;
     }
     if (cleaned.rep_cin_date === "") {
-      cleaned.rep_cin_date = null as any;
+      cleaned.rep_cin_date = null;
     }
     
     return cleaned;
@@ -282,7 +328,7 @@ export default function Employers() {
     setForm((f) => ({ ...f, type_regime_id: regimeId }));
   };
 
-  const setField = (key: keyof typeof form, val: any) =>
+  const setField = <K extends keyof EmployerForm>(key: K, val: EmployerForm[K]) =>
     setForm((f) => ({ ...f, [key]: val }));
 
   const getTypeEtabIcon = (type: "general" | "scolaire") => {
@@ -314,7 +360,7 @@ export default function Employers() {
           </p>
 
           {/* Bouton d'ajout */}
-          {!showForm && (
+          {!showForm && canWriteWorkforce && (
             <button
               onClick={() => {
                 resetForm();
@@ -329,7 +375,7 @@ export default function Employers() {
         </div>
 
         {/* Formulaire */}
-        {showForm && (
+        {showForm && canWriteWorkforce && (
           <div className="bg-white rounded-2xl shadow-xl border border-gray-200 mb-8 overflow-hidden">
             <div className="border-b border-gray-200 p-6">
               <div className="flex items-center gap-3">
@@ -358,7 +404,7 @@ export default function Employers() {
               }}
               className="p-6"
             >
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-slate-900">
                 {/* Raison sociale */}
                 <div className="md:col-span-2">
                   <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -474,8 +520,8 @@ export default function Employers() {
                           });
                           setField("logo_path", res.data.logo_path);
                           alert("Logo uploadé avec succès!");
-                        } catch (err: any) {
-                          alert("Erreur lors de l'upload: " + (err.response?.data?.detail || err.message));
+                        } catch (error: unknown) {
+                          alert(`Erreur lors de l'upload: ${extractErrorMessage(error, "Erreur inconnue")}`);
                         }
                       } else if (file) {
                         // setLogoFile(file); // Unused
@@ -656,7 +702,7 @@ export default function Employers() {
                   {editingId && (
                     <button
                       type="button"
-                      onClick={() => setShowHierarchyManager(true)}
+                      onClick={() => openCanonicalOrganizationView(editingId)}
                       className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
                     >
                       Gérer la Hiérarchie
@@ -673,11 +719,7 @@ export default function Employers() {
                 {editingId ? (
                   <div className="bg-white rounded-lg p-4 border border-green-200">
                     <h4 className="font-medium text-gray-900 mb-3">Aperçu de la hiérarchie actuelle :</h4>
-                    <div className="text-center py-8 text-gray-500">
-                      <div className="text-4xl mb-4">🏢</div>
-                      <p>Hiérarchie organisationnelle temporairement désactivée</p>
-                      <p className="text-sm mt-2">Employeur ID: {editingId}</p>
-                    </div>
+                    <HierarchicalOrganizationTree employerId={editingId} readonly />
                   </div>
                 ) : (
                   <div className="bg-white rounded-lg p-4 border border-green-200 text-center text-gray-500">
@@ -814,20 +856,24 @@ export default function Employers() {
                               <CurrencyDollarIcon className="h-4 w-4" />
                             </a>
 
-                            <button
-                              onClick={() => handleEdit(employer)}
-                              className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                              title="Modifier"
-                            >
-                              <PencilIcon className="h-4 w-4" />
-                            </button>
-                            <button
-                              onClick={() => handleDelete(employer.id)}
-                              className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                              title="Supprimer"
-                            >
-                              <TrashIcon className="h-4 w-4" />
-                            </button>
+                            {canWriteWorkforce ? (
+                              <>
+                                <button
+                                  onClick={() => handleEdit(employer)}
+                                  className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                  title="Modifier"
+                                >
+                                  <PencilIcon className="h-4 w-4" />
+                                </button>
+                                <button
+                                  onClick={() => handleDelete(employer.id)}
+                                  className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                                  title="Supprimer"
+                                >
+                                  <TrashIcon className="h-4 w-4" />
+                                </button>
+                              </>
+                            ) : null}
                           </div>
                         </div>
 
@@ -883,16 +929,18 @@ export default function Employers() {
               <p className="text-gray-600 mb-6 max-w-md mx-auto">
                 Commencez par ajouter votre premier employeur pour gérer vos établissements et leurs paramètres.
               </p>
-              <button
-                onClick={() => {
-                  resetForm();
-                  setShowForm(true);
-                }}
-                className="inline-flex items-center gap-2 bg-blue-600 text-white hover:bg-blue-700 px-6 py-3 rounded-xl font-medium transition-colors"
-              >
-                <PlusIcon className="h-5 w-5" />
-                Ajouter un employeur
-              </button>
+              {canWriteWorkforce ? (
+                <button
+                  onClick={() => {
+                    resetForm();
+                    setShowForm(true);
+                  }}
+                  className="inline-flex items-center gap-2 bg-blue-600 text-white hover:bg-blue-700 px-6 py-3 rounded-xl font-medium transition-colors"
+                >
+                  <PlusIcon className="h-5 w-5" />
+                  Ajouter un employeur
+                </button>
+              ) : null}
             </div>
           )}
         </div>
@@ -927,7 +975,7 @@ export default function Employers() {
                 <label className="block text-sm font-medium text-gray-700 mb-1">Date de naissance</label>
                 <input
                   type="date"
-                  value={form.rep_date_naissance}
+                  value={form.rep_date_naissance || ""}
                   onChange={(e) => setField("rep_date_naissance", e.target.value)}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                 />
@@ -958,7 +1006,7 @@ export default function Employers() {
                     <label className="block text-xs text-gray-500 mb-1">Délivré le</label>
                     <input
                       type="date"
-                      value={form.rep_cin_date}
+                      value={form.rep_cin_date || ""}
                       onChange={(e) => setField("rep_cin_date", e.target.value)}
                       className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                     />
@@ -997,18 +1045,6 @@ export default function Employers() {
         </div>
       )}
 
-      {/* Hierarchy Manager Modal */}
-      {showHierarchyManager && editingId !== null && (
-        <HierarchyManagerModalEnhanced
-          employerId={editingId}
-          isOpen={showHierarchyManager}
-          onClose={() => setShowHierarchyManager(false)}
-          onSave={() => {
-            // Refresh the organizational tree data
-            setShowHierarchyManager(false);
-          }}
-        />
-      )}
     </div>
   );
 }

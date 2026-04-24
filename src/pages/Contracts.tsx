@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   ClipboardDocumentListIcon,
@@ -6,10 +6,21 @@ import {
   IdentificationIcon,
 } from "@heroicons/react/24/outline";
 
-import { api } from "../api";
+import {
+  api,
+  downloadCustomContractsTemplate,
+  importCustomContractsFile,
+  type TabularImportReport,
+} from "../api";
+import HelpTooltip from "../components/help/HelpTooltip";
+import { useAuth } from "../contexts/AuthContext";
+import { getContextHelp } from "../help/helpContent";
+import { hasModulePermission, sessionHasRole } from "../rbac";
 import EmploymentAttestation from "../components/EmploymentAttestation";
 import EmploymentContract from "../components/EmploymentContract";
 import WorkCertificate from "../components/WorkCertificate";
+import { useWorkerContracts } from "../hooks/useCustomContracts";
+import { useWorkerData } from "../hooks/useConstants";
 
 
 interface Employer {
@@ -57,63 +68,140 @@ interface WorkerDetails extends WorkerSummary {
   }>;
 }
 
+interface ContractGuidance {
+  suggested_primary_type: string;
+  available_types: string[];
+  language_options: string[];
+  required_fields: string[];
+  alerts: Array<{ severity: string; code: string; message: string }>;
+  recommendations: string[];
+  suggested_defaults: Record<string, unknown>;
+}
+
 type DocumentMode = "contract" | "attestation" | "certificate";
 
 const shellCardClassName =
-  "rounded-[1.75rem] border border-white/10 bg-slate-950/55 p-6 shadow-2xl shadow-slate-950/20 backdrop-blur";
+  "siirh-panel";
 const inputClassName =
-  "w-full rounded-2xl border border-white/10 bg-slate-900/80 px-4 py-3 text-sm text-slate-100 outline-none transition focus:border-cyan-300/50";
+  "siirh-input";
 
 
 export default function Contracts() {
+  const { session } = useAuth();
+  const isInspector = sessionHasRole(session, ["inspecteur", "inspection_travail", "labor_inspector", "labor_inspector_supervisor"]);
+  const canManageContractImport = hasModulePermission(session, "contracts", "write") && !isInspector;
   const [selectedEmployerId, setSelectedEmployerId] = useState<number | null>(null);
   const [selectedWorkerId, setSelectedWorkerId] = useState<number | null>(null);
   const [documentMode, setDocumentMode] = useState<DocumentMode>("contract");
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importUpdateExisting, setImportUpdateExisting] = useState(true);
+  const [importing, setImporting] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
+  const [importReport, setImportReport] = useState<TabularImportReport | null>(null);
 
   const { data: employers = [] } = useQuery({
     queryKey: ["contracts", "employers"],
     queryFn: async () => (await api.get<Employer[]>("/employers")).data,
   });
 
-  useEffect(() => {
-    if (!selectedEmployerId && employers.length > 0) {
-      setSelectedEmployerId(employers[0].id);
+  const effectiveEmployerId = useMemo(() => {
+    if (selectedEmployerId && employers.some((item) => item.id === selectedEmployerId)) {
+      return selectedEmployerId;
     }
+    return employers[0]?.id ?? null;
   }, [employers, selectedEmployerId]);
 
   const { data: workers = [] } = useQuery({
-    queryKey: ["contracts", "workers", selectedEmployerId],
-    enabled: selectedEmployerId !== null,
+    queryKey: ["contracts", "workers", effectiveEmployerId],
+    enabled: effectiveEmployerId !== null,
     queryFn: async () => (
       await api.get<WorkerSummary[]>("/workers", {
-        params: { employer_id: selectedEmployerId },
+        params: { employer_id: effectiveEmployerId },
       })
     ).data,
   });
 
-  useEffect(() => {
-    if (!workers.length) {
-      setSelectedWorkerId(null);
-      return;
+  const effectiveWorkerId = useMemo(() => {
+    if (selectedWorkerId && workers.some((item) => item.id === selectedWorkerId)) {
+      return selectedWorkerId;
     }
-    if (!selectedWorkerId || !workers.some((worker) => worker.id === selectedWorkerId)) {
-      setSelectedWorkerId(workers[0].id);
-    }
-  }, [workers, selectedWorkerId]);
+    return workers[0]?.id ?? null;
+  }, [selectedWorkerId, workers]);
 
   const { data: worker } = useQuery({
-    queryKey: ["contracts", "worker", selectedWorkerId],
-    enabled: selectedWorkerId !== null,
-    queryFn: async () => (await api.get<WorkerDetails>(`/workers/${selectedWorkerId}`)).data,
+    queryKey: ["contracts", "worker", effectiveWorkerId],
+    enabled: effectiveWorkerId !== null,
+    queryFn: async () => (await api.get<WorkerDetails>(`/workers/${effectiveWorkerId}`)).data,
+  });
+  const { data: workerData } = useWorkerData(effectiveWorkerId || 0);
+  const { data: workerContracts = [] } = useWorkerContracts(effectiveWorkerId || 0, "employment_contract");
+  const { data: contractGuidance } = useQuery({
+    queryKey: ["contracts", "guidance", effectiveWorkerId],
+    enabled: effectiveWorkerId !== null,
+    queryFn: async () => (await api.get<ContractGuidance>(`/custom-contracts/worker/${effectiveWorkerId}/guidance`)).data,
   });
 
-  const employer = employers.find((item) => item.id === selectedEmployerId) ?? null;
+  const employer = employers.find((item) => item.id === effectiveEmployerId) ?? null;
   const documentLabel =
     documentMode === "contract" ? "Contrat" : documentMode === "attestation" ? "Attestation" : "Certificat";
+  const displayWorker = worker
+    ? {
+        ...worker,
+        nom: workerData?.nom || worker.nom,
+        prenom: workerData?.prenom || worker.prenom,
+        matricule: workerData?.matricule || worker.matricule,
+        poste: workerData?.poste || worker.poste,
+        nature_contrat: workerData?.nature_contrat || worker.nature_contrat,
+      }
+    : null;
+  const latestContract = workerContracts[0] ?? null;
+  const suggestedDefaults = Object.entries(contractGuidance?.suggested_defaults ?? {}).filter(([, value]) => value !== null && value !== "");
+  const contractsGuidanceHelp = getContextHelp("contracts", "contract_guidance");
+
+  const handleDownloadTemplate = async (prefilled: boolean) => {
+    try {
+      await downloadCustomContractsTemplate({
+        employerId: effectiveEmployerId ?? undefined,
+        prefilled,
+        format: "xlsx",
+      });
+    } catch (error) {
+      console.error(error);
+      setImportError("Impossible de telecharger le modele de contrats.");
+    }
+  };
+
+  const handleImportContracts = async () => {
+    if (!importFile) {
+      setImportError("Selectionnez un fichier de contrats a importer.");
+      return;
+    }
+    setImporting(true);
+    setImportError(null);
+    setImportReport(null);
+    try {
+      const report = await importCustomContractsFile(importFile, {
+        updateExisting: importUpdateExisting,
+      });
+      setImportReport(report);
+    } catch (error: unknown) {
+      console.error(error);
+      const apiDetail =
+        typeof error === "object" &&
+        error !== null &&
+        "response" in error
+          ? (error as { response?: { data?: { detail?: string } } }).response?.data?.detail
+          : undefined;
+      const message = typeof apiDetail === "string" ? apiDetail : "Erreur lors de l'import des contrats.";
+      setImportError(message);
+    } finally {
+      setImporting(false);
+    }
+  };
 
   return (
-    <div className="space-y-8">
-      <section className="rounded-[2.5rem] border border-cyan-400/15 bg-[linear-gradient(135deg,rgba(15,23,42,0.94),rgba(29,78,216,0.88),rgba(88,28,135,0.82))] p-8 shadow-2xl shadow-slate-950/30">
+    <div className="siirh-page">
+      <section className="rounded-[2rem] border border-sky-300/25 bg-[linear-gradient(135deg,rgba(15,23,42,0.95),rgba(30,58,138,0.90),rgba(12,74,110,0.90))] p-8 shadow-xl shadow-slate-900/20">
         <div className="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
           <div className="max-w-3xl">
             <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.28em] text-cyan-100">
@@ -158,12 +246,56 @@ export default function Contracts() {
           </div>
 
           <div className="mt-6 grid gap-4">
+            {latestContract ? (
+              <div className="rounded-2xl border border-cyan-400/20 bg-cyan-400/10 p-4 text-sm text-cyan-50">
+                <div className="text-xs uppercase tracking-[0.22em] text-cyan-100/70">Controle inspection</div>
+                <div className="mt-2 font-semibold text-white">{latestContract.title}</div>
+                <div className="mt-2 flex flex-wrap gap-2 text-xs">
+                  <span className="rounded-full border border-white/10 px-3 py-1 text-white">{latestContract.validation_status}</span>
+                  <span className="rounded-full border border-white/10 px-3 py-1 text-white">{latestContract.inspection_status}</span>
+                  <span className="rounded-full border border-white/10 px-3 py-1 text-white">Version {latestContract.active_version_number ?? 1}</span>
+                </div>
+                {latestContract.inspection_comment ? <p className="mt-3 text-slate-200">{latestContract.inspection_comment}</p> : <p className="mt-3 text-slate-300">Contrat actif immediate, controle inspection a posteriori conserve.</p>}
+              </div>
+            ) : null}
+            {contractGuidance ? (
+              <div className="rounded-2xl border border-amber-400/20 bg-amber-400/10 p-4 text-sm text-amber-50">
+                <div className="flex items-center gap-2 text-xs uppercase tracking-[0.22em] text-amber-100/70">
+                  <span>Assistant contrat Madagascar</span>
+                  <HelpTooltip item={contractsGuidanceHelp} role={session?.effective_role_code || session?.role_code} compact />
+                </div>
+                <div className="mt-2 font-semibold text-white">Type suggere: {contractGuidance.suggested_primary_type}</div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {contractGuidance.available_types.map((item) => (
+                    <span key={item} className={`rounded-full border px-3 py-1 text-xs ${item === contractGuidance.suggested_primary_type ? "border-amber-200/60 bg-amber-200/10 text-white" : "border-white/10 text-slate-100"}`}>
+                      {item}
+                    </span>
+                  ))}
+                </div>
+                <div className="mt-2 text-slate-200">Langues: {contractGuidance.language_options.join(" / ")}</div>
+                <div className="mt-2 text-slate-200">Champs a verifier: {contractGuidance.required_fields.join(", ")}</div>
+                {suggestedDefaults.length ? (
+                  <div className="mt-3 rounded-xl border border-white/10 bg-slate-950/20 p-3">
+                    <div className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-100/80">Valeurs pre-remplies conseillees</div>
+                    <div className="mt-2 grid gap-2 text-xs text-slate-100">
+                      {suggestedDefaults.map(([key, value]) => (
+                        <div key={key}>
+                          <span className="font-semibold">{key}</span>: {String(value)}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+                {contractGuidance.recommendations.map((item) => <div key={item} className="mt-2 text-slate-100">{item}</div>)}
+                {contractGuidance.alerts.map((item) => <div key={item.code} className="mt-2 text-amber-100">{item.message}</div>)}
+              </div>
+            ) : null}
             <div>
               <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">
                 Employeur
               </label>
               <select
-                value={selectedEmployerId ?? ""}
+                value={effectiveEmployerId ?? ""}
                 onChange={(event) => setSelectedEmployerId(Number(event.target.value))}
                 className={inputClassName}
               >
@@ -180,7 +312,7 @@ export default function Contracts() {
                 Salarie
               </label>
               <select
-                value={selectedWorkerId ?? ""}
+                value={effectiveWorkerId ?? ""}
                 onChange={(event) => setSelectedWorkerId(Number(event.target.value))}
                 className={inputClassName}
               >
@@ -214,18 +346,99 @@ export default function Contracts() {
             </div>
           </div>
 
-          {worker ? (
+          {canManageContractImport ? (
+            <div className="mt-6 rounded-2xl border border-cyan-400/20 bg-cyan-400/5 p-4">
+              <div className="flex flex-col gap-2">
+                <div className="text-sm font-semibold text-cyan-200">Import / Export Contrats (template)</div>
+                <p className="text-xs text-slate-400">
+                  Telechargez un modele puis importez les contrats en creation ou mise a jour de masse.
+                </p>
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleDownloadTemplate(false)}
+                  className="rounded-lg border border-cyan-300/30 bg-slate-900 px-3 py-2 text-xs font-medium text-cyan-200 hover:bg-slate-800"
+                >
+                  Telecharger modele
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleDownloadTemplate(true)}
+                  className="rounded-lg border border-cyan-300/30 bg-slate-900 px-3 py-2 text-xs font-medium text-cyan-200 hover:bg-slate-800"
+                >
+                  Export existants
+                </button>
+              </div>
+              <div className="mt-3 grid gap-2 md:grid-cols-[1fr_auto_auto] md:items-center">
+                <input
+                  type="file"
+                  accept=".xlsx,.xls,.csv"
+                  onChange={(event) => setImportFile(event.target.files?.[0] ?? null)}
+                  className="w-full rounded-lg border border-white/20 bg-slate-900 px-3 py-2 text-xs text-slate-200"
+                />
+                <label className="flex items-center gap-2 text-xs text-slate-300">
+                  <input
+                    type="checkbox"
+                    checked={importUpdateExisting}
+                    onChange={(event) => setImportUpdateExisting(event.target.checked)}
+                  />
+                  Mettre a jour
+                </label>
+                <button
+                  type="button"
+                  onClick={handleImportContracts}
+                  disabled={!importFile || importing}
+                  className="rounded-lg bg-cyan-400 px-4 py-2 text-xs font-semibold text-slate-900 hover:bg-cyan-300 disabled:opacity-50"
+                >
+                  {importing ? "Import..." : "Importer"}
+                </button>
+              </div>
+
+              {importError ? <p className="mt-2 text-xs text-rose-300">{importError}</p> : null}
+              {importReport ? (
+                <div className="mt-2 rounded-lg border border-white/10 bg-slate-900/50 px-3 py-2 text-xs text-slate-300">
+                  Creees: {importReport.created} | Maj: {importReport.updated} | Ignorees: {importReport.skipped} | Echec: {importReport.failed}
+                  {importReport.error_report_csv ? (
+                    <div className="mt-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const blob = new Blob([importReport.error_report_csv ?? ""], { type: "text/csv;charset=utf-8;" });
+                          const url = URL.createObjectURL(blob);
+                          const anchor = document.createElement("a");
+                          anchor.href = url;
+                          anchor.download = "contracts_import_errors.csv";
+                          document.body.appendChild(anchor);
+                          anchor.click();
+                          document.body.removeChild(anchor);
+                          URL.revokeObjectURL(url);
+                        }}
+                        className="rounded border border-cyan-300/30 px-3 py-1 text-xs text-cyan-200 hover:bg-cyan-400/10"
+                      >
+                        Telecharger erreurs CSV
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
+          {displayWorker ? (
             <div className="mt-8 rounded-[1.5rem] border border-white/10 bg-white/5 p-5">
               <div className="flex items-center gap-3">
                 <IdentificationIcon className="h-5 w-5 text-cyan-300" />
                 <div className="text-sm font-semibold text-white">
-                  {worker.nom} {worker.prenom}
+                  {displayWorker.nom} {displayWorker.prenom}
                 </div>
               </div>
               <div className="mt-4 space-y-2 text-sm text-slate-400">
-                <div>Poste: {worker.poste || "Non renseigne"}</div>
-                <div>Contrat: {worker.nature_contrat || "Non renseigne"}</div>
-                <div>Matricule: {worker.matricule || "Non renseigne"}</div>
+                <div>Poste: {displayWorker.poste || "Non renseigne"}</div>
+                <div>Contrat: {displayWorker.nature_contrat || "Non renseigne"}</div>
+                <div>Catégorie: {displayWorker.categorie_prof || "Non renseigne"}</div>
+                <div>Matricule: {displayWorker.matricule || "Non renseigne"}</div>
+                {workerData?.departement ? <div>Departement canonique: {workerData.departement}</div> : null}
               </div>
             </div>
           ) : null}

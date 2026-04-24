@@ -9,6 +9,21 @@ interface HierarchicalTreeProps {
   selectedNodeId?: number | null;
 }
 
+interface HierarchicalTreeNode {
+  id: number;
+  level: string;
+  name?: string | null;
+  code?: string | null;
+  description?: string | null;
+  worker_count?: number | null;
+  children?: HierarchicalTreeNode[];
+}
+
+interface HierarchicalTreeResponse {
+  tree?: HierarchicalTreeNode[];
+  total_units?: number;
+}
+
 const HierarchicalOrganizationTreeFinal: React.FC<HierarchicalTreeProps> = ({
   employerId,
   readonly = false,
@@ -24,7 +39,7 @@ const HierarchicalOrganizationTreeFinal: React.FC<HierarchicalTreeProps> = ({
         throw new Error('No employer ID provided');
       }
       const response = await api.get(`/organizational-structure/${employerId}/tree`);
-      return response.data;
+      return response.data as HierarchicalTreeResponse;
     },
     enabled: !!employerId && employerId > 0
   });
@@ -59,12 +74,42 @@ const HierarchicalOrganizationTreeFinal: React.FC<HierarchicalTreeProps> = ({
     }
   };
 
-  const renderNode = (node: any, depth: number = 0): React.ReactNode => {
+  const renderNode = (
+    node: HierarchicalTreeNode,
+    depth: number = 0,
+    visitedNodeIds: Set<number> = new Set(),
+  ): React.ReactNode => {
     if (!node || !node.id) return null;
+    if (visitedNodeIds.has(node.id)) {
+      return (
+        <div
+          key={`cycle-${node.id}`}
+          className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800"
+          style={{ marginLeft: `${depth * 20}px` }}
+        >
+          Cycle détecté sur l&apos;unité {node.name || node.id}. La branche a été interrompue.
+        </div>
+      );
+    }
+
+    if (depth > 12) {
+      return (
+        <div
+          key={`depth-${node.id}`}
+          className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800"
+          style={{ marginLeft: `${depth * 20}px` }}
+        >
+          Profondeur maximale atteinte. La branche a été tronquée.
+        </div>
+      );
+    }
 
     const hasChildren = Array.isArray(node.children) && node.children.length > 0;
     const isExpanded = expandedNodes.has(node.id);
     const isSelected = selectedNodeId === node.id;
+    const workerCount = node.worker_count ?? 0;
+    const nextVisited = new Set(visitedNodeIds);
+    nextVisited.add(node.id);
 
     return (
       <div key={`node-${node.id}`} className="select-none">
@@ -121,11 +166,11 @@ const HierarchicalOrganizationTreeFinal: React.FC<HierarchicalTreeProps> = ({
           <div className="flex items-center gap-2 text-xs">
             <div className="flex items-center gap-1">
               <span>👥</span>
-              <span>{node.worker_count || 0}</span>
+              <span>{workerCount}</span>
             </div>
             
             {/* Deletion Status Indicator */}
-            {(node.worker_count === 0 && (!node.children || node.children.length === 0)) ? (
+            {(workerCount === 0 && (!node.children || node.children.length === 0)) ? (
               <span 
                 className="text-green-600 bg-green-100 px-1 py-0.5 rounded text-xs"
                 title="Structure vide - Peut être supprimée"
@@ -136,8 +181,8 @@ const HierarchicalOrganizationTreeFinal: React.FC<HierarchicalTreeProps> = ({
               <span 
                 className="text-orange-600 bg-orange-100 px-1 py-0.5 rounded text-xs"
                 title={
-                  node.worker_count > 0 
-                    ? `Contient ${node.worker_count} salarié(s) - Suppression forcée requise`
+                  workerCount > 0 
+                    ? `Contient ${workerCount} salarié(s) - Suppression forcée requise`
                     : "Contient des sous-structures - Suppression forcée requise"
                 }
               >
@@ -150,7 +195,7 @@ const HierarchicalOrganizationTreeFinal: React.FC<HierarchicalTreeProps> = ({
         {/* Children */}
         {hasChildren && isExpanded && (
           <div className="mt-1">
-            {node.children.map((child: any) => renderNode(child, depth + 1))}
+            {node.children?.map((child) => renderNode(child, depth + 1, nextVisited))}
           </div>
         )}
       </div>
@@ -203,7 +248,7 @@ const HierarchicalOrganizationTreeFinal: React.FC<HierarchicalTreeProps> = ({
           </div>
         ) : (
           <div className="space-y-1">
-            {tree.map((node: any) => renderNode(node, 0))}
+            {tree.map((node) => renderNode(node, 0))}
           </div>
         )}
       </div>

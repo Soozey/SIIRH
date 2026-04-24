@@ -1,8 +1,26 @@
 import { useEffect, useState } from "react";
-import { useParams, useSearchParams, Link } from "react-router-dom";
-import { api } from "../api";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 import { ArrowLeftIcon, PrinterIcon, ArrowPathIcon, FunnelIcon } from "@heroicons/react/24/outline";
+import { api } from "../api";
 import PayslipDocument, { type PayslipData } from "../components/PayslipDocument";
+
+interface BulkPreviewParams {
+    employer_id: string;
+    period: string;
+    etablissement?: string;
+    departement?: string;
+    service?: string;
+    unite?: string;
+}
+
+interface ApiErrorPayload {
+    response?: {
+        data?: {
+            detail?: string;
+        };
+    };
+    message?: string;
+}
 
 export default function PayslipsBulk() {
     const { employerId, period } = useParams();
@@ -11,13 +29,12 @@ export default function PayslipsBulk() {
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
-    // Récupérer les filtres organisationnels depuis l'URL
     const etablissement = searchParams.get('etablissement');
     const departement = searchParams.get('departement');
     const service = searchParams.get('service');
     const unite = searchParams.get('unite');
 
-    const hasFilters = etablissement || departement || service || unite;
+    const hasFilters = Boolean(etablissement || departement || service || unite);
 
     useEffect(() => {
         const fetchData = async () => {
@@ -25,30 +42,27 @@ export default function PayslipsBulk() {
             setIsLoading(true);
             setError(null);
             try {
-                // Construire les paramètres avec les filtres organisationnels
-                const params: any = { 
-                    employer_id: employerId, 
-                    period 
+                const params: BulkPreviewParams = {
+                    employer_id: employerId,
+                    period
                 };
-                
-                // Ajouter les filtres organisationnels s'ils existent
+
                 if (etablissement) params.etablissement = etablissement;
                 if (departement) params.departement = departement;
                 if (service) params.service = service;
                 if (unite) params.unite = unite;
 
-                const res = await api.get<PayslipData[]>("/payroll/bulk-preview", {
-                    params
-                });
+                const res = await api.get<PayslipData[]>("/payroll/bulk-preview", { params });
                 setDataList(res.data);
-            } catch (err: any) {
-                console.error("Erreur bulk loading:", err);
-                setError("Impossible de charger les bulletins.");
+            } catch (err: unknown) {
+                const apiError = err as ApiErrorPayload;
+                setError(apiError.response?.data?.detail || apiError.message || "Impossible de charger les bulletins.");
             } finally {
                 setIsLoading(false);
             }
         };
-        fetchData();
+
+        void fetchData();
     }, [employerId, period, etablissement, departement, service, unite]);
 
     if (isLoading) {
@@ -56,7 +70,7 @@ export default function PayslipsBulk() {
             <div className="min-h-screen flex items-center justify-center bg-gray-50">
                 <div className="text-center">
                     <ArrowPathIcon className="h-12 w-12 animate-spin text-primary-600 mx-auto mb-4" />
-                    <p className="text-lg font-medium text-slate-600">Génération des bulletins en cours...</p>
+                    <p className="text-lg font-medium text-slate-600">Generation des bulletins en cours...</p>
                     <p className="text-sm text-slate-400">Cela peut prendre quelques secondes.</p>
                 </div>
             </div>
@@ -78,7 +92,6 @@ export default function PayslipsBulk() {
 
     return (
         <div className="bg-gray-100 min-h-screen pb-10 print:bg-white print:pb-0">
-            {/* Barre de navigation (masquée à l'impression) */}
             <div className="bg-white border-b border-gray-200 p-4 sticky top-0 z-10 print:hidden shadow-sm mb-8">
                 <div className="max-w-7xl mx-auto flex items-center justify-between">
                     <div className="flex items-center gap-4">
@@ -89,25 +102,15 @@ export default function PayslipsBulk() {
                             <h1 className="text-xl font-bold text-gray-800">Impression en masse</h1>
                             <div className="flex items-center gap-2">
                                 <p className="text-sm text-gray-500">
-                                    {dataList.length} bulletins générés pour {period}
+                                    {dataList.length} bulletins generes pour {period}
                                 </p>
                                 {hasFilters && (
                                     <div className="flex items-center gap-1 px-2 py-1 bg-blue-100 text-blue-700 text-xs font-medium rounded-full">
                                         <FunnelIcon className="h-3 w-3" />
-                                        Filtré
+                                        Filtre
                                     </div>
                                 )}
                             </div>
-                            {hasFilters && (
-                                <div className="text-xs text-gray-400 mt-1">
-                                    Filtres: {[
-                                        etablissement && `Établissement: ${etablissement}`,
-                                        departement && `Département: ${departement}`,
-                                        service && `Service: ${service}`,
-                                        unite && `Unité: ${unite}`
-                                    ].filter(Boolean).join(' • ')}
-                                </div>
-                            )}
                         </div>
                     </div>
                     <button
@@ -120,11 +123,10 @@ export default function PayslipsBulk() {
                 </div>
             </div>
 
-            {/* Liste des bulletins */}
             <div className="max-w-[210mm] mx-auto print:max-w-none print:w-full bulk-print-container">
                 {dataList.length === 0 ? (
                     <div className="text-center py-20 text-gray-500">
-                        Aucun bulletin trouvé pour cette période.
+                        Aucun bulletin trouve pour cette periode.
                     </div>
                 ) : (
                     dataList.map((payslipData, index) => (
