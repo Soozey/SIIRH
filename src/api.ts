@@ -595,10 +595,26 @@ export async function previewWorkersImport(file: File, updateExisting: boolean):
 export async function mapWorkersImportTemplate(file: File): Promise<void> {
   const formData = new FormData();
   formData.append("file", file);
-  const response = await api.post("/workers/import/map-template", formData, {
-    headers: { "Content-Type": "multipart/form-data" },
-    responseType: "blob",
-  });
+  let response;
+  try {
+    response = await api.post("/workers/import/map-template", formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+      responseType: "blob",
+    });
+  } catch (error) {
+    if (axios.isAxiosError(error) && error.response?.data instanceof Blob) {
+      const raw = await error.response.data.text();
+      let detail = raw || "Mapping impossible.";
+      try {
+        const parsed = JSON.parse(raw);
+        detail = parsed.detail || raw;
+      } catch {
+        detail = raw || "Mapping impossible.";
+      }
+      throw new Error(Array.isArray(detail) ? detail.map((item) => item.msg || String(item)).join("; ") : String(detail));
+    }
+    throw error;
+  }
   const url = window.URL.createObjectURL(new Blob([response.data]));
   const link = document.createElement("a");
   link.href = url;

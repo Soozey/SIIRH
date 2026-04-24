@@ -82,7 +82,7 @@ export default function ImportWorkersDialog({ isOpen, onClose }: Props) {
             await mapWorkersImportTemplate(file);
         } catch (error) {
             console.error("Erreur mapping", error);
-            setErrorMessage("Erreur lors du mapping du fichier. Vérifiez que le fichier Excel contient des colonnes et des lignes.");
+            setErrorMessage(error instanceof Error ? error.message : "Erreur lors du mapping du fichier.");
         } finally {
             setIsMapping(false);
         }
