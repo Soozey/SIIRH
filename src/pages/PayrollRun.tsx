@@ -92,8 +92,18 @@ const isJournalNumericColumn = (columnId: string) =>
   columnId.includes("13ème") ||
   columnId.includes("Avantage");
 
+const isNumericLikeValue = (value: unknown) => {
+  if (value === null || value === undefined || value === "") return false;
+  if (typeof value === "number") return Number.isFinite(value);
+  if (typeof value !== "string") return false;
+  const normalized = value.replace(/\s/g, "").replace(",", ".");
+  return normalized !== "" && Number.isFinite(Number(normalized));
+};
+
 const toJournalNumber = (value: unknown) => {
-  const numeric = Number(value);
+  const numeric = typeof value === "string"
+    ? Number(value.replace(/\s/g, "").replace(",", "."))
+    : Number(value);
   return Number.isFinite(numeric) ? Math.abs(numeric) : 0;
 };
 
@@ -426,7 +436,13 @@ export default function PayrollRun() {
   };
 
   const getJournalColumnTotal = (columnId: string) => {
-    if (!isJournalNumericColumn(columnId)) return null;
+    const values = journalData
+      .map((row) => row[columnId])
+      .filter((value) => value !== null && value !== undefined && value !== "");
+    const hasNumericValues = values.some(isNumericLikeValue);
+    const hasOnlyNumericValues = values.length > 0 && values.every(isNumericLikeValue);
+    if (!isJournalNumericColumn(columnId) && !hasOnlyNumericValues) return null;
+    if (!hasNumericValues) return null;
     return journalData.reduce((sum, row) => sum + toJournalNumber(row[columnId]), 0);
   };
 
