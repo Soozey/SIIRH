@@ -865,7 +865,7 @@ export default function Workers() {
   }, [form.code_banque, form.code_guichet, form.compte_num, form.cle_rib]);
 
   return (
-    <div className="siirh-page min-h-screen bg-gray-50 p-4 md:p-6">
+    <div className="siirh-page-shell">
       <datalist id="workers-professional-classification">
         {classificationOptions.map((option) => (
           <option key={`${option.code}-${option.label}`} value={option.code}>
@@ -875,53 +875,53 @@ export default function Workers() {
         ))}
       </datalist>
       {/* Header */}
-      <div className="bg-gradient-to-r from-slate-900 via-blue-900 to-cyan-900 rounded-2xl p-6 mb-6 shadow-lg print:hidden">
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-          <div className="flex items-center gap-4">
-            <div className="p-3 bg-white/20 rounded-xl backdrop-blur-sm">
-              <BriefcaseIcon className="h-8 w-8 text-white" />
+      <div className="siirh-hero print:hidden">
+        <div className="siirh-section-header">
+          <div className="flex items-start gap-4">
+            <div className="siirh-icon-tile">
+              <BriefcaseIcon className="h-6 w-6" />
             </div>
             <div>
-              <h1 className="text-2xl md:text-3xl font-bold text-white">
-                Gestion des Travailleurs
+              <div className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-700">Effectifs</div>
+              <h1 className="mt-1 text-2xl font-semibold tracking-tight text-slate-900 md:text-3xl">
+                Employés
               </h1>
-              <p className="text-blue-100 mt-1">
-                {totalWorkers} travailleur(s) enregistré(s)
+              <p className="mt-2 text-sm text-slate-600">
+                {totalWorkers} salarié(s) enregistré(s), avec recherche, import Excel, documents et dossier permanent.
                 {hasHomonyms && (
-                  <span className="ml-2 inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-yellow-500/20 text-yellow-100 border border-yellow-400/30">
+                  <span className="ml-2 inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200">
                     <ExclamationTriangleIcon className="h-3 w-3 mr-1" />
-                    {Object.keys(homonymGroups).length} groupe(s) d'homonymes détecté(s)
+                    {Object.keys(homonymGroups).length} groupe(s) d'homonymes
                   </span>
                 )}
               </p>
             </div>
-            <div className="rounded-xl bg-slate-900 px-4 py-3 text-right">
-              <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-400">Volume</div>
-              <div className="mt-1 text-lg font-semibold text-white">{totalWorkers}</div>
-              <div className="text-xs text-slate-400">page {page} / {totalPages}</div>
-            </div>
           </div>
 
-          {/* Search Bar - Enhanced with Matricule Support */}
-          <div className="flex-1 w-full md:max-w-md mx-0 md:mx-4">
+          <div className="grid w-full gap-3 lg:w-auto lg:grid-cols-[minmax(280px,420px)_auto]">
             <div className="relative group">
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <MagnifyingGlassIcon className="h-5 w-5 text-blue-200 group-focus-within:text-white transition-colors" />
+                <MagnifyingGlassIcon className="h-5 w-5 text-slate-400 group-focus-within:text-sky-600 transition-colors" />
               </div>
               <input
                 type="text"
-                placeholder="Recherche par matricule, nom ou prénom"
+                placeholder="Rechercher matricule, nom ou prénom"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="block w-full pl-10 pr-3 py-2 bg-white/10 border border-white/20 rounded-xl leading-5 text-white placeholder-blue-200 focus:outline-none focus:bg-white/20 focus:ring-2 focus:ring-white/50 focus:border-transparent transition-all sm:text-sm backdrop-blur-sm"
+                className="siirh-input pl-10"
               />
             </div>
+            <div className="siirh-hero-kpi text-right">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Page</div>
+              <div className="mt-1 text-sm font-semibold text-slate-900">{page} / {totalPages}</div>
+            </div>
           </div>
-          <div className="flex gap-3 w-full md:w-auto">
+
+          <div className="flex flex-wrap gap-3">
             {canWriteWorkforce ? (
               <button
                 onClick={() => setImportModalOpen(true)}
-                className="flex-1 md:flex-none inline-flex items-center justify-center gap-2 px-4 py-2 bg-white/20 hover:bg-white/30 text-white font-medium rounded-xl transition-all backdrop-blur-sm"
+                className="siirh-btn-secondary"
               >
                 <DocumentTextIcon className="h-5 w-5" />
                 Importer Excel
@@ -931,17 +931,17 @@ export default function Workers() {
               <button
                 type="button"
                 onClick={() => setResetModalOpen(true)}
-                className="flex-1 md:flex-none inline-flex items-center justify-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white font-medium rounded-xl transition-all shadow-lg"
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-amber-600"
               >
                 <ArrowPathIcon className="h-5 w-5" />
-                Réinitialiser employés
+                Réinitialiser
               </button>
             ) : null}
             {/* Bouton Supprimer Sélection */}
             {canDeleteWorkers && selectedIds.size > 0 && (
               <button
                 onClick={handleDeleteSelection}
-                className="flex-1 md:flex-none inline-flex items-center justify-center gap-2 px-4 py-2 bg-red-500 hover:bg-red-600 text-white font-medium rounded-xl transition-all shadow-lg animate-in fade-in zoom-in duration-200"
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-red-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-red-700"
               >
                 <TrashIcon className="h-5 w-5" />
                 Désactiver ({selectedIds.size})
@@ -1022,10 +1022,10 @@ export default function Workers() {
                 });
                   setOpenModal(true);
                 }}
-                className="inline-flex items-center gap-2 bg-white text-blue-600 hover:bg-gray-50 px-6 py-3 rounded-xl font-semibold shadow-lg transition-all duration-200 hover:shadow-xl transform hover:-translate-y-0.5"
+                className="siirh-btn-primary"
               >
                 <PlusIcon className="h-5 w-5" />
-                Nouveau Travailleur
+                Nouvel employé
               </button>
             ) : null}
           </div>
@@ -1033,16 +1033,16 @@ export default function Workers() {
       </div>
 
       {/* Employer Filter */}
-      <div className="bg-white rounded-2xl p-5 mb-6 shadow-sm border border-gray-200 print:hidden">
-        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+      <div className="siirh-panel print:hidden">
+        <div className="siirh-section-header">
           <div className="flex items-start gap-3">
-            <div className="p-2 bg-blue-100 rounded-lg">
-              <BuildingOfficeIcon className="h-5 w-5 text-blue-600" />
+            <div className="siirh-icon-tile">
+              <BuildingOfficeIcon className="h-5 w-5" />
             </div>
             <div>
-              <h2 className="text-lg font-semibold text-gray-900">Filtrer par Employeur</h2>
+              <h2 className="text-lg font-semibold text-slate-900">Filtrer par employeur</h2>
               <p className="text-sm text-gray-600">
-                Selectionnez un employeur pour filtrer la liste des travailleurs.
+                Sélectionnez un employeur pour filtrer la liste sans modifier les données.
               </p>
             </div>
           </div>
@@ -1058,7 +1058,7 @@ export default function Workers() {
                 const value = e.target.value;
                 setSelectedEmployerFilter(value === "all" ? "all" : Number(value));
               }}
-              className="min-w-[220px] rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+              className="siirh-input min-w-[240px]"
             >
               <option value="all">Tous les employeurs</option>
               {employers.map((emp) => (
@@ -1067,7 +1067,7 @@ export default function Workers() {
                 </option>
               ))}
             </select>
-            <span className="text-sm text-gray-500">{totalWorkers} affiche(s)</span>
+            <span className="status-neutral">{totalWorkers} affiché(s)</span>
           </div>
         </div>
       </div>

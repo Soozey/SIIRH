@@ -209,34 +209,33 @@ export default function Dashboard() {
 
   return (
     <div className="siirh-page">
-      <section className="rounded-[2rem] border border-sky-300/25 bg-[linear-gradient(135deg,rgba(15,23,42,0.96),rgba(30,58,138,0.90),rgba(12,74,110,0.90))] p-8 shadow-xl shadow-slate-900/20">
-        <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+      <section className="siirh-hero-dark">
+        <div className="siirh-section-header">
           <div className="max-w-3xl">
-            <div className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-sky-100">
+            <div className="inline-flex items-center gap-2 rounded-full border border-cyan-400/25 bg-cyan-400/10 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-cyan-100">
               SIIRH / SIHMADA
             </div>
-            <h1 className="mt-6 text-[2.75rem] font-semibold tracking-tight text-white lg:text-[3rem]">
-              Plateforme RH, paie et conformite
+            <h1 className="mt-5 text-3xl font-semibold tracking-tight text-white md:text-4xl">
+              Pilotage RH opérationnel
             </h1>
-            <p className="mt-3 max-w-2xl text-base leading-8 text-cyan-50/90">
-              Les modules prioritaires du cahier des charges sont exposes depuis
-              l&apos;accueil: recrutement, contrats, structure, talents, SST,
-              declarations, paie et reporting.
+            <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-300 md:text-base">
+              Vue consolidée des modules actifs, reliée aux données backend existantes :
+              effectifs, employeurs, contrats, recrutement, conformité et reporting.
             </p>
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-3">
-            <div className="rounded-[1.5rem] border border-white/10 bg-slate-950/30 px-5 py-4">
-              <div className="text-sm uppercase tracking-[0.24em] text-cyan-100/70">Employeurs</div>
-              <div className="mt-3 text-[2.1rem] font-semibold text-white">{formatCount(employers.length)}</div>
+          <div className="grid w-full gap-3 sm:grid-cols-3 lg:w-auto">
+            <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-3">
+              <div className="text-xs uppercase tracking-[0.18em] text-cyan-100/70">Employeurs</div>
+              <div className="mt-2 text-2xl font-semibold text-white">{formatCount(employers.length)}</div>
             </div>
-            <div className="rounded-[1.5rem] border border-white/10 bg-slate-950/30 px-5 py-4">
-              <div className="text-sm uppercase tracking-[0.24em] text-cyan-100/70">Salaries</div>
-              <div className="mt-3 text-[2.1rem] font-semibold text-white">{formatCount(workersSummary?.total ?? 0)}</div>
+            <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-3">
+              <div className="text-xs uppercase tracking-[0.18em] text-cyan-100/70">Salariés</div>
+              <div className="mt-2 text-2xl font-semibold text-white">{formatCount(workersSummary?.total ?? 0)}</div>
             </div>
-            <div className="rounded-[1.5rem] border border-white/10 bg-slate-950/30 px-5 py-4">
-              <div className="text-sm uppercase tracking-[0.24em] text-cyan-100/70">Postes</div>
-              <div className="mt-3 text-[2.1rem] font-semibold text-white">{formatCount(jobs.length)}</div>
+            <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-3">
+              <div className="text-xs uppercase tracking-[0.18em] text-cyan-100/70">Postes</div>
+              <div className="mt-2 text-2xl font-semibold text-white">{formatCount(jobs.length)}</div>
             </div>
           </div>
         </div>
@@ -249,9 +248,9 @@ export default function Dashboard() {
               <Squares2X2Icon className="h-6 w-6 text-cyan-300" />
             </div>
             <div>
-              <h2 className="text-xl font-semibold text-white">Modules disponibles</h2>
-              <p className="text-base text-slate-400">
-                Acces directs aux parcours RH prioritaires.
+              <h2 className="text-xl font-semibold text-slate-900">Modules disponibles</h2>
+              <p className="text-sm text-slate-600">
+                Accès directs aux parcours RH prioritaires.
               </p>
             </div>
           </div>
@@ -264,7 +263,7 @@ export default function Dashboard() {
                 <Link
                   key={module.path}
                   to={module.path}
-                    className="group rounded-[1.2rem] border border-slate-200 bg-white/80 p-5 transition hover:-translate-y-0.5 hover:border-sky-300"
+                    className="siirh-action-card group"
                   >
                   <div className="flex items-start justify-between gap-4">
                     <div className="rounded-2xl border border-white/10 bg-slate-900/80 p-3">
@@ -276,7 +275,7 @@ export default function Dashboard() {
                   </div>
 
                   <div className="mt-5">
-                    <h3 className="text-xl font-semibold text-slate-900">{module.title}</h3>
+                    <h3 className="text-lg font-semibold text-slate-900">{module.title}</h3>
                     <p className="mt-2 text-[15px] leading-7 text-slate-600">{module.description}</p>
                     {module.metric ? (
                       <div className="mt-4 text-[15px] font-medium text-sky-700">{module.metric}</div>
@@ -295,51 +294,51 @@ export default function Dashboard() {
                 <UserGroupIcon className="h-6 w-6 text-amber-200" />
               </div>
               <div>
-                <h2 className="text-2xl font-semibold text-white">Parcours RH exposes</h2>
-                <p className="text-base text-slate-400">Visibilite immediate cote demo.</p>
+                <h2 className="text-xl font-semibold text-slate-900">Parcours RH exposés</h2>
+                <p className="text-sm text-slate-600">Vue immédiate des processus ouverts.</p>
               </div>
             </div>
 
             <div className="mt-6 space-y-4">
-              <div className="rounded-[1.5rem] border border-white/10 bg-white/5 px-5 py-4">
-                <div className="text-base font-semibold text-white">Administration du personnel</div>
-                <div className="mt-2 text-[15px] text-slate-400">
+              <div className="rounded-xl border border-slate-200 bg-slate-50 px-5 py-4">
+                <div className="text-base font-semibold text-slate-900">Administration du personnel</div>
+                <div className="mt-2 text-sm text-slate-600">
                   Employeurs, travailleurs, contrats et structure organisationnelle.
                 </div>
               </div>
-              <div className="rounded-[1.5rem] border border-white/10 bg-white/5 px-5 py-4">
-                <div className="text-base font-semibold text-white">Cycle RH et talents</div>
-                <div className="mt-2 text-[15px] text-slate-400">
-                  Recrutement, competences, formation, SST et suivi documentaire.
+              <div className="rounded-xl border border-slate-200 bg-slate-50 px-5 py-4">
+                <div className="text-base font-semibold text-slate-900">Cycle RH et talents</div>
+                <div className="mt-2 text-sm text-slate-600">
+                  Recrutement, compétences, formation, SST et suivi documentaire.
                 </div>
               </div>
-              <div className="rounded-[1.5rem] border border-white/10 bg-white/5 px-5 py-4">
-                <div className="text-base font-semibold text-white">Paie et conformite</div>
-                <div className="mt-2 text-[15px] text-slate-400">
-                  Paie preservee, declarations et reporting exposes sans toucher au moteur.
+              <div className="rounded-xl border border-slate-200 bg-slate-50 px-5 py-4">
+                <div className="text-base font-semibold text-slate-900">Paie et conformité</div>
+                <div className="mt-2 text-sm text-slate-600">
+                  Paie préservée, déclarations et reporting exposés sans toucher au moteur.
                 </div>
               </div>
             </div>
           </section>
 
           <section className={shellCardClassName}>
-            <h2 className="text-2xl font-semibold text-white">Acces rapide</h2>
+            <h2 className="text-xl font-semibold text-slate-900">Accès rapide</h2>
             <div className="mt-5 grid gap-3">
               <Link
                 to="/workers"
-                className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-[15px] font-medium text-slate-200 transition hover:border-cyan-300/40 hover:text-white"
+                className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-700 transition hover:border-cyan-300 hover:bg-white"
               >
-                Ouvrir les dossiers salaries
+                Ouvrir les dossiers salariés
               </Link>
               <Link
                 to="/payroll"
-                className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-[15px] font-medium text-slate-200 transition hover:border-cyan-300/40 hover:text-white"
+                className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-700 transition hover:border-cyan-300 hover:bg-white"
               >
                 Ouvrir la paie
               </Link>
               <Link
                 to="/reporting"
-                className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-[15px] font-medium text-slate-200 transition hover:border-cyan-300/40 hover:text-white"
+                className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-700 transition hover:border-cyan-300 hover:bg-white"
               >
                 Ouvrir le reporting
               </Link>
@@ -355,27 +354,27 @@ export default function Dashboard() {
               <ShieldCheckIcon className="h-6 w-6 text-emerald-300" />
             </div>
             <div>
-              <h2 className="text-xl font-semibold text-white">SIIRH LEGAL MODULES STATUS</h2>
-              <p className="text-base text-slate-400">Etat visible des workflows juridiques relies au backend reel.</p>
+              <h2 className="text-xl font-semibold text-slate-900">Statut des modules légaux SIIRH</h2>
+              <p className="text-sm text-slate-600">État visible des workflows juridiques reliés au backend réel.</p>
             </div>
           </div>
 
           <div className="mt-6 grid gap-4 md:grid-cols-4">
             <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-4">
-              <div className="text-xs uppercase tracking-[0.2em] text-emerald-200">Modules implemented</div>
-              <div className="mt-3 text-3xl font-semibold text-white">{legalStatus?.modules_implemented ?? 0}</div>
+              <div className="text-xs uppercase tracking-[0.16em] text-emerald-700">Modules</div>
+              <div className="mt-3 text-3xl font-semibold text-slate-900">{legalStatus?.modules_implemented ?? 0}</div>
             </div>
             <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-4">
-              <div className="text-xs uppercase tracking-[0.2em] text-emerald-200">Procedures created</div>
-              <div className="mt-3 text-3xl font-semibold text-white">{legalStatus?.procedures_created ?? 0}</div>
+              <div className="text-xs uppercase tracking-[0.16em] text-emerald-700">Procédures</div>
+              <div className="mt-3 text-3xl font-semibold text-slate-900">{legalStatus?.procedures_created ?? 0}</div>
             </div>
             <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-4">
-              <div className="text-xs uppercase tracking-[0.2em] text-emerald-200">PV generated</div>
-              <div className="mt-3 text-3xl font-semibold text-white">{legalStatus?.pv_generated ?? 0}</div>
+              <div className="text-xs uppercase tracking-[0.16em] text-emerald-700">PV générés</div>
+              <div className="mt-3 text-3xl font-semibold text-slate-900">{legalStatus?.pv_generated ?? 0}</div>
             </div>
             <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-4">
-              <div className="text-xs uppercase tracking-[0.2em] text-emerald-200">Test cases</div>
-              <div className="mt-3 text-3xl font-semibold text-white">{legalStatus?.test_cases ?? 0}</div>
+              <div className="text-xs uppercase tracking-[0.16em] text-emerald-700">Tests</div>
+              <div className="mt-3 text-3xl font-semibold text-slate-900">{legalStatus?.test_cases ?? 0}</div>
             </div>
           </div>
 
@@ -405,8 +404,8 @@ export default function Dashboard() {
         </div>
 
         <div className={shellCardClassName}>
-          <h2 className="text-xl font-semibold text-white">Legal Access Coverage</h2>
-          <p className="mt-2 text-base text-slate-400">Profils actives pour controle, contentieux et lecture externe.</p>
+          <h2 className="text-xl font-semibold text-slate-900">Couverture des accès légaux</h2>
+          <p className="mt-2 text-sm text-slate-600">Profils activés pour contrôle, contentieux et lecture externe.</p>
           <div className="mt-6 flex flex-wrap gap-2">
             {(legalStatus?.role_coverage ?? []).map((item) => (
               <span key={item} className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-200">{item}</span>
