@@ -19,6 +19,7 @@ from .. import models, schemas
 from ..config.config import get_db
 from ..security import WRITE_RH_ROLES, can_manage_worker, require_roles
 from ..services.audit_service import record_audit
+from ..services.data_mapping_service import DataMappingError, map_user_excel_to_template
 from ..services.master_data_service import sync_worker_master_data
 from ..services.tabular_io import dataframe_to_csv_bytes, issues_to_csv, normalize_header, read_tabular_bytes
 
@@ -92,7 +93,10 @@ REQUIRED_COLUMNS = ["Matricule", "Nom"]
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 COLUMN_ALIASES = {
-    "Prenom": ["Prénom", "First Name"],
+    "Prenom": ["Prénom", "Prenoms", "First Name"],
+    "Matricule": ["Matricules", "Employee ID", "ID salarie"],
+    "Nom": ["Noms", "Last Name", "Nom de famille"],
+    "Date Embauche (JJ/MM/AAAA)": ["Date Embauche", "Date d'embauche", "Date entree"],
     "Date Debut Contrat (JJ/MM/AAAA)": ["Date Debut Contrat", "Date debut"],
     "Date Fin Contrat (JJ/MM/AAAA)": ["Date Fin Contrat", "Date fin"],
     "Nature du Contrat": ["Type Contrat", "Contract Type"],
@@ -1123,6 +1127,33 @@ def get_workers_import_template(
         content=content,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.post("/map-template")
+def map_workers_import_template(
+    file: UploadFile = File(...),
+    user: models.AppUser = Depends(require_roles(*WRITE_RH_ROLES)),
+):
+    logger.info(
+        "workers.import.map_template filename=%s user_id=%s",
+        file.filename,
+        getattr(user, "id", None),
+    )
+    try:
+        mapped_df = map_user_excel_to_template(
+            file.file.read(),
+            WORKER_TEMPLATE_COLUMNS,
+            aliases=COLUMN_ALIASES,
+        )
+    except DataMappingError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    content = _build_workers_template_xlsx(mapped_df)
+    return Response(
+        content=content,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="salaries_mapped_siirh.xlsx"'},
     )
 
 
