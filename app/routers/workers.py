@@ -1,16 +1,30 @@
+from datetime import datetime, timezone
+import logging
 from math import ceil
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import List
 from ..config.config import get_db
-from datetime import datetime
 from .. import models, schemas
-from ..security import READ_PAYROLL_ROLES, WRITE_RH_ROLES, can_access_worker, can_manage_worker, get_current_user, require_roles
+from ..security import (
+    READ_PAYROLL_ROLES,
+    WRITE_RH_ROLES,
+    can_access_worker,
+    can_manage_worker,
+    get_user_active_role_codes,
+    get_inspector_assigned_employer_ids,
+    get_current_user,
+    get_user_effective_base_roles,
+    require_roles,
+)
 from ..services.audit_service import record_audit
 from ..services.master_data_service import sync_worker_master_data
+from ..services.organizational_filters import apply_worker_hierarchy_filters
+from ..services.organizational_service import OrganizationalService
 
 router = APIRouter(prefix="/workers", tags=["workers"])
+logger = logging.getLogger(__name__)
 
 from typing import Optional
 
@@ -33,22 +47,187 @@ def _apply_worker_search(query, q: Optional[str]):
 
 
 def _apply_worker_scope(query, db: Session, user: models.AppUser):
-    if user.role_code in {"admin", "rh", "comptable", "audit"}:
+    effective_roles = get_user_effective_base_roles(db, user)
+    if effective_roles.intersection({"admin", "rh", "comptable", "audit"}):
         return query
-    if user.role_code in {"employeur", "direction", "juridique", "recrutement", "inspecteur"} and user.employer_id:
+    if "inspecteur" in effective_roles:
+        employer_ids = get_inspector_assigned_employer_ids(db, user)
+        if employer_ids:
+            return query.filter(models.Worker.employer_id.in_(sorted(employer_ids)))
+    if effective_roles.intersection({"employeur", "direction", "juridique", "recrutement"}) and user.employer_id:
         return query.filter(models.Worker.employer_id == user.employer_id)
-    if user.role_code == "employe" and user.worker_id:
+    if "employe" in effective_roles and user.worker_id:
         return query.filter(models.Worker.id == user.worker_id)
-    if user.role_code in {"manager", "departement"} and user.worker_id:
+    if effective_roles.intersection({"manager", "departement"}) and user.worker_id:
         manager_worker = db.query(models.Worker).filter(models.Worker.id == user.worker_id).first()
         if manager_worker and manager_worker.organizational_unit_id:
             return query.filter(models.Worker.organizational_unit_id == manager_worker.organizational_unit_id)
     return query.filter(models.Worker.id == -1)
 
+
+def _ensure_admin(user: models.AppUser, db: Session) -> None:
+    if "admin" not in get_user_effective_base_roles(db, user):
+        raise HTTPException(status_code=403, detail="Action réservée à l'administrateur")
+
+
+def _ensure_worker_delete_role(user: models.AppUser, db: Session) -> None:
+    allowed_roles = {"drh", "rh"}
+    active_roles = {role.strip().lower() for role in get_user_active_role_codes(db, user)}
+    primary_role = (user.role_code or "").strip().lower()
+    if primary_role:
+        active_roles.add(primary_role)
+    if not active_roles.intersection(allowed_roles):
+        raise HTTPException(status_code=403, detail="Suppression autorisée uniquement pour DRH et Gestionnaire RH.")
+
+
+def _soft_delete_worker(db: Session, worker: models.Worker, user: models.AppUser) -> None:
+    timestamp = datetime.now(timezone.utc).replace(tzinfo=None)
+    worker.is_active = False
+    worker.deleted_at = timestamp
+    worker.deleted_by_user_id = user.id if user else None
+    linked_users = db.query(models.AppUser).filter(models.AppUser.worker_id == worker.id).all()
+    for linked_user in linked_users:
+        linked_user.is_active = False
+    db.query(models.AuthSession).filter(
+        models.AuthSession.user_id.in_([item.id for item in linked_users])
+    ).update({"revoked_at": timestamp}, synchronize_session=False)
+
+
+def _purge_worker_dependencies(db: Session, worker_ids: list[int]) -> None:
+    if not worker_ids:
+        return
+
+    contract_ids = [
+        item[0]
+        for item in db.query(models.CustomContract.id).filter(models.CustomContract.worker_id.in_(worker_ids)).all()
+    ]
+    contract_version_ids = [
+        item[0]
+        for item in db.query(models.ContractVersion.id).filter(models.ContractVersion.worker_id.in_(worker_ids)).all()
+    ]
+    portal_request_ids = [
+        item[0]
+        for item in db.query(models.EmployeePortalRequest.id).filter(models.EmployeePortalRequest.worker_id.in_(worker_ids)).all()
+    ]
+    leave_request_ids = [
+        item[0]
+        for item in db.query(models.LeaveRequest.id).filter(models.LeaveRequest.worker_id.in_(worker_ids)).all()
+    ]
+    training_need_ids = [
+        item[0]
+        for item in db.query(models.TrainingNeed.id).filter(models.TrainingNeed.worker_id.in_(worker_ids)).all()
+    ]
+    inspector_case_ids = {
+        item[0]
+        for item in db.query(models.InspectorCase.id).filter(models.InspectorCase.worker_id.in_(worker_ids)).all()
+    }
+    if portal_request_ids:
+        inspector_case_ids.update(
+            item[0]
+            for item in db.query(models.InspectorCase.id).filter(models.InspectorCase.portal_request_id.in_(portal_request_ids)).all()
+        )
+    if contract_ids:
+        inspector_case_ids.update(
+            item[0]
+            for item in db.query(models.InspectorCase.id).filter(models.InspectorCase.contract_id.in_(contract_ids)).all()
+        )
+
+    db.query(models.IamUserRole).filter(models.IamUserRole.worker_id.in_(worker_ids)).update(
+        {"worker_id": None, "is_active": False}, synchronize_session=False
+    )
+    linked_user_ids = [
+        item[0]
+        for item in db.query(models.AppUser.id).filter(models.AppUser.worker_id.in_(worker_ids)).all()
+    ]
+    if linked_user_ids:
+        db.query(models.AuthSession).filter(models.AuthSession.user_id.in_(linked_user_ids)).delete(synchronize_session=False)
+        db.query(models.AppUser).filter(models.AppUser.id.in_(linked_user_ids)).update(
+            {"worker_id": None, "is_active": False}, synchronize_session=False
+        )
+
+    if leave_request_ids:
+        db.query(models.AttendanceLeaveReconciliation).filter(
+            models.AttendanceLeaveReconciliation.leave_request_id.in_(leave_request_ids)
+        ).delete(synchronize_session=False)
+        db.query(models.LeaveRequestHistory).filter(
+            models.LeaveRequestHistory.leave_request_id.in_(leave_request_ids)
+        ).delete(synchronize_session=False)
+        db.query(models.LeaveRequestApproval).filter(
+            models.LeaveRequestApproval.leave_request_id.in_(leave_request_ids)
+        ).delete(synchronize_session=False)
+        db.query(models.LeaveRequest).filter(models.LeaveRequest.id.in_(leave_request_ids)).delete(synchronize_session=False)
+
+    if inspector_case_ids:
+        db.query(models.TerminationWorkflow).filter(
+            models.TerminationWorkflow.inspection_case_id.in_(inspector_case_ids)
+        ).delete(synchronize_session=False)
+        db.query(models.DisciplinaryCase).filter(
+            models.DisciplinaryCase.inspection_case_id.in_(inspector_case_ids)
+        ).delete(synchronize_session=False)
+
+    if portal_request_ids:
+        db.query(models.InspectorCase).filter(models.InspectorCase.portal_request_id.in_(portal_request_ids)).delete(synchronize_session=False)
+    db.query(models.EmployeePortalRequest).filter(models.EmployeePortalRequest.worker_id.in_(worker_ids)).delete(synchronize_session=False)
+    db.query(models.LeavePlanningProposal).filter(models.LeavePlanningProposal.worker_id.in_(worker_ids)).delete(synchronize_session=False)
+    db.query(models.InspectorCase).filter(models.InspectorCase.worker_id.in_(worker_ids)).delete(synchronize_session=False)
+    db.query(models.ComplianceReview).filter(models.ComplianceReview.worker_id.in_(worker_ids)).delete(synchronize_session=False)
+    db.query(models.TerminationWorkflow).filter(models.TerminationWorkflow.worker_id.in_(worker_ids)).delete(synchronize_session=False)
+    db.query(models.DisciplinaryCase).filter(models.DisciplinaryCase.worker_id.in_(worker_ids)).delete(synchronize_session=False)
+    db.query(models.TrainingEvaluation).filter(models.TrainingEvaluation.worker_id.in_(worker_ids)).delete(synchronize_session=False)
+    db.query(models.TrainingPlanItem).filter(models.TrainingPlanItem.worker_id.in_(worker_ids)).delete(synchronize_session=False)
+    if training_need_ids:
+        db.query(models.TrainingPlanItem).filter(models.TrainingPlanItem.need_id.in_(training_need_ids)).delete(synchronize_session=False)
+    db.query(models.TrainingNeed).filter(models.TrainingNeed.worker_id.in_(worker_ids)).delete(synchronize_session=False)
+    db.query(models.PerformanceReview).filter(models.PerformanceReview.worker_id.in_(worker_ids)).delete(synchronize_session=False)
+    db.query(models.TalentEmployeeSkill).filter(models.TalentEmployeeSkill.worker_id.in_(worker_ids)).delete(synchronize_session=False)
+
+    if contract_version_ids:
+        db.query(models.ComplianceReview).filter(models.ComplianceReview.contract_version_id.in_(contract_version_ids)).delete(synchronize_session=False)
+        db.query(models.EmployerRegisterEntry).filter(models.EmployerRegisterEntry.contract_version_id.in_(contract_version_ids)).delete(synchronize_session=False)
+        db.query(models.ContractVersion).filter(models.ContractVersion.id.in_(contract_version_ids)).delete(synchronize_session=False)
+    if contract_ids:
+        db.query(models.ComplianceReview).filter(models.ComplianceReview.contract_id.in_(contract_ids)).delete(synchronize_session=False)
+        db.query(models.EmployerRegisterEntry).filter(models.EmployerRegisterEntry.contract_id.in_(contract_ids)).delete(synchronize_session=False)
+        db.query(models.TerminationWorkflow).filter(models.TerminationWorkflow.contract_id.in_(contract_ids)).delete(synchronize_session=False)
+        db.query(models.InspectorCase).filter(models.InspectorCase.contract_id.in_(contract_ids)).delete(synchronize_session=False)
+        db.query(models.CustomContract).filter(models.CustomContract.id.in_(contract_ids)).delete(synchronize_session=False)
+
+    db.query(models.EmployerRegisterEntry).filter(models.EmployerRegisterEntry.worker_id.in_(worker_ids)).delete(synchronize_session=False)
+    db.query(models.OrganizationAssignmentRecord).filter(models.OrganizationAssignmentRecord.worker_id.in_(worker_ids)).delete(synchronize_session=False)
+    db.query(models.CompensationMasterRecord).filter(models.CompensationMasterRecord.worker_id.in_(worker_ids)).delete(synchronize_session=False)
+    db.query(models.EmploymentMasterRecord).filter(models.EmploymentMasterRecord.worker_id.in_(worker_ids)).delete(synchronize_session=False)
+    db.query(models.EmployeeMasterRecord).filter(models.EmployeeMasterRecord.worker_id.in_(worker_ids)).delete(synchronize_session=False)
+    db.query(models.HrEmployeeDocumentVersion).filter(models.HrEmployeeDocumentVersion.worker_id.in_(worker_ids)).delete(synchronize_session=False)
+    db.query(models.HrEmployeeDocument).filter(models.HrEmployeeDocument.worker_id.in_(worker_ids)).delete(synchronize_session=False)
+    db.query(models.HrEmployeeEvent).filter(models.HrEmployeeEvent.worker_id.in_(worker_ids)).delete(synchronize_session=False)
+    db.query(models.HrEmployeeFile).filter(models.HrEmployeeFile.worker_id.in_(worker_ids)).delete(synchronize_session=False)
+
+    db.query(models.HSJourHS).filter(
+        models.HSJourHS.calculation_id_HS.in_(
+            db.query(models.HSCalculationHS.id_HS).filter(models.HSCalculationHS.worker_id_HS.in_(worker_ids))
+        )
+    ).delete(synchronize_session=False)
+    db.query(models.PayrollHsHm).filter(models.PayrollHsHm.worker_id.in_(worker_ids)).delete(synchronize_session=False)
+    db.query(models.HSCalculationHS).filter(models.HSCalculationHS.worker_id_HS.in_(worker_ids)).delete(synchronize_session=False)
+    db.query(models.PayrollPrime).filter(models.PayrollPrime.worker_id.in_(worker_ids)).delete(synchronize_session=False)
+    db.query(models.WorkerPrimeLink).filter(models.WorkerPrimeLink.worker_id.in_(worker_ids)).delete(synchronize_session=False)
+    db.query(models.WorkerPrime).filter(models.WorkerPrime.worker_id.in_(worker_ids)).delete(synchronize_session=False)
+    db.query(models.PayVar).filter(models.PayVar.worker_id.in_(worker_ids)).delete(synchronize_session=False)
+    db.query(models.Absence).filter(models.Absence.worker_id.in_(worker_ids)).delete(synchronize_session=False)
+    db.query(models.Avance).filter(models.Avance.worker_id.in_(worker_ids)).delete(synchronize_session=False)
+    db.query(models.Leave).filter(models.Leave.worker_id.in_(worker_ids)).delete(synchronize_session=False)
+    db.query(models.Permission).filter(models.Permission.worker_id.in_(worker_ids)).delete(synchronize_session=False)
+    db.query(models.WorkerPositionHistory).filter(models.WorkerPositionHistory.worker_id.in_(worker_ids)).delete(synchronize_session=False)
+
 @router.get("", response_model=List[schemas.WorkerOut])
 def list_workers(
     employer_id: Optional[int] = None,
+    etablissement: Optional[str] = None,
+    departement: Optional[str] = None,
+    service: Optional[str] = None,
+    unite: Optional[str] = None,
     q: Optional[str] = None,
+    include_inactive: bool = Query(False),
     page: Optional[int] = Query(None, ge=1),
     page_size: Optional[int] = Query(None, ge=1, le=100),
     db: Session = Depends(get_db),
@@ -57,6 +236,19 @@ def list_workers(
     query = _apply_worker_scope(db.query(models.Worker), db, user)
     if employer_id:
         query = query.filter(models.Worker.employer_id == employer_id)
+        query = apply_worker_hierarchy_filters(
+            query,
+            db,
+            employer_id=employer_id,
+            filters={
+                "etablissement": etablissement,
+                "departement": departement,
+                "service": service,
+                "unite": unite,
+            },
+        )
+    if not include_inactive:
+        query = query.filter(models.Worker.is_active.is_(True))
     query = _apply_worker_search(query, q)
     query = query.order_by(models.Worker.nom.asc(), models.Worker.prenom.asc())
     if page and page_size:
@@ -68,6 +260,7 @@ def list_workers(
 def list_workers_paginated(
     employer_id: Optional[int] = None,
     q: Optional[str] = None,
+    include_inactive: bool = Query(False),
     page: int = Query(1, ge=1),
     page_size: int = Query(25, ge=1, le=100),
     db: Session = Depends(get_db),
@@ -76,6 +269,8 @@ def list_workers_paginated(
     query = _apply_worker_scope(db.query(models.Worker), db, user)
     if employer_id:
         query = query.filter(models.Worker.employer_id == employer_id)
+    if not include_inactive:
+        query = query.filter(models.Worker.is_active.is_(True))
     query = _apply_worker_search(query, q)
     total = query.count()
     items = query.order_by(models.Worker.nom.asc(), models.Worker.prenom.asc()).offset((page - 1) * page_size).limit(page_size).all()
@@ -88,7 +283,7 @@ def get_worker(
     db: Session = Depends(get_db),
     user: models.AppUser = Depends(require_roles(*READ_PAYROLL_ROLES)),
 ):
-    w = db.query(models.Worker).get(worker_id)
+    w = db.get(models.Worker, worker_id)
     if not w:
         raise HTTPException(404, "Worker not found")
     if not can_access_worker(db, user, w):
@@ -110,6 +305,16 @@ def create_worker(
     #     vhm, hebdo = 173.33, 40.0
     # elif data.secteur == "non_agricole":
     #     vhm, hebdo = 200.0, 46.0
+
+    selected_unit = OrganizationalService.resolve_selected_unit(
+        db,
+        employer_id=data.employer_id,
+        organizational_unit_id=data.organizational_unit_id,
+        etablissement=data.etablissement,
+        departement=data.departement,
+        service=data.service,
+        unite=data.unite,
+    )
 
     obj = models.Worker(
         employer_id=data.employer_id,
@@ -135,6 +340,7 @@ def create_worker(
         departement=data.departement,
         service=data.service,
         unite=data.unite,
+        organizational_unit_id=selected_unit.id if selected_unit else None,
         
         # Débauche
         date_debauche=data.date_debauche,
@@ -142,6 +348,7 @@ def create_worker(
         groupe_preavis=data.groupe_preavis,
         jours_preavis_deja_faits=data.jours_preavis_deja_faits,
     )
+    OrganizationalService.apply_unit_snapshot_to_worker(obj, selected_unit)
     db.add(obj)
     db.flush()
     sync_worker_master_data(db, obj)
@@ -167,7 +374,7 @@ def update_worker(
     db: Session = Depends(get_db),
     user: models.AppUser = Depends(require_roles(*WRITE_RH_ROLES)),
 ):
-    w = db.query(models.Worker).get(worker_id)
+    w = db.get(models.Worker, worker_id)
     if not w:
         raise HTTPException(404, "Worker not found")
     if not can_manage_worker(db, user, worker=w):
@@ -180,8 +387,20 @@ def update_worker(
     }
 
     # Mise à jour basique
+    selected_unit = OrganizationalService.resolve_selected_unit(
+        db,
+        employer_id=w.employer_id,
+        organizational_unit_id=data.organizational_unit_id,
+        etablissement=data.etablissement,
+        departement=data.departement,
+        service=data.service,
+        unite=data.unite,
+    )
+
     for k, v in data.dict().items():
         setattr(w, k, v)
+
+    OrganizationalService.apply_unit_snapshot_to_worker(w, selected_unit)
 
     if not w.salaire_horaire and w.vhm:
         w.salaire_horaire = w.salaire_base / w.vhm
@@ -211,18 +430,28 @@ def update_worker_organizational(
     user: models.AppUser = Depends(require_roles(*WRITE_RH_ROLES)),
 ):
     """Mise à jour des données organisationnelles d'un salarié"""
-    w = db.query(models.Worker).get(worker_id)
+    w = db.get(models.Worker, worker_id)
     if not w:
         raise HTTPException(404, "Worker not found")
     if not can_manage_worker(db, user, worker=w):
         raise HTTPException(403, "Forbidden")
-    before = {"etablissement": w.etablissement, "departement": w.departement, "service": w.service, "unite": w.unite}
+    before = {
+        "organizational_unit_id": w.organizational_unit_id,
+        "etablissement": w.etablissement,
+        "departement": w.departement,
+        "service": w.service,
+        "unite": w.unite,
+    }
 
     # Mise à jour seulement des champs organisationnels fournis
-    organizational_fields = ['etablissement', 'departement', 'service', 'unite']
-    for field in organizational_fields:
-        if field in data:
-            setattr(w, field, data[field])
+    if any(field in data for field in ("etablissement", "departement", "service", "unite")) and "organizational_unit_id" not in data:
+        raise HTTPException(400, "Utilisez organizational_unit_id; la saisie libre locale est bloquée.")
+    selected_unit = OrganizationalService.resolve_selected_unit(
+        db,
+        employer_id=w.employer_id,
+        organizational_unit_id=data.get("organizational_unit_id"),
+    )
+    OrganizationalService.apply_unit_snapshot_to_worker(w, selected_unit)
     sync_worker_master_data(db, w)
 
     record_audit(
@@ -248,7 +477,7 @@ def patch_worker(
     db: Session = Depends(get_db),
     user: models.AppUser = Depends(require_roles(*WRITE_RH_ROLES)),
 ):
-    w = db.query(models.Worker).get(worker_id)
+    w = db.get(models.Worker, worker_id)
     if not w:
         raise HTTPException(404, "Worker not found")
     if not can_manage_worker(db, user, worker=w):
@@ -281,177 +510,209 @@ def patch_worker(
 
 
 @router.delete("/all")
-def delete_all_workers(
-    employer_id: Optional[int] = None,
-    db: Session = Depends(get_db),
-    user: models.AppUser = Depends(require_roles(*WRITE_RH_ROLES)),
-):
-    try:
-        query = db.query(models.Worker)
-        if employer_id:
-            query = query.filter(models.Worker.employer_id == employer_id)
-        
-        workers = query.all()
-        count = len(workers)
-        
-        for w in workers:
-            if not can_manage_worker(db, user, worker=w):
-                raise HTTPException(403, "Forbidden")
-            db.delete(w)
-            
-        db.commit()
-        return {"message": f"{count} travailleurs supprimés", "count": count}
-    except Exception as e:
-        db.rollback()
-        import traceback
-        with open("last_error.txt", "w") as f:
-            f.write(str(e))
-            f.write("\n")
-            traceback.print_exc(file=f)
-        raise HTTPException(status_code=500, detail=str(e))
+def delete_all_workers_legacy():
+    raise HTTPException(
+        status_code=410,
+        detail="Endpoint obsolète. Utilisez POST /workers/reset pour une réinitialisation sécurisée.",
+    )
 
 
 @router.delete("/{worker_id}")
 def delete_worker(
     worker_id: int,
+    hard_delete: bool = False,
     db: Session = Depends(get_db),
-    user: models.AppUser = Depends(require_roles(*WRITE_RH_ROLES)),
+    user: models.AppUser = Depends(get_current_user),
 ):
-    with open("deletion_debug.log", "a") as log:
-        log.write(f"[{datetime.now()}] Starting delete_worker for id={worker_id}\n")
-    try:
-        w = db.query(models.Worker).get(worker_id)
-        if not w:
-            raise HTTPException(404, "Worker not found")
-        if not can_manage_worker(db, user, worker=w):
-            raise HTTPException(403, "Forbidden")
-        before = {"id": w.id, "matricule": w.matricule, "nom": w.nom, "prenom": w.prenom}
-        
-        # Nettoyage manuel des dépendances (même logique que batch_delete)
-        # 1. HS/HM
-        db.query(models.HSJourHS).filter(
-            models.HSJourHS.calculation_id_HS.in_(
-                db.query(models.HSCalculationHS.id_HS).filter(models.HSCalculationHS.worker_id_HS == worker_id)
-            )
-        ).delete(synchronize_session=False)
-        db.query(models.PayrollHsHm).filter(models.PayrollHsHm.worker_id == worker_id).delete(synchronize_session=False)
-        db.query(models.HSCalculationHS).filter(models.HSCalculationHS.worker_id_HS == worker_id).delete(synchronize_session=False)
-        
-        # 2. Primes
-        db.query(models.PayrollPrime).filter(models.PayrollPrime.worker_id == worker_id).delete(synchronize_session=False)
-        db.query(models.WorkerPrimeLink).filter(models.WorkerPrimeLink.worker_id == worker_id).delete(synchronize_session=False)
-        db.query(models.WorkerPrime).filter(models.WorkerPrime.worker_id == worker_id).delete(synchronize_session=False)
-        
-        # 3. PayVars
-        db.query(models.PayVar).filter(models.PayVar.worker_id == worker_id).delete(synchronize_session=False)
-        
-        # 4. Autres
-        db.query(models.Absence).filter(models.Absence.worker_id == worker_id).delete(synchronize_session=False)
-        db.query(models.Avance).filter(models.Avance.worker_id == worker_id).delete(synchronize_session=False)
-        db.query(models.Leave).filter(models.Leave.worker_id == worker_id).delete(synchronize_session=False)
-        db.query(models.Permission).filter(models.Permission.worker_id == worker_id).delete(synchronize_session=False)
-        db.query(models.WorkerPositionHistory).filter(models.WorkerPositionHistory.worker_id == worker_id).delete(synchronize_session=False)
+    _ensure_worker_delete_role(user, db)
+    w = db.get(models.Worker, worker_id)
+    if not w:
+        raise HTTPException(404, "Worker not found")
+    if not can_manage_worker(db, user, worker=w):
+        raise HTTPException(403, "Forbidden")
 
-        # 5. Enfin le worker
-        db.delete(w)
+    before = {
+        "id": w.id,
+        "matricule": w.matricule,
+        "nom": w.nom,
+        "prenom": w.prenom,
+        "is_active": w.is_active,
+    }
+
+    try:
+        if hard_delete:
+            _ensure_admin(user, db)
+            _purge_worker_dependencies(db, [worker_id])
+            db.delete(w)
+            action = "worker.delete.hard"
+            message = "Travailleur supprimé définitivement."
+        else:
+            _soft_delete_worker(db, w, user)
+            action = "worker.delete.soft"
+            message = "Travailleur désactivé avec succès."
+
         record_audit(
             db,
             actor=user,
-            action="worker.delete",
+            action=action,
             entity_type="worker",
             entity_id=worker_id,
             route=f"/workers/{worker_id}",
             employer_id=w.employer_id,
             worker_id=w.id,
             before=before,
-            after=None,
+            after=None if hard_delete else w,
         )
         db.commit()
-        return {"ok": True}
-        
+        return {"ok": True, "mode": "hard" if hard_delete else "soft", "message": message}
+    except HTTPException:
+        db.rollback()
+        raise
     except Exception as e:
         db.rollback()
-        import traceback
-        with open("last_error.txt", "w") as f:
-            traceback.print_exc(file=f)
-        raise HTTPException(status_code=500, detail=str(e))
+        operation = "suppression définitive" if hard_delete else "désactivation"
+        raise HTTPException(status_code=500, detail=f"Echec de la {operation} du travailleur: {e}")
 
 
 @router.post("/delete_batch")
 def delete_workers_batch(
     data: schemas.WorkerListDelete,
     db: Session = Depends(get_db),
-    user: models.AppUser = Depends(require_roles(*WRITE_RH_ROLES)),
+    user: models.AppUser = Depends(get_current_user),
 ):
     """
-    Supprime plusieurs travailleurs en une seule requête (par liste d'IDs).
+    Désactive plusieurs travailleurs en une seule requête (par liste d'IDs).
     """
-    with open("deletion_debug.log", "a") as log:
-        log.write(f"[{datetime.now()}] Starting delete_workers_batch for ids={data.ids}\n")
+    _ensure_worker_delete_role(user, db)
     try:
         if not data.ids:
             return {"message": "Aucun ID fourni", "count": 0}
-            
-        # Nettoyage manuel des dépendances AVANT suppression pour éviter les FK violations
-        # (Au cas où les cascades SQLAlchemy échouent ou sont incomplètes)
-        ids = data.ids
-        
-        # 1. HS/HM Calculs & Lignes de paie
-        # On doit supprimer les JOURS d'abord car HSCalculationHS est le parent
-        db.query(models.HSJourHS).filter(
-            models.HSJourHS.calculation_id_HS.in_(
-                db.query(models.HSCalculationHS.id_HS).filter(models.HSCalculationHS.worker_id_HS.in_(ids))
-            )
-        ).delete(synchronize_session=False)
-        
-        db.query(models.PayrollHsHm).filter(models.PayrollHsHm.worker_id.in_(ids)).delete(synchronize_session=False)
-        db.query(models.HSCalculationHS).filter(models.HSCalculationHS.worker_id_HS.in_(ids)).delete(synchronize_session=False)
-        
-        # 2. Primes
-        db.query(models.PayrollPrime).filter(models.PayrollPrime.worker_id.in_(ids)).delete(synchronize_session=False)
-        db.query(models.WorkerPrimeLink).filter(models.WorkerPrimeLink.worker_id.in_(ids)).delete(synchronize_session=False)
-        # Note: WorkerPrimeLink & WorkerPrime ont cascade, mais on force pour être sûr
-        
-        # 3. PayVars (Variables de paie)
-        db.query(models.PayVar).filter(models.PayVar.worker_id.in_(ids)).delete(synchronize_session=False)
-        
-        # 4. Autres (Absences, Avances...)
-        db.query(models.Absence).filter(models.Absence.worker_id.in_(ids)).delete(synchronize_session=False)
-        db.query(models.Avance).filter(models.Avance.worker_id.in_(ids)).delete(synchronize_session=False)
-        db.query(models.Leave).filter(models.Leave.worker_id.in_(ids)).delete(synchronize_session=False)
-        db.query(models.Permission).filter(models.Permission.worker_id.in_(ids)).delete(synchronize_session=False)
-        db.query(models.WorkerPositionHistory).filter(models.WorkerPositionHistory.worker_id.in_(ids)).delete(synchronize_session=False)
 
-        # 5. Suppression des travailleurs
-        # On récupère les workers à supprimer
-        workers_to_delete = db.query(models.Worker).filter(models.Worker.id.in_(ids)).all()
+        workers_to_delete = db.query(models.Worker).filter(models.Worker.id.in_(data.ids)).all()
         count = len(workers_to_delete)
-        
+
         for w in workers_to_delete:
             if not can_manage_worker(db, user, worker=w):
                 raise HTTPException(403, "Forbidden")
+            _soft_delete_worker(db, w, user)
             record_audit(
                 db,
                 actor=user,
-                action="worker.delete.batch",
+                action="worker.delete.batch.soft",
                 entity_type="worker",
                 entity_id=w.id,
                 route="/workers/delete_batch",
                 employer_id=w.employer_id,
                 worker_id=w.id,
-                before={"id": w.id, "matricule": w.matricule, "nom": w.nom, "prenom": w.prenom},
-                after=None,
+                before={"id": w.id, "matricule": w.matricule, "nom": w.nom, "prenom": w.prenom, "is_active": True},
+                after=w,
             )
-            db.delete(w)
-            
+
         db.commit()
-        return {"message": f"{count} travailleurs supprimés", "count": count}
+        return {"message": f"{count} travailleurs désactivés", "count": count, "mode": "soft"}
+    except HTTPException:
+        db.rollback()
+        raise
     except Exception as e:
         db.rollback()
-        import traceback
-        with open("last_error.txt", "w") as f:
-            traceback.print_exc(file=f)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"Echec de la désactivation groupée: {e}")
+
+
+@router.post("/reset", response_model=schemas.WorkerResetResult)
+def reset_employees(
+    data: schemas.WorkerResetRequest,
+    db: Session = Depends(get_db),
+    user: models.AppUser = Depends(require_roles("admin")),
+):
+    logger.info(
+        "workers.reset requested user_id=%s role=%s mode=%s employer_id=%s",
+        getattr(user, "id", None),
+        getattr(user, "role_code", None),
+        data.mode,
+        data.employer_id,
+    )
+    _ensure_admin(user, db)
+    confirmation_text = (data.confirmation_text or "").strip()
+    if not confirmation_text:
+        logger.warning("workers.reset rejected missing_confirmation user_id=%s", getattr(user, "id", None))
+        raise HTTPException(status_code=400, detail="Confirmation obligatoire pour réinitialiser les employés.")
+
+    expected_confirmation = "RESET EMPLOYEES HARD" if data.mode == "hard" else "RESET EMPLOYEES"
+    if confirmation_text.upper() != expected_confirmation:
+        logger.warning(
+            "workers.reset rejected bad_confirmation user_id=%s expected=%s received=%s",
+            getattr(user, "id", None),
+            expected_confirmation,
+            confirmation_text,
+        )
+        raise HTTPException(status_code=400, detail=f"Texte de confirmation invalide. Attendu: {expected_confirmation}")
+
+    query = db.query(models.Worker)
+    if data.employer_id:
+        query = query.filter(models.Worker.employer_id == data.employer_id)
+
+    workers = query.all()
+    logger.info("workers.reset scope_resolved user_id=%s count=%s", getattr(user, "id", None), len(workers))
+    for worker in workers:
+        if not can_manage_worker(db, user, worker=worker):
+            logger.warning(
+                "workers.reset forbidden_scope user_id=%s worker_id=%s employer_id=%s",
+                getattr(user, "id", None),
+                worker.id,
+                worker.employer_id,
+            )
+            raise HTTPException(status_code=403, detail="Forbidden")
+
+    count = len(workers)
+    if count == 0:
+        return schemas.WorkerResetResult(
+            ok=True,
+            mode=data.mode,
+            count=0,
+            message="Aucun travailleur à réinitialiser.",
+        )
+
+    try:
+        if data.mode == "hard":
+            worker_ids = [worker.id for worker in workers]
+            _purge_worker_dependencies(db, worker_ids)
+            for worker in workers:
+                db.delete(worker)
+            action = "worker.reset.hard"
+            message = f"{count} travailleurs supprimés définitivement."
+        else:
+            for worker in workers:
+                _soft_delete_worker(db, worker, user)
+            action = "worker.reset.soft"
+            message = f"{count} travailleurs désactivés."
+
+        record_audit(
+            db,
+            actor=user,
+            action=action,
+            entity_type="worker",
+            entity_id=None,
+            route="/workers/reset",
+            employer_id=data.employer_id,
+            before={"count": count, "mode": data.mode, "employer_id": data.employer_id},
+            after={"count": count, "mode": data.mode, "scope": "employer" if data.employer_id else "global"},
+        )
+        db.commit()
+        logger.info(
+            "workers.reset completed user_id=%s mode=%s count=%s",
+            getattr(user, "id", None),
+            data.mode,
+            count,
+        )
+        return schemas.WorkerResetResult(ok=True, mode=data.mode, count=count, message=message)
+    except HTTPException:
+        db.rollback()
+        logger.exception("workers.reset http_exception user_id=%s mode=%s", getattr(user, "id", None), data.mode)
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.exception("workers.reset failed user_id=%s mode=%s", getattr(user, "id", None), data.mode)
+        raise HTTPException(status_code=500, detail=f"Echec de la réinitialisation des employés: {e}")
 
 
 # ==========================================

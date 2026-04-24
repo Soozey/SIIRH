@@ -176,3 +176,46 @@ def build_recruitment_announcement_pdf(
     _draw_lines(pdf, lines or [""], start_y=730)
     pdf.save()
     return output.getvalue()
+
+
+def build_labour_pv_pdf(
+    *,
+    pv_number: str,
+    title: str,
+    content: str,
+    case_number: str,
+    employer_name: str,
+    worker_name: str | None = None,
+    delivered_at: str | None = None,
+) -> bytes:
+    verification_code = _verification_payload("labour_pv", f"{pv_number}:{case_number}")
+    output = BytesIO()
+    pdf = canvas.Canvas(output, pagesize=A4)
+    pdf.setTitle(title or pv_number)
+    _draw_watermark(pdf, "SIIRH INSPECTION")
+    _draw_qr(pdf, verification_code)
+
+    pdf.setFont("Helvetica-Bold", 18)
+    pdf.drawString(40, 800, (title or f"Proces-verbal {pv_number}")[:72])
+    pdf.setFont("Helvetica", 10)
+    pdf.drawString(40, 782, f"Dossier: {case_number}")
+    pdf.drawString(40, 768, f"Employeur: {employer_name[:70]}")
+    if worker_name:
+        pdf.drawString(40, 754, f"Travailleur: {worker_name[:70]}")
+    if delivered_at:
+        pdf.drawString(40, 740, f"Remis aux parties: {delivered_at}")
+    pdf.drawString(40, 724, f"Verification: {verification_code[:20]}...")
+
+    plain_text = re.sub(r"<[^>]+>", " ", content or "")
+    plain_text = plain_text.replace("\r", "\n")
+    lines: list[str] = []
+    for raw_line in plain_text.split("\n"):
+        clean_line = re.sub(r"\s+", " ", raw_line).strip()
+        if not clean_line:
+            lines.append("")
+            continue
+        lines.extend(clean_line[i:i + 105] for i in range(0, len(clean_line), 105))
+
+    _draw_lines(pdf, lines or [""], start_y=700)
+    pdf.save()
+    return output.getvalue()

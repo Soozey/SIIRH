@@ -2,14 +2,15 @@
 Router pour gÃ©rer l'importation et la liaison des HS/HM aux paies
 """
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Optional
+import logging
 import openpyxl
 from io import BytesIO
 
 from ..config.config import get_db
-from ..models import PayrollHsHm, Worker, PayrollRun, HSCalculationHS, Absence, Avance, PayVar
+from ..models import PayrollHsHm, Worker, PayrollRun, HSCalculationHS, Absence, Avance, PayVar, Employer
 from ..schemas import (
     PayrollHsHmCreate,
     PayrollHsHmOut,
@@ -18,136 +19,157 @@ from ..schemas import (
     ExcelImportSummary
 )
 from ..utils.hs_hm_calculations import calculate_hs_hm_amounts
-from fastapi.responses import FileResponse
-import os
-from ..schemas import (
-    PayrollHsHmCreate,
-    PayrollHsHmOut,
-    PayrollHsHmBase,
-    LinkHsCalculationRequest,
-    ExcelImportSummary
-)
-from ..utils.hs_hm_calculations import calculate_hs_hm_amounts
-from fastapi.responses import FileResponse
-import os
+from fastapi.responses import StreamingResponse
 from ..security import PAYROLL_WRITE_ROLES, READ_PAYROLL_ROLES, can_access_employer, require_roles
+from ..services.organizational_filters import apply_worker_hierarchy_filters
 
 router = APIRouter(prefix="/payroll-hs-hm", tags=["Payroll HS/HM"])
+logger = logging.getLogger(__name__)
 
 
 @router.get("/template")
 def get_hs_hm_template(
-    payroll_run_id: int = None,
+    payroll_run_id: Optional[int] = None,
+    employer_id: Optional[int] = None,
+    etablissement: Optional[str] = Query(None),
+    departement: Optional[str] = Query(None),
+    service: Optional[str] = Query(None),
+    unite: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     user=Depends(require_roles(*READ_PAYROLL_ROLES)),
 ):
-    """
-    Télécharge le modèle Excel pour l'import HS/HM.
-    Dynamique : toujours nettoyer les exemples (EMP001) et remplir avec les salariés si ID fourni.
-    """
-    
+    """Telecharge le modele Excel pour l'import HS/HM."""
+
     payroll_run = None
+    target_employer_id = employer_id
+
     if payroll_run_id:
         payroll_run = db.query(PayrollRun).filter(PayrollRun.id == payroll_run_id).first()
-        if payroll_run and not can_access_employer(db, user, payroll_run.employer_id):
+        if not payroll_run:
+            raise HTTPException(status_code=404, detail="Payroll run not found")
+        if not can_access_employer(db, user, payroll_run.employer_id):
             raise HTTPException(status_code=403, detail="Forbidden")
+        target_employer_id = payroll_run.employer_id
+
+    if target_employer_id is not None and not can_access_employer(db, user, target_employer_id):
+        raise HTTPException(status_code=403, detail="Forbidden")
 
     try:
-        # Create NEW workbook from scratch (No file dependency)
         wb = openpyxl.Workbook()
         ws = wb.active
         ws.title = "Import Paie"
-        
-        # Define headers manually (guaranteed correct)
+
         headers = [
-            'Matricule',      # 1
-            'HSNI_130',       # 2
-            'HSI_130',        # 3
-            'HSNI_150',       # 4
-            'HSI_150',        # 5
-            'HMNH',           # 6
-            'HMNO',           # 7
-            'HMD',            # 8
-            'HMJF',           # 9
-            'ABSM_J',         # 10
-            'ABSM_H',         # 11
-            'ABSNR_J',        # 12
-            'ABSNR_H',        # 13
-            'ABSMP',          # 14
-            'ABS1_J',         # 15
-            'ABS1_H',         # 16
-            'ABS2_J',         # 17
-            'ABS2_H',         # 18
-            'Avance',          # 19
-            'Autre déduction 1', # 20
-            'Autre déduction 2', # 21
-            'Autre déduction 3', # 22
-            'Avantage Véhicule', # 23
-            'Avantage Logement', # 24
-            'Avantage Téléphone', # 25
-            'Autres Avantages'   # 26
+            "Matricule",
+            "Nom",
+            "Prenom",
+            "HSNI_130",
+            "HSI_130",
+            "HSNI_150",
+            "HSI_150",
+            "HMNH",
+            "HMNO",
+            "HMD",
+            "HMJF",
+            "ABSM_J",
+            "ABSM_H",
+            "ABSNR_J",
+            "ABSNR_H",
+            "ABSMP",
+            "ABS1_J",
+            "ABS1_H",
+            "ABS2_J",
+            "ABS2_H",
+            "Avance",
+            "Autre deduction 1",
+            "Autre deduction 2",
+            "Autre deduction 3",
+            "Avantage Vehicule",
+            "Avantage Logement",
+            "Avantage Telephone",
+            "Autres Avantages",
         ]
         ws.append(headers)
-        
-        # Style headers
+
         from openpyxl.styles import Font, PatternFill, Alignment
+
         for cell in ws[1]:
-            cell.font = Font(bold=True, color='FFFFFF')
-            cell.fill = PatternFill(start_color='4472C4', end_color='4472C4', fill_type='solid')
-            cell.alignment = Alignment(horizontal='center')
+            cell.font = Font(bold=True, color="FFFFFF")
+            cell.fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
+            cell.alignment = Alignment(horizontal="center")
 
-        # If we have a payroll_run_id, populate with workers
-        if payroll_run:
-            print(f"Generating template for PayrollRun ID: {payroll_run_id}")
-            workers = db.query(Worker).filter(
-                Worker.employer_id == payroll_run.employer_id
-            ).order_by(Worker.matricule).all()
-            
-            print(f"Found {len(workers)} workers for employer {payroll_run.employer_id}")
+        if target_employer_id:
+            workers = apply_worker_hierarchy_filters(
+                db.query(Worker).filter(Worker.employer_id == target_employer_id),
+                db,
+                employer_id=target_employer_id,
+                filters={
+                    "etablissement": etablissement,
+                    "departement": departement,
+                    "service": service,
+                    "unite": unite,
+                },
+            ).order_by(Worker.matricule, Worker.nom, Worker.prenom).all()
 
-            from openpyxl.comments import Comment
-            # Start at row 2 (row 1 is header)
-            for idx, w in enumerate(workers, start=2):
-                cell = ws.cell(row=idx, column=1, value=w.matricule)
-                comment_text = f"{w.nom} {w.prenom}"
-                cell.comment = Comment(comment_text, "SIIRH")
-        else:
-            print("No payroll_run_id provided or not found, returning empty template")
+            for idx, worker in enumerate(workers, start=2):
+                ws.cell(row=idx, column=1, value=worker.matricule or "")
+                ws.cell(row=idx, column=2, value=worker.nom or "")
+                ws.cell(row=idx, column=3, value=worker.prenom or "")
 
-        # Set column widths
-        ws.column_dimensions['A'].width = 15  # Matricule
-        ws.column_dimensions['B'].width = 10
-        ws.column_dimensions['C'].width = 10
-        # ... others default is fine
+        column_widths = {
+            "A": 16,
+            "B": 20,
+            "C": 24,
+            "D": 12,
+            "E": 12,
+            "F": 12,
+            "G": 12,
+            "H": 12,
+            "I": 12,
+            "J": 12,
+            "K": 12,
+            "L": 12,
+            "M": 12,
+            "N": 12,
+            "O": 12,
+            "P": 12,
+            "Q": 12,
+            "R": 12,
+            "S": 12,
+            "T": 12,
+            "U": 14,
+            "V": 18,
+            "W": 18,
+            "X": 18,
+            "Y": 18,
+            "Z": 18,
+            "AA": 18,
+            "AB": 18,
+        }
+        for column, width in column_widths.items():
+            ws.column_dimensions[column].width = width
 
-        # Save to memory and serve
         output = BytesIO()
         wb.save(output)
         output.seek(0)
-        
-        # Determine filename
+
         filename = "Modele_Import_Paie.xlsx"
-        if payroll_run:
-            from ..models import Employer
-            employer = db.query(Employer).filter(Employer.id == payroll_run.employer_id).first()
-            # Fix: Employer model uses raison_sociale
-            emp_name = getattr(employer, "raison_sociale", f"EMP{payroll_run.employer_id}") if employer else f"EMP{payroll_run.employer_id}"
-            
-            safe_emp_name = "".join([c for c in emp_name if c.isalnum() or c in (' ','-','_')]).strip()
-            filename = f"Import_Paie_{safe_emp_name}_{payroll_run.period}.xlsx"
-        
-        from fastapi.responses import StreamingResponse
-        
+        if target_employer_id:
+            employer = db.query(Employer).filter(Employer.id == target_employer_id).first()
+            emp_name = getattr(employer, "raison_sociale", f"EMP{target_employer_id}") if employer else f"EMP{target_employer_id}"
+            safe_emp_name = "".join([c for c in emp_name if c.isalnum() or c in (" ", "-", "_")]).strip()
+            filename = f"Import_Paie_{safe_emp_name}.xlsx"
+            if payroll_run:
+                filename = f"Import_Paie_{safe_emp_name}_{payroll_run.period}.xlsx"
+
         return StreamingResponse(
             output,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            headers={"Content-Disposition": f"attachment; filename={filename}"}
+            headers={"Content-Disposition": f"attachment; filename={filename}"},
         )
 
     except Exception as e:
-        print(f"CRITICAL ERROR generating template: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.exception("Erreur lors de la generation du modele d'import paie")
         raise HTTPException(status_code=500, detail=f"Error generating template: {str(e)}")
 
 
@@ -231,6 +253,10 @@ def link_manual_hs_calculation(
 async def import_hs_hm_from_excel(
     payroll_run_id: int,
     file: UploadFile = File(...),
+    etablissement: Optional[str] = Query(None),
+    departement: Optional[str] = Query(None),
+    service: Optional[str] = Query(None),
+    unite: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     user=Depends(require_roles(*PAYROLL_WRITE_ROLES)),
 ):
@@ -258,7 +284,27 @@ async def import_hs_hm_from_excel(
     successful = 0
     failed = 0
     errors = []
-    
+    filter_active = any([etablissement, departement, service, unite])
+    allowed_worker_ids = {
+        worker.id
+        for worker in apply_worker_hierarchy_filters(
+            db.query(Worker).filter(Worker.employer_id == payroll_run.employer_id),
+            db,
+            employer_id=payroll_run.employer_id,
+            filters={
+                "etablissement": etablissement,
+                "departement": departement,
+                "service": service,
+                "unite": unite,
+            },
+        ).all()
+    }
+
+    header_row = next(sheet.iter_rows(min_row=1, max_row=1, values_only=True), ())
+    normalized_headers = [str(cell).strip().lower() if cell is not None else "" for cell in header_row]
+    has_identity_columns = len(normalized_headers) >= 3 and normalized_headers[:3] == ["matricule", "nom", "prenom"]
+    data_start_index = 3 if has_identity_columns else 1
+
     # Skip header row, start from row 2
     for row_idx, row in enumerate(sheet.iter_rows(min_row=2, values_only=True), start=2):
         if not row[0]:  # Skip empty rows
@@ -279,34 +325,46 @@ async def import_hs_hm_from_excel(
                 errors.append(f"Row {row_idx}: Worker '{matricule}' not found")
                 failed += 1
                 continue
+            if filter_active and worker.id not in allowed_worker_ids:
+                errors.append(f"Row {row_idx}: Worker '{matricule}' hors du filtre organisationnel actif")
+                failed += 1
+                continue
             
+            def read_number(index: int) -> float:
+                if len(row) <= index:
+                    return 0.0
+                value = row[index]
+                if value in (None, ""):
+                    return 0.0
+                return float(value)
+
             # Parse hours (default 0.0 if empty)
             hours = {
-                'hsni_130_heures': float(row[1] or 0.0),
-                'hsi_130_heures': float(row[2] or 0.0),
-                'hsni_150_heures': float(row[3] or 0.0),
-                'hsi_150_heures': float(row[4] or 0.0),
-                'hmnh_heures': float(row[5] or 0.0),
-                'hmno_heures': float(row[6] or 0.0),
-                'hmd_heures': float(row[7] or 0.0),
-                'hmjf_heures': float(row[8] or 0.0),
+                'hsni_130_heures': read_number(data_start_index + 0),
+                'hsi_130_heures': read_number(data_start_index + 1),
+                'hsni_150_heures': read_number(data_start_index + 2),
+                'hsi_150_heures': read_number(data_start_index + 3),
+                'hmnh_heures': read_number(data_start_index + 4),
+                'hmno_heures': read_number(data_start_index + 5),
+                'hmd_heures': read_number(data_start_index + 6),
+                'hmjf_heures': read_number(data_start_index + 7),
             }
             
             # Parse absences (colonnes 9-17)
             absences_data = {
-                'ABSM_J': float(row[9] or 0.0),
-                'ABSM_H': float(row[10] or 0.0),
-                'ABSNR_J': float(row[11] or 0.0),
-                'ABSNR_H': float(row[12] or 0.0),
-                'ABSMP': float(row[13] or 0.0),
-                'ABS1_J': float(row[14] or 0.0),
-                'ABS1_H': float(row[15] or 0.0),
-                'ABS2_J': float(row[16] or 0.0),
-                'ABS2_H': float(row[17] or 0.0),
+                'ABSM_J': read_number(data_start_index + 8),
+                'ABSM_H': read_number(data_start_index + 9),
+                'ABSNR_J': read_number(data_start_index + 10),
+                'ABSNR_H': read_number(data_start_index + 11),
+                'ABSMP': read_number(data_start_index + 12),
+                'ABS1_J': read_number(data_start_index + 13),
+                'ABS1_H': read_number(data_start_index + 14),
+                'ABS2_J': read_number(data_start_index + 15),
+                'ABS2_H': read_number(data_start_index + 16),
             }
             
             # Parse avance (colonne 18)
-            avance_montant = float(row[18] or 0.0) if len(row) > 18 else 0.0
+            avance_montant = read_number(data_start_index + 17)
             
             # Validate all hours >= 0
             if any(h < 0 for h in hours.values()):
@@ -401,14 +459,14 @@ async def import_hs_hm_from_excel(
             # 24: Avantage Téléphone
             # 25: Autres Avantages
 
-            autre_ded1 = float(row[19] or 0.0) if len(row) > 19 else 0.0
-            autre_ded2 = float(row[20] or 0.0) if len(row) > 20 else 0.0
-            autre_ded3 = float(row[21] or 0.0) if len(row) > 21 else 0.0
+            autre_ded1 = read_number(data_start_index + 18)
+            autre_ded2 = read_number(data_start_index + 19)
+            autre_ded3 = read_number(data_start_index + 20)
             
-            av_vehicule = float(row[22] or 0.0) if len(row) > 22 else 0.0
-            av_logement = float(row[23] or 0.0) if len(row) > 23 else 0.0
-            av_telephone = float(row[24] or 0.0) if len(row) > 24 else 0.0
-            av_autres = float(row[25] or 0.0) if len(row) > 25 else 0.0
+            av_vehicule = read_number(data_start_index + 21)
+            av_logement = read_number(data_start_index + 22)
+            av_telephone = read_number(data_start_index + 23)
+            av_autres = read_number(data_start_index + 24)
 
             # Check if we have ANY data to save in PayVar
             if any([autre_ded1, autre_ded2, autre_ded3, av_vehicule, av_logement, av_telephone, av_autres]):
@@ -423,14 +481,13 @@ async def import_hs_hm_from_excel(
                     db.add(payvar_entry)
                 
                 # Update fields
-                if len(row) > 19: payvar_entry.autre_ded1 = autre_ded1
-                if len(row) > 20: payvar_entry.autre_ded2 = autre_ded2
-                if len(row) > 21: payvar_entry.autre_ded3 = autre_ded3
-                
-                if len(row) > 22: payvar_entry.avantage_vehicule = av_vehicule
-                if len(row) > 23: payvar_entry.avantage_logement = av_logement
-                if len(row) > 24: payvar_entry.avantage_telephone = av_telephone
-                if len(row) > 25: payvar_entry.avantage_autres = av_autres
+                payvar_entry.autre_ded1 = autre_ded1
+                payvar_entry.autre_ded2 = autre_ded2
+                payvar_entry.autre_ded3 = autre_ded3
+                payvar_entry.avantage_vehicule = av_vehicule
+                payvar_entry.avantage_logement = av_logement
+                payvar_entry.avantage_telephone = av_telephone
+                payvar_entry.avantage_autres = av_autres
 
             successful += 1
             
@@ -452,6 +509,10 @@ async def import_hs_hm_from_excel(
 @router.get("/{payroll_run_id}/all", response_model=List[PayrollHsHmOut])
 def get_all_hs_hm_for_payroll(
     payroll_run_id: int,
+    etablissement: Optional[str] = Query(None),
+    departement: Optional[str] = Query(None),
+    service: Optional[str] = Query(None),
+    unite: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     user=Depends(require_roles(*READ_PAYROLL_ROLES)),
 ):
@@ -465,25 +526,43 @@ def get_all_hs_hm_for_payroll(
         raise HTTPException(status_code=403, detail="Forbidden")
         
     period = payroll_run.period
+    scoped_workers = apply_worker_hierarchy_filters(
+        db.query(Worker).filter(Worker.employer_id == payroll_run.employer_id),
+        db,
+        employer_id=payroll_run.employer_id,
+        filters={
+            "etablissement": etablissement,
+            "departement": departement,
+            "service": service,
+            "unite": unite,
+        },
+    ).all()
+    scoped_worker_ids = {worker.id for worker in scoped_workers}
+    if not scoped_worker_ids:
+        return []
     
     # 2. Get all HS/HM
     hs_hms = db.query(PayrollHsHm).filter(
-        PayrollHsHm.payroll_run_id == payroll_run_id
+        PayrollHsHm.payroll_run_id == payroll_run_id,
+        PayrollHsHm.worker_id.in_(scoped_worker_ids),
     ).all()
     
     # 3. Get all Absences
     absences = db.query(Absence).filter(
-        Absence.mois == period
+        Absence.mois == period,
+        Absence.worker_id.in_(scoped_worker_ids),
     ).all()
     
     # 4. Get all Avances
     avances = db.query(Avance).filter(
-        Avance.periode == period
+        Avance.periode == period,
+        Avance.worker_id.in_(scoped_worker_ids),
     ).all()
 
     # 5. Get all PayVars (Advantages & Deductions)
     payvars = db.query(PayVar).filter(
-        PayVar.period == period
+        PayVar.period == period,
+        PayVar.worker_id.in_(scoped_worker_ids),
     ).all()
     
     # Merge Data

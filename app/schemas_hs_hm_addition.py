@@ -4,6 +4,12 @@
 #  PAYROLL HS/HM
 # ==========================
 
+from datetime import datetime
+from typing import List, Literal, Optional
+
+from pydantic import BaseModel, ConfigDict, Field
+
+
 class PayrollHsHmBase(BaseModel):
     """Base schema for HS/HM data"""
     hsni_130_heures: float = Field(0.0, ge=0, description="HSNI 130% (heures)")
@@ -47,8 +53,7 @@ class PayrollHsHmOut(PayrollHsHmBase):
     created_at: datetime
     updated_at: datetime
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class LinkHsCalculationRequest(BaseModel):

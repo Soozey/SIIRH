@@ -15,8 +15,19 @@ import psycopg2.extras
 from hypothesis import given, strategies as st, settings, example
 from typing import List, Dict, Set, Optional, Tuple
 from dataclasses import dataclass
+import builtins
 import sys
 import os
+
+
+def _safe_print(*args, sep=" ", end="\n", file=sys.stdout, flush=False):
+    """Force ASCII-only test logs to avoid cp1252 console failures on Windows."""
+    text = sep.join(str(arg) for arg in args)
+    safe_text = text.encode("ascii", "replace").decode("ascii")
+    builtins.print(safe_text, end=end, file=file, flush=flush)
+
+
+print = _safe_print
 
 # Add the app directory to the path to import models
 sys.path.append(os.path.join(os.path.dirname(__file__), 'app'))

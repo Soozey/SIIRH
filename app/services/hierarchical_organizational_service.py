@@ -1,12 +1,12 @@
-"""
-Service pour la gestion hiérarchique organisationnelle en cascade.
-Implémente toutes les opérations CRUD avec validation des contraintes hiérarchiques.
+﻿"""
+Service pour la gestion hiÃ©rarchique organisationnelle en cascade.
+ImplÃ©mente toutes les opÃ©rations CRUD avec validation des contraintes hiÃ©rarchiques.
 """
 
 from typing import List, Optional, Dict, Any, Tuple
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_, text
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 
 from ..models import OrganizationalNode, Employer, Worker
@@ -15,27 +15,27 @@ logger = logging.getLogger(__name__)
 
 
 class HierarchicalOrganizationalService:
-    """Service pour la gestion de la hiérarchie organisationnelle"""
+    """Service pour la gestion de la hiÃ©rarchie organisationnelle"""
     
     def __init__(self, db: Session):
         self.db = db
     
     # ==========================================
-    # MÉTHODES PRINCIPALES CRUD
+    # MÃ‰THODES PRINCIPALES CRUD
     # ==========================================
     
     def get_organizational_tree(self, employer_id: int) -> List[Dict[str, Any]]:
         """
-        Récupère l'arbre hiérarchique complet pour un employeur.
+        RÃ©cupÃ¨re l'arbre hiÃ©rarchique complet pour un employeur.
         
         Args:
             employer_id: ID de l'employeur
             
         Returns:
-            Liste des nœuds organisationnels structurés en arbre
+            Liste des nÅ“uds organisationnels structurÃ©s en arbre
         """
         try:
-            # Récupérer tous les nœuds actifs pour cet employeur
+            # RÃ©cupÃ©rer tous les nÅ“uds actifs pour cet employeur
             nodes = self.db.query(OrganizationalNode).filter(
                 OrganizationalNode.employer_id == employer_id,
                 OrganizationalNode.is_active == True
@@ -45,13 +45,13 @@ class HierarchicalOrganizationalService:
                 OrganizationalNode.name
             ).all()
             
-            logger.info(f"Récupération de {len(nodes)} nœuds pour l'employeur {employer_id}")
+            logger.info(f"RÃ©cupÃ©ration de {len(nodes)} nÅ“uds pour l'employeur {employer_id}")
             
             # Construire la structure arborescente
             return self._build_tree_structure(nodes)
             
         except Exception as e:
-            logger.error(f"Erreur lors de la récupération de l'arbre organisationnel: {e}")
+            logger.error(f"Erreur lors de la rÃ©cupÃ©ration de l'arbre organisationnel: {e}")
             raise
     
     def create_node(
@@ -66,32 +66,32 @@ class HierarchicalOrganizationalService:
         user_id: Optional[int] = None
     ) -> OrganizationalNode:
         """
-        Crée un nouveau nœud organisationnel avec validation hiérarchique.
+        CrÃ©e un nouveau nÅ“ud organisationnel avec validation hiÃ©rarchique.
         
         Args:
             employer_id: ID de l'employeur
-            parent_id: ID du parent (None pour établissement)
-            level: Niveau hiérarchique ('etablissement', 'departement', 'service', 'unite')
-            name: Nom du nœud
+            parent_id: ID du parent (None pour Ã©tablissement)
+            level: Niveau hiÃ©rarchique ('etablissement', 'departement', 'service', 'unite')
+            name: Nom du nÅ“ud
             code: Code optionnel
             description: Description optionnelle
             sort_order: Ordre de tri
-            user_id: ID de l'utilisateur créateur
+            user_id: ID de l'utilisateur crÃ©ateur
             
         Returns:
-            Le nœud créé
+            Le nÅ“ud crÃ©Ã©
             
         Raises:
-            ValueError: Si la validation hiérarchique échoue
+            ValueError: Si la validation hiÃ©rarchique Ã©choue
         """
         try:
-            # Validation hiérarchique
+            # Validation hiÃ©rarchique
             self._validate_hierarchy(employer_id, parent_id, level)
             
-            # Vérification d'unicité du nom
+            # VÃ©rification d'unicitÃ© du nom
             self._check_name_uniqueness(employer_id, parent_id, name)
             
-            # Création du nœud
+            # CrÃ©ation du nÅ“ud
             node = OrganizationalNode(
                 employer_id=employer_id,
                 parent_id=parent_id,
@@ -101,25 +101,25 @@ class HierarchicalOrganizationalService:
                 description=description.strip() if description else None,
                 sort_order=sort_order,
                 is_active=True,
-                created_at=datetime.utcnow(),
-                updated_at=datetime.utcnow()
+                created_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc)
             )
             
             self.db.add(node)
             self.db.flush()  # Pour obtenir l'ID
             
-            # Calculer et mettre à jour le chemin hiérarchique
+            # Calculer et mettre Ã  jour le chemin hiÃ©rarchique
             node.path = self._calculate_path(node.id)
             
             self.db.commit()
             
-            logger.info(f"Nœud créé: {node.name} (ID: {node.id}, Level: {node.level})")
+            logger.info(f"NÅ“ud crÃ©Ã©: {node.name} (ID: {node.id}, Level: {node.level})")
             
             return node
             
         except Exception as e:
             self.db.rollback()
-            logger.error(f"Erreur lors de la création du nœud: {e}")
+            logger.error(f"Erreur lors de la crÃ©ation du nÅ“ud: {e}")
             raise
     
     def update_node(
@@ -132,10 +132,10 @@ class HierarchicalOrganizationalService:
         user_id: Optional[int] = None
     ) -> OrganizationalNode:
         """
-        Met à jour un nœud organisationnel.
+        Met Ã  jour un nÅ“ud organisationnel.
         
         Args:
-            node_id: ID du nœud à mettre à jour
+            node_id: ID du nÅ“ud Ã  mettre Ã  jour
             name: Nouveau nom (optionnel)
             code: Nouveau code (optionnel)
             description: Nouvelle description (optionnelle)
@@ -143,10 +143,10 @@ class HierarchicalOrganizationalService:
             user_id: ID de l'utilisateur modificateur
             
         Returns:
-            Le nœud mis à jour
+            Le nÅ“ud mis Ã  jour
             
         Raises:
-            ValueError: Si le nœud n'existe pas
+            ValueError: Si le nÅ“ud n'existe pas
         """
         try:
             node = self.db.query(OrganizationalNode).filter(
@@ -154,11 +154,11 @@ class HierarchicalOrganizationalService:
             ).first()
             
             if not node:
-                raise ValueError(f"Nœud {node_id} introuvable")
+                raise ValueError(f"NÅ“ud {node_id} introuvable")
             
-            # Mise à jour des champs modifiés
+            # Mise Ã  jour des champs modifiÃ©s
             if name is not None:
-                # Vérifier l'unicité si le nom change
+                # VÃ©rifier l'unicitÃ© si le nom change
                 if name.strip() != node.name:
                     self._check_name_uniqueness(node.employer_id, node.parent_id, name.strip(), exclude_id=node_id)
                 node.name = name.strip()
@@ -172,23 +172,23 @@ class HierarchicalOrganizationalService:
             if sort_order is not None:
                 node.sort_order = sort_order
             
-            node.updated_at = datetime.utcnow()
+            node.updated_at = datetime.now(timezone.utc)
             
-            # Recalculer le chemin si le nom a changé
+            # Recalculer le chemin si le nom a changÃ©
             if name is not None and name.strip() != node.name:
                 node.path = self._calculate_path(node.id)
-                # Mettre à jour les chemins des enfants
+                # Mettre Ã  jour les chemins des enfants
                 self._update_children_paths(node.id)
             
             self.db.commit()
             
-            logger.info(f"Nœud mis à jour: {node.name} (ID: {node.id})")
+            logger.info(f"NÅ“ud mis Ã  jour: {node.name} (ID: {node.id})")
             
             return node
             
         except Exception as e:
             self.db.rollback()
-            logger.error(f"Erreur lors de la mise à jour du nœud: {e}")
+            logger.error(f"Erreur lors de la mise Ã  jour du nÅ“ud: {e}")
             raise
     
     def delete_node(
@@ -198,18 +198,18 @@ class HierarchicalOrganizationalService:
         user_id: Optional[int] = None
     ) -> bool:
         """
-        Supprime un nœud organisationnel (suppression logique).
+        Supprime un nÅ“ud organisationnel (suppression logique).
         
         Args:
-            node_id: ID du nœud à supprimer
-            force: Si True, supprime même avec des enfants
+            node_id: ID du nÅ“ud Ã  supprimer
+            force: Si True, supprime mÃªme avec des enfants
             user_id: ID de l'utilisateur suppresseur
             
         Returns:
-            True si la suppression a réussi
+            True si la suppression a rÃ©ussi
             
         Raises:
-            ValueError: Si le nœud a des enfants et force=False
+            ValueError: Si le nÅ“ud a des enfants et force=False
         """
         try:
             node = self.db.query(OrganizationalNode).filter(
@@ -217,21 +217,21 @@ class HierarchicalOrganizationalService:
             ).first()
             
             if not node:
-                raise ValueError(f"Nœud {node_id} introuvable")
+                raise ValueError(f"NÅ“ud {node_id} introuvable")
             
-            # Vérifier les enfants
+            # VÃ©rifier les enfants
             children_count = self.db.query(OrganizationalNode).filter(
                 OrganizationalNode.parent_id == node_id,
                 OrganizationalNode.is_active == True
             ).count()
             
             if children_count > 0 and not force:
-                raise ValueError(f"Impossible de supprimer le nœud: il a {children_count} enfant(s)")
+                raise ValueError(f"Impossible de supprimer le nÅ“ud: il a {children_count} enfant(s)")
             
-            # Vérifier les affectations de salariés
+            # VÃ©rifier les affectations de salariÃ©s
             workers_count = self._count_assigned_workers(node_id)
             if workers_count > 0 and not force:
-                raise ValueError(f"Impossible de supprimer le nœud: {workers_count} salarié(s) y sont affectés")
+                raise ValueError(f"Impossible de supprimer le nÅ“ud: {workers_count} salariÃ©(s) y sont affectÃ©s")
             
             if force and children_count > 0:
                 # Suppression en cascade des enfants
@@ -239,17 +239,17 @@ class HierarchicalOrganizationalService:
             
             # Suppression logique
             node.is_active = False
-            node.updated_at = datetime.utcnow()
+            node.updated_at = datetime.now(timezone.utc)
             
             self.db.commit()
             
-            logger.info(f"Nœud supprimé: {node.name} (ID: {node.id})")
+            logger.info(f"NÅ“ud supprimÃ©: {node.name} (ID: {node.id})")
             
             return True
             
         except Exception as e:
             self.db.rollback()
-            logger.error(f"Erreur lors de la suppression du nœud: {e}")
+            logger.error(f"Erreur lors de la suppression du nÅ“ud: {e}")
             raise
     
     def move_node(
@@ -259,21 +259,21 @@ class HierarchicalOrganizationalService:
         user_id: Optional[int] = None
     ) -> OrganizationalNode:
         """
-        Déplace un nœud vers un nouveau parent.
+        DÃ©place un nÅ“ud vers un nouveau parent.
         
         Args:
-            node_id: ID du nœud à déplacer
+            node_id: ID du nÅ“ud Ã  dÃ©placer
             new_parent_id: ID du nouveau parent (None pour racine)
             user_id: ID de l'utilisateur
             
         Returns:
-            Le nœud déplacé
+            Le nÅ“ud dÃ©placÃ©
             
         Raises:
-            ValueError: Si le déplacement crée un cycle
+            ValueError: Si le dÃ©placement crÃ©e un cycle
         """
         try:
-            # Validation du déplacement
+            # Validation du dÃ©placement
             self._validate_move(node_id, new_parent_id)
             
             node = self.db.query(OrganizationalNode).filter(
@@ -281,11 +281,11 @@ class HierarchicalOrganizationalService:
             ).first()
             
             if not node:
-                raise ValueError(f"Nœud {node_id} introuvable")
+                raise ValueError(f"NÅ“ud {node_id} introuvable")
             
             old_parent_id = node.parent_id
             
-            # Déterminer le nouveau niveau
+            # DÃ©terminer le nouveau niveau
             if new_parent_id is None:
                 new_level = 'etablissement'
             else:
@@ -302,12 +302,12 @@ class HierarchicalOrganizationalService:
                 }
                 new_level = level_hierarchy.get(parent.level)
                 if not new_level:
-                    raise ValueError(f"Impossible de créer un enfant pour le niveau {parent.level}")
+                    raise ValueError(f"Impossible de crÃ©er un enfant pour le niveau {parent.level}")
             
-            # Mise à jour du nœud
+            # Mise Ã  jour du nÅ“ud
             node.parent_id = new_parent_id
             node.level = new_level
-            node.updated_at = datetime.utcnow()
+            node.updated_at = datetime.now(timezone.utc)
             
             # Recalculer les chemins
             node.path = self._calculate_path(node.id)
@@ -315,17 +315,17 @@ class HierarchicalOrganizationalService:
             
             self.db.commit()
             
-            logger.info(f"Nœud déplacé: {node.name} de {old_parent_id} vers {new_parent_id}")
+            logger.info(f"NÅ“ud dÃ©placÃ©: {node.name} de {old_parent_id} vers {new_parent_id}")
             
             return node
             
         except Exception as e:
             self.db.rollback()
-            logger.error(f"Erreur lors du déplacement du nœud: {e}")
+            logger.error(f"Erreur lors du dÃ©placement du nÅ“ud: {e}")
             raise
     
     # ==========================================
-    # MÉTHODES DE FILTRAGE EN CASCADE
+    # MÃ‰THODES DE FILTRAGE EN CASCADE
     # ==========================================
     
     def get_cascading_options(
@@ -335,22 +335,22 @@ class HierarchicalOrganizationalService:
         level: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """
-        Récupère les options pour le filtrage en cascade.
+        RÃ©cupÃ¨re les options pour le filtrage en cascade.
         
         Args:
             employer_id: ID de l'employeur
-            parent_id: ID du parent (None pour les établissements)
-            level: Niveau souhaité (optionnel, déduit du parent)
+            parent_id: ID du parent (None pour les Ã©tablissements)
+            level: Niveau souhaitÃ© (optionnel, dÃ©duit du parent)
             
         Returns:
             Liste des options disponibles
         """
         try:
             if parent_id is None:
-                # Retourner les établissements (niveau racine)
+                # Retourner les Ã©tablissements (niveau racine)
                 target_level = 'etablissement'
             else:
-                # Déterminer le niveau des enfants
+                # DÃ©terminer le niveau des enfants
                 parent = self.db.query(OrganizationalNode).filter(
                     OrganizationalNode.id == parent_id
                 ).first()
@@ -366,11 +366,11 @@ class HierarchicalOrganizationalService:
                 if not target_level:
                     return []
             
-            # Si un niveau spécifique est demandé, l'utiliser
+            # Si un niveau spÃ©cifique est demandÃ©, l'utiliser
             if level:
                 target_level = level
             
-            # Récupérer les nœuds
+            # RÃ©cupÃ©rer les nÅ“uds
             nodes = self.db.query(OrganizationalNode).filter(
                 OrganizationalNode.employer_id == employer_id,
                 OrganizationalNode.parent_id == parent_id,
@@ -394,11 +394,11 @@ class HierarchicalOrganizationalService:
             ]
             
         except Exception as e:
-            logger.error(f"Erreur lors de la récupération des options en cascade: {e}")
+            logger.error(f"Erreur lors de la rÃ©cupÃ©ration des options en cascade: {e}")
             return []
     
     # ==========================================
-    # MÉTHODES DE VALIDATION
+    # MÃ‰THODES DE VALIDATION
     # ==========================================
     
     def validate_organizational_path(
@@ -410,14 +410,14 @@ class HierarchicalOrganizationalService:
         unite_id: Optional[int] = None
     ) -> Tuple[bool, List[str]]:
         """
-        Valide qu'un chemin organisationnel est cohérent hiérarchiquement.
+        Valide qu'un chemin organisationnel est cohÃ©rent hiÃ©rarchiquement.
         
         Args:
             employer_id: ID de l'employeur
-            etablissement_id: ID de l'établissement
-            departement_id: ID du département
+            etablissement_id: ID de l'Ã©tablissement
+            departement_id: ID du dÃ©partement
             service_id: ID du service
-            unite_id: ID de l'unité
+            unite_id: ID de l'unitÃ©
             
         Returns:
             Tuple (is_valid, errors)
@@ -425,7 +425,7 @@ class HierarchicalOrganizationalService:
         errors = []
         
         try:
-            # Vérifier que tous les nœuds appartiennent au bon employeur
+            # VÃ©rifier que tous les nÅ“uds appartiennent au bon employeur
             node_ids = [id for id in [etablissement_id, departement_id, service_id, unite_id] if id is not None]
             
             if node_ids:
@@ -436,27 +436,27 @@ class HierarchicalOrganizationalService:
                 ).all()
                 
                 if len(nodes) != len(node_ids):
-                    errors.append("Un ou plusieurs nœuds n'existent pas ou n'appartiennent pas à cet employeur")
+                    errors.append("Un ou plusieurs nÅ“uds n'existent pas ou n'appartiennent pas Ã  cet employeur")
                     return False, errors
                 
-                # Créer un mapping pour validation
+                # CrÃ©er un mapping pour validation
                 nodes_by_id = {node.id: node for node in nodes}
                 
-                # Validation hiérarchique
+                # Validation hiÃ©rarchique
                 if departement_id and etablissement_id:
                     dept = nodes_by_id.get(departement_id)
                     if dept and dept.parent_id != etablissement_id:
-                        errors.append("Le département ne correspond pas à l'établissement")
+                        errors.append("Le dÃ©partement ne correspond pas Ã  l'Ã©tablissement")
                 
                 if service_id and departement_id:
                     service = nodes_by_id.get(service_id)
                     if service and service.parent_id != departement_id:
-                        errors.append("Le service ne correspond pas au département")
+                        errors.append("Le service ne correspond pas au dÃ©partement")
                 
                 if unite_id and service_id:
                     unite = nodes_by_id.get(unite_id)
                     if unite and unite.parent_id != service_id:
-                        errors.append("L'unité ne correspond pas au service")
+                        errors.append("L'unitÃ© ne correspond pas au service")
             
             return len(errors) == 0, errors
             
@@ -465,15 +465,15 @@ class HierarchicalOrganizationalService:
             return False, [f"Erreur de validation: {str(e)}"]
     
     # ==========================================
-    # MÉTHODES PRIVÉES
+    # MÃ‰THODES PRIVÃ‰ES
     # ==========================================
     
     def _build_tree_structure(self, nodes: List[OrganizationalNode]) -> List[Dict[str, Any]]:
-        """Construit la structure arborescente à partir d'une liste de nœuds"""
-        # Créer un mapping des nœuds par ID
+        """Construit la structure arborescente Ã  partir d'une liste de nÅ“uds"""
+        # CrÃ©er un mapping des nÅ“uds par ID
         nodes_by_id = {node.id: self._node_to_dict(node) for node in nodes}
         
-        # Ajouter les enfants à chaque nœud
+        # Ajouter les enfants Ã  chaque nÅ“ud
         for node in nodes:
             node_dict = nodes_by_id[node.id]
             node_dict['children'] = []
@@ -484,10 +484,10 @@ class HierarchicalOrganizationalService:
             node_dict = nodes_by_id[node.id]
             
             if node.parent_id is None:
-                # Nœud racine
+                # NÅ“ud racine
                 root_nodes.append(node_dict)
             else:
-                # Nœud enfant
+                # NÅ“ud enfant
                 parent = nodes_by_id.get(node.parent_id)
                 if parent:
                     parent['children'].append(node_dict)
@@ -495,7 +495,7 @@ class HierarchicalOrganizationalService:
         return root_nodes
     
     def _node_to_dict(self, node: OrganizationalNode) -> Dict[str, Any]:
-        """Convertit un nœud en dictionnaire"""
+        """Convertit un nÅ“ud en dictionnaire"""
         return {
             'id': node.id,
             'employer_id': node.employer_id,
@@ -513,21 +513,21 @@ class HierarchicalOrganizationalService:
         }
     
     def _validate_hierarchy(self, employer_id: int, parent_id: Optional[int], level: str):
-        """Valide la cohérence hiérarchique"""
-        # Vérifier que le niveau est valide
+        """Valide la cohÃ©rence hiÃ©rarchique"""
+        # VÃ©rifier que le niveau est valide
         valid_levels = ['etablissement', 'departement', 'service', 'unite']
         if level not in valid_levels:
             raise ValueError(f"Niveau invalide: {level}")
         
-        # Règles hiérarchiques
+        # RÃ¨gles hiÃ©rarchiques
         if level == 'etablissement' and parent_id is not None:
-            raise ValueError("Un établissement ne peut pas avoir de parent")
+            raise ValueError("Un Ã©tablissement ne peut pas avoir de parent")
         
         if level != 'etablissement' and parent_id is None:
             raise ValueError(f"Un {level} doit avoir un parent")
         
         if parent_id is not None:
-            # Vérifier que le parent existe et appartient au bon employeur
+            # VÃ©rifier que le parent existe et appartient au bon employeur
             parent = self.db.query(OrganizationalNode).filter(
                 OrganizationalNode.id == parent_id,
                 OrganizationalNode.employer_id == employer_id,
@@ -537,7 +537,7 @@ class HierarchicalOrganizationalService:
             if not parent:
                 raise ValueError("Parent introuvable ou inactif")
             
-            # Vérifier la cohérence des niveaux
+            # VÃ©rifier la cohÃ©rence des niveaux
             expected_parent_levels = {
                 'departement': 'etablissement',
                 'service': 'departement',
@@ -549,7 +549,7 @@ class HierarchicalOrganizationalService:
                 raise ValueError(f"Un {level} doit avoir un parent de niveau {expected_parent_level}")
     
     def _check_name_uniqueness(self, employer_id: int, parent_id: Optional[int], name: str, exclude_id: Optional[int] = None):
-        """Vérifie l'unicité du nom dans le contexte parent"""
+        """VÃ©rifie l'unicitÃ© du nom dans le contexte parent"""
         query = self.db.query(OrganizationalNode).filter(
             OrganizationalNode.employer_id == employer_id,
             OrganizationalNode.parent_id == parent_id,
@@ -563,23 +563,23 @@ class HierarchicalOrganizationalService:
         existing = query.first()
         if existing:
             parent_name = "racine" if parent_id is None else f"parent {parent_id}"
-            raise ValueError(f"Un nœud avec le nom '{name}' existe déjà sous {parent_name}")
+            raise ValueError(f"Un nÅ“ud avec le nom '{name}' existe dÃ©jÃ  sous {parent_name}")
     
     def _validate_move(self, node_id: int, new_parent_id: Optional[int]):
-        """Valide qu'un déplacement ne crée pas de cycle"""
+        """Valide qu'un dÃ©placement ne crÃ©e pas de cycle"""
         if new_parent_id is None:
-            return  # Déplacement vers la racine, pas de cycle possible
+            return  # DÃ©placement vers la racine, pas de cycle possible
         
-        # Vérifier qu'on ne déplace pas un nœud vers un de ses descendants
+        # VÃ©rifier qu'on ne dÃ©place pas un nÅ“ud vers un de ses descendants
         current_parent_id = new_parent_id
         visited = set()
         
         while current_parent_id is not None:
             if current_parent_id == node_id:
-                raise ValueError("Déplacement impossible: cela créerait un cycle")
+                raise ValueError("DÃ©placement impossible: cela crÃ©erait un cycle")
             
             if current_parent_id in visited:
-                # Cycle détecté dans la structure existante
+                # Cycle dÃ©tectÃ© dans la structure existante
                 break
             
             visited.add(current_parent_id)
@@ -594,14 +594,14 @@ class HierarchicalOrganizationalService:
             current_parent_id = parent.parent_id
     
     def _calculate_path(self, node_id: int) -> str:
-        """Calcule le chemin hiérarchique complet d'un nœud"""
+        """Calcule le chemin hiÃ©rarchique complet d'un nÅ“ud"""
         path_parts = []
         current_id = node_id
         visited = set()
         
         while current_id is not None:
             if current_id in visited:
-                # Cycle détecté
+                # Cycle dÃ©tectÃ©
                 break
             
             visited.add(current_id)
@@ -619,7 +619,7 @@ class HierarchicalOrganizationalService:
         return " > ".join(path_parts)
     
     def _update_children_paths(self, parent_id: int):
-        """Met à jour récursivement les chemins des enfants"""
+        """Met Ã  jour rÃ©cursivement les chemins des enfants"""
         children = self.db.query(OrganizationalNode).filter(
             OrganizationalNode.parent_id == parent_id,
             OrganizationalNode.is_active == True
@@ -627,16 +627,16 @@ class HierarchicalOrganizationalService:
         
         for child in children:
             child.path = self._calculate_path(child.id)
-            child.updated_at = datetime.utcnow()
-            # Récursion pour les petits-enfants
+            child.updated_at = datetime.now(timezone.utc)
+            # RÃ©cursion pour les petits-enfants
             self._update_children_paths(child.id)
     
     def get_node_deletion_info(self, node_id: int) -> Dict[str, Any]:
         """
-        Récupère les informations nécessaires pour la suppression d'un nœud.
+        RÃ©cupÃ¨re les informations nÃ©cessaires pour la suppression d'un nÅ“ud.
         
         Args:
-            node_id: ID du nœud
+            node_id: ID du nÅ“ud
             
         Returns:
             Dictionnaire avec les informations de suppression
@@ -647,7 +647,7 @@ class HierarchicalOrganizationalService:
             ).first()
             
             if not node:
-                raise ValueError(f"Nœud {node_id} introuvable")
+                raise ValueError(f"NÅ“ud {node_id} introuvable")
             
             # Compter les enfants
             children_count = self.db.query(OrganizationalNode).filter(
@@ -655,10 +655,10 @@ class HierarchicalOrganizationalService:
                 OrganizationalNode.is_active == True
             ).count()
             
-            # Compter les salariés affectés
+            # Compter les salariÃ©s affectÃ©s
             workers_count = self._count_assigned_workers(node_id)
             
-            # Déterminer si la suppression est possible
+            # DÃ©terminer si la suppression est possible
             can_delete = children_count == 0 and workers_count == 0
             
             return {
@@ -673,28 +673,28 @@ class HierarchicalOrganizationalService:
             }
             
         except Exception as e:
-            logger.error(f"Erreur lors de la récupération des infos de suppression: {e}")
+            logger.error(f"Erreur lors de la rÃ©cupÃ©ration des infos de suppression: {e}")
             raise
     
     def _get_deletion_warnings(self, children_count: int, workers_count: int) -> List[str]:
-        """Génère les avertissements pour la suppression"""
+        """GÃ©nÃ¨re les avertissements pour la suppression"""
         warnings = []
         
         if children_count > 0:
             warnings.append(f"Cette structure contient {children_count} sous-structure(s)")
         
         if workers_count > 0:
-            warnings.append(f"{workers_count} salarié(s) sont affectés à cette structure")
+            warnings.append(f"{workers_count} salariÃ©(s) sont affectÃ©s Ã  cette structure")
         
         if not warnings:
-            warnings.append("Cette structure peut être supprimée en toute sécurité")
+            warnings.append("Cette structure peut Ãªtre supprimÃ©e en toute sÃ©curitÃ©")
         
         return warnings
     
     def _count_assigned_workers(self, node_id: int) -> int:
-        """Compte les salariés affectés à ce nœud organisationnel"""
+        """Compte les salariÃ©s affectÃ©s Ã  ce nÅ“ud organisationnel"""
         try:
-            # Récupérer le nœud pour connaître son niveau
+            # RÃ©cupÃ©rer le nÅ“ud pour connaÃ®tre son niveau
             node = self.db.query(OrganizationalNode).filter(
                 OrganizationalNode.id == node_id
             ).first()
@@ -702,7 +702,7 @@ class HierarchicalOrganizationalService:
             if not node:
                 return 0
             
-            # Compter les salariés selon le niveau du nœud
+            # Compter les salariÃ©s selon le niveau du nÅ“ud
             count = 0
             
             if node.level == 'etablissement':
@@ -725,11 +725,11 @@ class HierarchicalOrganizationalService:
             return count
             
         except Exception as e:
-            logger.error(f"Erreur lors du comptage des salariés: {e}")
+            logger.error(f"Erreur lors du comptage des salariÃ©s: {e}")
             return 0
     
     def _deactivate_children_recursive(self, parent_id: int):
-        """Désactive récursivement tous les enfants d'un nœud"""
+        """DÃ©sactive rÃ©cursivement tous les enfants d'un nÅ“ud"""
         children = self.db.query(OrganizationalNode).filter(
             OrganizationalNode.parent_id == parent_id,
             OrganizationalNode.is_active == True
@@ -737,6 +737,8 @@ class HierarchicalOrganizationalService:
         
         for child in children:
             child.is_active = False
-            child.updated_at = datetime.utcnow()
-            # Récursion pour les petits-enfants
+            child.updated_at = datetime.now(timezone.utc)
+            # RÃ©cursion pour les petits-enfants
             self._deactivate_children_recursive(child.id)
+
+

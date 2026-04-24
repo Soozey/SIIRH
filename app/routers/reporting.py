@@ -5,7 +5,8 @@ from typing import List, Dict, Any, Optional
 from ..config.config import get_db
 from .. import models, schemas
 from .payroll import generate_preview_data
-from ..security import can_access_worker, require_roles
+from ..security import can_access_employer, can_access_worker, require_roles, user_has_any_role
+from ..services.master_data_service import build_worker_reporting_payload
 from ..services.organizational_filters import apply_worker_hierarchy_filters
 from datetime import datetime, date
 import pandas as pd
@@ -18,15 +19,44 @@ import traceback
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/reporting", tags=["reporting"])
-REPORTING_ROLES = {"admin", "rh", "comptable", "employeur", "manager"}
+REPORTING_ROLES = {"admin", "rh", "comptable", "employeur", "manager", "direction", "audit", "inspecteur"}
+CANONICAL_REPORTING_FIELDS = {
+    "matricule",
+    "nom",
+    "prenom",
+    "sexe",
+    "adresse",
+    "email",
+    "telephone",
+    "cin",
+    "date_naissance",
+    "date_embauche",
+    "date_debauche",
+    "poste",
+    "categorie_prof",
+    "nature_contrat",
+    "mode_paiement",
+    "cnaps_num",
+    "nombre_enfant",
+    "etablissement",
+    "departement",
+    "service",
+    "unite",
+    "salaire_base",
+    "salaire_horaire",
+    "vhm",
+    "horaire_hebdo",
+}
 
 
 def _ensure_reporting_scope(db: Session, user: models.AppUser, employer_id: int):
-    if user.role_code in {"admin", "rh", "comptable", "audit"}:
+    if user_has_any_role(db, user, "admin", "rh", "comptable", "audit"):
         return
-    if user.role_code == "employeur" and user.employer_id == employer_id:
+    if user_has_any_role(db, user, "inspecteur") and can_access_employer(db, user, employer_id):
         return
-    if user.role_code == "manager" and user.worker_id:
+    if user_has_any_role(db, user, "employeur", "direction") and user.employer_id == employer_id:
+        return
+    if user_has_any_role(db, user, "manager") and user.worker_id:
         manager_worker = db.query(models.Worker).filter(models.Worker.id == user.worker_id).first()
         if manager_worker and manager_worker.employer_id == employer_id:
             return
@@ -277,8 +307,9 @@ def get_full_report_data(
         workers = query.all()
         report_data = []
         
-        worker_cols = [c for c in selected_columns if hasattr(models.Worker, c)]
-        calc_cols = [c for c in selected_columns if c not in worker_cols]
+        canonical_worker_cols = [c for c in selected_columns if c in CANONICAL_REPORTING_FIELDS]
+        direct_worker_cols = [c for c in selected_columns if c not in canonical_worker_cols and hasattr(models.Worker, c)]
+        calc_cols = [c for c in selected_columns if c not in canonical_worker_cols and c not in direct_worker_cols]
         
         for idx, worker in enumerate(workers):
             if viewer and not can_access_worker(db, viewer, worker):
@@ -287,9 +318,15 @@ def get_full_report_data(
                 logger.info(f"Processing worker {idx+1}/{len(workers)} (Matricule: {worker.matricule})")
             
             worker_record = {"_worker_id": worker.id}
+            canonical_static_payload = build_worker_reporting_payload(db, worker)
             
-            # Static attributes
-            for col_id in worker_cols:
+            # Static attributes from canonical master data
+            for col_id in canonical_worker_cols:
+                val = canonical_static_payload.get(col_id, "")
+                worker_record[col_id] = val if val is not None else ""
+
+            # Remaining direct worker attributes
+            for col_id in direct_worker_cols:
                 val = getattr(worker, col_id)
                 if isinstance(val, (date, datetime)):
                     val = val.isoformat()
@@ -419,7 +456,13 @@ def export_report_excel(
             filters=filters,
             viewer=user,
         )
-        return generate_excel_response(data, request.employer_id, f"{request.start_period}_to_{request.end_period}", db)
+        return generate_excel_response(
+            data,
+            request.employer_id,
+            f"{request.start_period}_to_{request.end_period}",
+            db,
+            user=user,
+        )
     except Exception as e:
         logger.error(f"Export Excel Error: {e}")
         raise HTTPException(500, detail=f"Export failed: {str(e)}")
@@ -464,12 +507,19 @@ def export_journal(
             "unite": unite,
         }
         data = get_full_report_data(employer_id, period, period, dynamic_columns, db, filters=filters, viewer=user)
-        return generate_excel_response(data, employer_id, period, db, is_journal=True)
+        return generate_excel_response(data, employer_id, period, db, is_journal=True, user=user)
     except Exception as e:
         logger.error(f"Export Journal Error: {e}")
         raise HTTPException(500, detail=f"Journal export failed: {str(e)}")
 
-def generate_excel_response(data: List[Dict], employer_id: int, period: str, db: Session, is_journal: bool = False):
+def generate_excel_response(
+    data: List[Dict],
+    employer_id: int,
+    period: str,
+    db: Session,
+    is_journal: bool = False,
+    user: Optional[models.AppUser] = None,
+):
     if not data:
         raise HTTPException(404, "No results found.")
         
@@ -487,7 +537,10 @@ def generate_excel_response(data: List[Dict], employer_id: int, period: str, db:
         else:
             df = df[[c for c in df.columns if not c.startswith("_")]]
 
-        meta = get_report_metadata(employer_id, db)
+        if user is None:
+            raise HTTPException(500, "Missing reporting user context.")
+
+        meta = get_report_metadata(employer_id, db, user)
         col_mapping = {f.id: f.label for f in meta.fields}
         df.rename(columns=col_mapping, inplace=True)
         

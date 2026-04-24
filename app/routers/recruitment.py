@@ -1,5 +1,5 @@
-import json
-from datetime import date, datetime
+﻿import json
+from datetime import date, datetime, timezone
 from io import BytesIO
 from pathlib import Path
 from typing import Optional
@@ -10,13 +10,16 @@ from sqlalchemy.orm import Session
 
 from .. import models, schemas
 from ..config.config import get_db
-from ..security import can_manage_worker, require_roles
+from ..security import can_manage_worker, require_roles, user_has_any_role
 from ..services.audit_service import record_audit
+from ..services.compliance_service import create_contract_version, sync_employer_register
 from ..services.file_storage import sanitize_filename_part, save_upload_file
+from ..services.master_data_service import sync_worker_master_data
 from ..services.pdf_generation_service import build_recruitment_announcement_pdf
 from ..services.recruitment_assistant_service import (
     _normalize_key,
     build_announcement_payload,
+    build_contract_guidance,
     build_contract_draft_html,
     extract_text_from_upload,
     get_library_entries,
@@ -24,12 +27,21 @@ from ..services.recruitment_assistant_service import (
     parse_candidate_profile,
     suggest_job_profile,
 )
+from ..services.recruitment_publication_service import (
+    get_or_create_publication_channels,
+    json_load as publication_json_load,
+    mask_channel_config,
+    merge_channel_config,
+    publish_job_channels,
+)
 
 
 router = APIRouter(prefix="/recruitment", tags=["recruitment"])
 
 READ_ROLES = ("admin", "rh", "employeur", "manager")
 WRITE_ROLES = ("admin", "rh", "employeur")
+PUBLICATION_WRITE_ROLES = ("admin", "rh", "recrutement")
+PUBLICATION_READ_ROLES = ("admin", "rh", "recrutement")
 
 
 def _json_load(value, default):
@@ -43,10 +55,10 @@ def _json_load(value, default):
         return default
 
 
-def _assert_employer_scope(user: models.AppUser, employer_id: int) -> None:
-    if user.role_code in {"admin", "rh"}:
+def _assert_employer_scope(db: Session, user: models.AppUser, employer_id: int) -> None:
+    if user_has_any_role(db, user, "admin", "rh"):
         return
-    if user.role_code == "employeur" and user.employer_id == employer_id:
+    if user_has_any_role(db, user, "employeur", "recrutement") and user.employer_id == employer_id:
         return
     raise HTTPException(status_code=403, detail="Forbidden")
 
@@ -97,11 +109,67 @@ def _serialize_profile(profile: models.RecruitmentJobProfile) -> schemas.Recruit
         announcement_body=profile.announcement_body,
         announcement_status=profile.announcement_status,
         announcement_share_pack=_json_load(profile.announcement_share_pack_json, {}),
+        submission_attachments=_json_load(profile.submission_attachments_json, []),
+        workforce_job_profile_id=profile.workforce_job_profile_id,
+        contract_guidance=_json_load(profile.contract_guidance_json, {}),
+        publication_mode=profile.publication_mode,
+        publication_url=profile.publication_url,
+        submitted_to_inspection_at=profile.submitted_to_inspection_at,
+        last_reviewed_at=profile.last_reviewed_at,
         announcement_slug=profile.announcement_slug,
         validated_by_user_id=profile.validated_by_user_id,
         validated_at=profile.validated_at,
         created_at=profile.created_at,
         updated_at=profile.updated_at,
+    )
+
+
+def _serialize_job(item: models.RecruitmentJobPosting) -> schemas.RecruitmentJobPostingOut:
+    return schemas.RecruitmentJobPostingOut(
+        id=item.id,
+        employer_id=item.employer_id,
+        title=item.title,
+        department=item.department,
+        location=item.location,
+        contract_type=item.contract_type,
+        status=item.status,
+        salary_range=item.salary_range,
+        description=item.description,
+        skills_required=item.skills_required,
+        publish_channels=_json_load(getattr(item, "publish_channels_json", "[]"), []),
+        publish_status=getattr(item, "publish_status", "draft") or "draft",
+        publish_logs=_json_load(getattr(item, "publish_logs_json", "[]"), []),
+        created_at=item.created_at,
+        updated_at=item.updated_at,
+    )
+
+
+def _serialize_publication_channel(item: models.RecruitmentPublicationChannel) -> schemas.RecruitmentPublicationChannelOut:
+    raw_config = publication_json_load(item.config_json, {})
+    masked_config, configured_secret_fields = mask_channel_config(raw_config)
+    return schemas.RecruitmentPublicationChannelOut(
+        id=item.id,
+        company_id=item.company_id,
+        channel_type=item.channel_type,
+        is_active=item.is_active,
+        default_publish=item.default_publish,
+        config=masked_config,
+        secret_fields_configured=configured_secret_fields,
+        created_at=item.created_at,
+        updated_at=item.updated_at,
+    )
+
+
+def _serialize_publication_log(item: models.RecruitmentPublicationLog) -> schemas.RecruitmentPublicationLogOut:
+    return schemas.RecruitmentPublicationLogOut(
+        id=item.id,
+        job_id=item.job_id,
+        channel=item.channel,
+        status=item.status,
+        message=item.message,
+        details=_json_load(item.details_json, {}),
+        triggered_by_user_id=item.triggered_by_user_id,
+        timestamp=item.timestamp,
     )
 
 
@@ -253,6 +321,7 @@ def _serialize_profile_dict(profile: models.RecruitmentJobProfile) -> dict:
         "salary_min": profile.salary_min,
         "salary_max": profile.salary_max,
         "working_hours": profile.working_hours,
+        "working_days": _json_load(profile.working_days_json, []),
         "benefits": _json_load(profile.benefits_json, []),
         "desired_start_date": profile.desired_start_date.isoformat() if profile.desired_start_date else None,
         "application_deadline": profile.application_deadline.isoformat() if profile.application_deadline else None,
@@ -266,6 +335,13 @@ def _serialize_profile_dict(profile: models.RecruitmentJobProfile) -> dict:
         "announcement_body": profile.announcement_body,
         "announcement_status": profile.announcement_status,
         "announcement_share_pack": _json_load(profile.announcement_share_pack_json, {}),
+        "submission_attachments": _json_load(profile.submission_attachments_json, []),
+        "workforce_job_profile_id": profile.workforce_job_profile_id,
+        "contract_guidance": _json_load(profile.contract_guidance_json, {}),
+        "publication_mode": profile.publication_mode,
+        "publication_url": profile.publication_url,
+        "submitted_to_inspection_at": profile.submitted_to_inspection_at.isoformat() if profile.submitted_to_inspection_at else None,
+        "last_reviewed_at": profile.last_reviewed_at.isoformat() if profile.last_reviewed_at else None,
     }
 
 
@@ -283,6 +359,7 @@ def _apply_profile_payload(profile: models.RecruitmentJobProfile, payload: schem
     profile.salary_min = payload.salary_min
     profile.salary_max = payload.salary_max
     profile.working_hours = payload.working_hours
+    profile.working_days_json = json_dump(payload.working_days)
     profile.benefits_json = json_dump(payload.benefits)
     profile.desired_start_date = payload.desired_start_date
     profile.application_deadline = payload.application_deadline
@@ -296,6 +373,62 @@ def _apply_profile_payload(profile: models.RecruitmentJobProfile, payload: schem
     profile.announcement_body = payload.announcement_body
     profile.announcement_status = payload.announcement_status
     profile.announcement_share_pack_json = json_dump(payload.announcement_share_pack)
+    profile.submission_attachments_json = json_dump(payload.submission_attachments)
+    profile.workforce_job_profile_id = payload.workforce_job_profile_id
+    profile.contract_guidance_json = json_dump(payload.contract_guidance)
+    profile.publication_mode = payload.publication_mode
+    profile.publication_url = payload.publication_url
+    profile.submitted_to_inspection_at = payload.submitted_to_inspection_at
+    profile.last_reviewed_at = payload.last_reviewed_at
+
+
+def _sync_workforce_job_profile(
+    db: Session,
+    *,
+    job: models.RecruitmentJobPosting,
+    profile: models.RecruitmentJobProfile,
+) -> models.WorkforceJobProfile:
+    workforce_profile = None
+    if profile.workforce_job_profile_id:
+        workforce_profile = (
+            db.query(models.WorkforceJobProfile)
+            .filter(models.WorkforceJobProfile.id == profile.workforce_job_profile_id)
+            .first()
+        )
+    if workforce_profile is None:
+        workforce_profile = (
+            db.query(models.WorkforceJobProfile)
+            .filter(models.WorkforceJobProfile.employer_id == job.employer_id)
+            .filter(models.WorkforceJobProfile.title == job.title)
+            .filter(models.WorkforceJobProfile.department == job.department)
+            .first()
+        )
+    if workforce_profile is None:
+        workforce_profile = models.WorkforceJobProfile(employer_id=job.employer_id, title=job.title, department=job.department)
+        db.add(workforce_profile)
+        db.flush()
+
+    workforce_profile.title = job.title
+    workforce_profile.department = job.department
+    workforce_profile.category_prof = job.contract_type
+    workforce_profile.classification_index = profile.classification
+    workforce_profile.notes = profile.mission_summary
+    workforce_profile.required_skills_json = json_dump(
+        [
+            {"type": "technical", "label": item}
+            for item in _json_load(profile.technical_skills_json, [])
+        ]
+        + [
+            {"type": "behavioral", "label": item}
+            for item in _json_load(profile.behavioral_skills_json, [])
+        ]
+        + [
+            {"type": "language", "label": item}
+            for item in _json_load(profile.languages_json, [])
+        ]
+    )
+    profile.workforce_job_profile_id = workforce_profile.id
+    return workforce_profile
 
 
 def _build_candidate_download_name(path_value: str, fallback: str) -> str:
@@ -325,7 +458,7 @@ def list_library_items(
     user: models.AppUser = Depends(require_roles(*READ_ROLES)),
 ):
     scoped_employer_id = employer_id
-    if user.role_code == "employeur":
+    if user_has_any_role(db, user, "employeur"):
         scoped_employer_id = user.employer_id
     items = get_library_entries(db, employer_id=scoped_employer_id, category=category)
     return [_serialize_library_item(item) for item in items]
@@ -338,7 +471,7 @@ def create_library_item(
     user: models.AppUser = Depends(require_roles(*WRITE_ROLES)),
 ):
     if payload.employer_id is not None:
-        _assert_employer_scope(user, payload.employer_id)
+        _assert_employer_scope(db, user, payload.employer_id)
     item = models.RecruitmentLibraryItem(
         employer_id=payload.employer_id,
         category=payload.category,
@@ -357,7 +490,7 @@ def create_library_item(
             employer_id=payload.employer_id,
             user=user,
             event_type="recruitment.library.create",
-            message=f"Élément de bibliothèque créé: {payload.label}",
+            message=f"Ã‰lÃ©ment de bibliothÃ¨que crÃ©Ã©: {payload.label}",
             payload={"category": payload.category},
         )
     record_audit(
@@ -388,7 +521,7 @@ def update_library_item(
     if item.is_system:
         raise HTTPException(status_code=400, detail="System library items are read-only")
     if item.employer_id is not None:
-        _assert_employer_scope(user, item.employer_id)
+        _assert_employer_scope(db, user, item.employer_id)
 
     before = {"label": item.label, "description": item.description, "is_active": item.is_active}
     update_data = payload.model_dump(exclude_unset=True)
@@ -421,14 +554,19 @@ def get_job_assistant_suggestions(
     db: Session = Depends(get_db),
     user: models.AppUser = Depends(require_roles(*READ_ROLES)),
 ):
-    if payload.employer_id is not None and user.role_code == "employeur":
-        _assert_employer_scope(user, payload.employer_id)
+    if payload.employer_id is not None and user_has_any_role(db, user, "employeur"):
+        _assert_employer_scope(db, user, payload.employer_id)
     suggestions = suggest_job_profile(
         db,
         title=payload.title,
         department=payload.department,
         description=payload.description,
-        employer_id=payload.employer_id if user.role_code != "employeur" else user.employer_id,
+        employer_id=payload.employer_id if not user_has_any_role(db, user, "employeur") else user.employer_id,
+        contract_type=payload.contract_type,
+        sector=payload.sector,
+        mode=payload.mode,
+        version=payload.version,
+        focus_block=payload.focus_block,
     )
     return schemas.RecruitmentJobAssistantOut(**suggestions)
 
@@ -440,11 +578,12 @@ def list_job_postings(
     user: models.AppUser = Depends(require_roles(*READ_ROLES)),
 ):
     query = db.query(models.RecruitmentJobPosting)
-    if user.role_code == "employeur" and user.employer_id:
+    if user_has_any_role(db, user, "employeur") and user.employer_id:
         query = query.filter(models.RecruitmentJobPosting.employer_id == user.employer_id)
     elif employer_id:
         query = query.filter(models.RecruitmentJobPosting.employer_id == employer_id)
-    return query.order_by(models.RecruitmentJobPosting.updated_at.desc()).all()
+    items = query.order_by(models.RecruitmentJobPosting.updated_at.desc()).all()
+    return [_serialize_job(item) for item in items]
 
 
 @router.post("/jobs", response_model=schemas.RecruitmentJobPostingOut)
@@ -453,8 +592,22 @@ def create_job_posting(
     db: Session = Depends(get_db),
     user: models.AppUser = Depends(require_roles(*WRITE_ROLES)),
 ):
-    _assert_employer_scope(user, payload.employer_id)
-    item = models.RecruitmentJobPosting(**payload.model_dump())
+    _assert_employer_scope(db, user, payload.employer_id)
+    payload_data = payload.model_dump()
+    item = models.RecruitmentJobPosting(
+        employer_id=payload_data["employer_id"],
+        title=payload_data["title"],
+        department=payload_data.get("department"),
+        location=payload_data.get("location"),
+        contract_type=payload_data.get("contract_type") or "CDI",
+        status=payload_data.get("status") or "draft",
+        salary_range=payload_data.get("salary_range"),
+        description=payload_data.get("description"),
+        skills_required=payload_data.get("skills_required"),
+        publish_channels_json=json_dump(payload_data.get("publish_channels") or []),
+        publish_status=payload_data.get("publish_status") or "draft",
+        publish_logs_json=json_dump(payload_data.get("publish_logs") or []),
+    )
     db.add(item)
     db.flush()
     _log_activity(
@@ -462,7 +615,7 @@ def create_job_posting(
         employer_id=item.employer_id,
         user=user,
         event_type="recruitment.job.create",
-        message=f"Fiche de poste créée: {item.title}",
+        message=f"Fiche de poste crÃ©Ã©e: {item.title}",
         job_posting_id=item.id,
     )
     record_audit(
@@ -477,7 +630,7 @@ def create_job_posting(
     )
     db.commit()
     db.refresh(item)
-    return item
+    return _serialize_job(item)
 
 
 @router.put("/jobs/{job_id}", response_model=schemas.RecruitmentJobPostingOut)
@@ -488,16 +641,21 @@ def update_job_posting(
     user: models.AppUser = Depends(require_roles(*WRITE_ROLES)),
 ):
     item = _get_job_or_404(db, job_id)
-    _assert_employer_scope(user, item.employer_id)
+    _assert_employer_scope(db, user, item.employer_id)
     before = {"title": item.title, "status": item.status, "department": item.department}
-    for field, value in payload.model_dump(exclude_unset=True).items():
+    update_data = payload.model_dump(exclude_unset=True)
+    if "publish_channels" in update_data:
+        item.publish_channels_json = json_dump(update_data.pop("publish_channels") or [])
+    if "publish_logs" in update_data:
+        item.publish_logs_json = json_dump(update_data.pop("publish_logs") or [])
+    for field, value in update_data.items():
         setattr(item, field, value)
     _log_activity(
         db,
         employer_id=item.employer_id,
         user=user,
         event_type="recruitment.job.update",
-        message=f"Fiche de poste mise à jour: {item.title}",
+        message=f"Fiche de poste mise Ã  jour: {item.title}",
         job_posting_id=item.id,
     )
     record_audit(
@@ -513,7 +671,55 @@ def update_job_posting(
     )
     db.commit()
     db.refresh(item)
-    return item
+    return _serialize_job(item)
+
+
+@router.get("/publication-channels", response_model=list[schemas.RecruitmentPublicationChannelOut])
+def list_publication_channels(
+    employer_id: int = Query(...),
+    db: Session = Depends(get_db),
+    user: models.AppUser = Depends(require_roles(*PUBLICATION_READ_ROLES)),
+):
+    _assert_employer_scope(db, user, employer_id)
+    items = get_or_create_publication_channels(db, employer_id)
+    db.commit()
+    for item in items:
+        db.refresh(item)
+    return [_serialize_publication_channel(item) for item in items]
+
+
+@router.put("/publication-channels/{channel_type}", response_model=schemas.RecruitmentPublicationChannelOut)
+def upsert_publication_channel(
+    channel_type: str,
+    payload: schemas.RecruitmentPublicationChannelUpsert,
+    db: Session = Depends(get_db),
+    user: models.AppUser = Depends(require_roles(*PUBLICATION_WRITE_ROLES)),
+):
+    normalized_channel_type = (channel_type or "").strip().lower()
+    if normalized_channel_type != payload.channel_type.strip().lower():
+        raise HTTPException(status_code=400, detail="Channel type mismatch")
+    _assert_employer_scope(db, user, payload.company_id)
+    items = get_or_create_publication_channels(db, payload.company_id)
+    item = next((row for row in items if row.channel_type == normalized_channel_type), None)
+    if not item:
+        raise HTTPException(status_code=404, detail="Publication channel not found")
+    existing_config = publication_json_load(item.config_json, {})
+    item.is_active = payload.is_active
+    item.default_publish = payload.default_publish
+    item.config_json = json_dump(merge_channel_config(existing_config, payload.config.model_dump()))
+    record_audit(
+        db,
+        actor=user,
+        action="recruitment.publication_channel.update",
+        entity_type="recruitment_publication_channel",
+        entity_id=item.id,
+        route=f"/recruitment/publication-channels/{normalized_channel_type}",
+        employer_id=payload.company_id,
+        after={"channel_type": item.channel_type, "is_active": item.is_active, "default_publish": item.default_publish},
+    )
+    db.commit()
+    db.refresh(item)
+    return _serialize_publication_channel(item)
 
 
 @router.get("/jobs/{job_id}/profile", response_model=schemas.RecruitmentJobProfileOut)
@@ -523,8 +729,10 @@ def get_job_profile(
     user: models.AppUser = Depends(require_roles(*READ_ROLES)),
 ):
     job = _get_job_or_404(db, job_id)
-    _assert_employer_scope(user, job.employer_id)
+    _assert_employer_scope(db, user, job.employer_id)
     profile = _get_or_create_profile(db, job)
+    if not _json_load(profile.contract_guidance_json, {}):
+        profile.contract_guidance_json = json_dump(build_contract_guidance(job, _serialize_profile(profile).model_dump()))
     db.commit()
     db.refresh(profile)
     return _serialize_profile(profile)
@@ -538,10 +746,11 @@ def upsert_job_profile(
     user: models.AppUser = Depends(require_roles(*WRITE_ROLES)),
 ):
     job = _get_job_or_404(db, job_id)
-    _assert_employer_scope(user, job.employer_id)
+    _assert_employer_scope(db, user, job.employer_id)
     profile = _get_or_create_profile(db, job)
     before = _serialize_profile_dict(profile)
     _apply_profile_payload(profile, payload)
+    profile.contract_guidance_json = json_dump(build_contract_guidance(job, _serialize_profile(profile).model_dump()))
     _log_activity(
         db,
         employer_id=job.employer_id,
@@ -567,6 +776,55 @@ def upsert_job_profile(
     return _serialize_profile(profile)
 
 
+@router.get("/jobs/{job_id}/contract-guidance", response_model=schemas.RecruitmentContractGuidanceOut)
+def get_contract_guidance(
+    job_id: int,
+    db: Session = Depends(get_db),
+    user: models.AppUser = Depends(require_roles(*READ_ROLES)),
+):
+    job = _get_job_or_404(db, job_id)
+    _assert_employer_scope(db, user, job.employer_id)
+    profile = _get_or_create_profile(db, job)
+    payload = build_contract_guidance(job, _serialize_profile(profile).model_dump())
+    profile.contract_guidance_json = json_dump(payload)
+    db.commit()
+    return schemas.RecruitmentContractGuidanceOut(**payload)
+
+
+@router.post("/jobs/{job_id}/sync-workforce-profile", response_model=schemas.RecruitmentJobProfileOut)
+def sync_job_to_workforce_profile(
+    job_id: int,
+    db: Session = Depends(get_db),
+    user: models.AppUser = Depends(require_roles(*WRITE_ROLES)),
+):
+    job = _get_job_or_404(db, job_id)
+    _assert_employer_scope(db, user, job.employer_id)
+    profile = _get_or_create_profile(db, job)
+    workforce_profile = _sync_workforce_job_profile(db, job=job, profile=profile)
+    _log_activity(
+        db,
+        employer_id=job.employer_id,
+        user=user,
+        event_type="recruitment.job.workforce_profile.synced",
+        message=f"Fiche de poste RH synchronisee: {job.title}",
+        job_posting_id=job.id,
+        payload={"workforce_job_profile_id": workforce_profile.id},
+    )
+    record_audit(
+        db,
+        actor=user,
+        action="recruitment.job.workforce_profile.synced",
+        entity_type="recruitment_job_profile",
+        entity_id=profile.id,
+        route=f"/recruitment/jobs/{job_id}/sync-workforce-profile",
+        employer_id=job.employer_id,
+        after={"workforce_job_profile_id": workforce_profile.id},
+    )
+    db.commit()
+    db.refresh(profile)
+    return _serialize_profile(profile)
+
+
 @router.post("/jobs/{job_id}/submit-for-validation", response_model=schemas.RecruitmentJobProfileOut)
 def submit_job_for_validation(
     job_id: int,
@@ -574,16 +832,19 @@ def submit_job_for_validation(
     user: models.AppUser = Depends(require_roles(*WRITE_ROLES)),
 ):
     job = _get_job_or_404(db, job_id)
-    _assert_employer_scope(user, job.employer_id)
+    _assert_employer_scope(db, user, job.employer_id)
     profile = _get_or_create_profile(db, job)
-    profile.workflow_status = "pending_validation"
-    job.status = "pending_validation"
+    if profile.workflow_status not in {"validated", "validated_with_observations", "archived"}:
+        profile.workflow_status = "en_revue_inspecteur"
+    if job.status not in {"published", "published_non_conforme"}:
+        job.status = "en_revue_inspecteur"
+    profile.submitted_to_inspection_at = datetime.now(timezone.utc)
     _log_activity(
         db,
         employer_id=job.employer_id,
         user=user,
         event_type="recruitment.job.validation.requested",
-        message=f"Fiche de poste soumise à validation: {job.title}",
+        message=f"Offre signalee a l'inspection pour controle a posteriori: {job.title}",
         job_posting_id=job.id,
     )
     record_audit(
@@ -610,17 +871,23 @@ def validate_job_profile(
 ):
     job = _get_job_or_404(db, job_id)
     profile = _get_or_create_profile(db, job)
-    profile.workflow_status = "validated" if payload.approved else "rejected"
+    if not payload.approved and not (payload.comment or "").strip():
+        raise HTTPException(status_code=422, detail="A comment is required when validation is refused")
+    profile.workflow_status = "validated_with_observations" if payload.approved and (payload.comment or "").strip() else ("validated" if payload.approved else "rejected")
     profile.validation_comment = payload.comment
     profile.validated_by_user_id = user.id
-    profile.validated_at = datetime.utcnow()
-    job.status = "validated" if payload.approved else "draft"
+    profile.validated_at = datetime.now(timezone.utc)
+    profile.last_reviewed_at = datetime.now(timezone.utc)
+    if payload.approved:
+        job.status = "published" if job.status in {"published", "published_non_validated", "en_revue_inspecteur"} else "validated"
+    else:
+        job.status = "published_non_conforme" if job.status in {"published", "published_non_validated", "en_revue_inspecteur"} else "rejected"
     _log_activity(
         db,
         employer_id=job.employer_id,
         user=user,
         event_type="recruitment.job.validation.done",
-        message=f"Fiche de poste {'validée' if payload.approved else 'rejetée'}: {job.title}",
+        message=f"Fiche de poste {'validÃ©e' if payload.approved else 'rejetÃ©e'}: {job.title}",
         job_posting_id=job.id,
         payload={"comment": payload.comment},
     )
@@ -639,6 +906,54 @@ def validate_job_profile(
     return _serialize_profile(profile)
 
 
+@router.post("/jobs/{job_id}/attachments/upload", response_model=schemas.RecruitmentJobProfileOut)
+async def upload_job_submission_attachment(
+    job_id: int,
+    attachment: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    user: models.AppUser = Depends(require_roles(*WRITE_ROLES)),
+):
+    job = _get_job_or_404(db, job_id)
+    _assert_employer_scope(db, user, job.employer_id)
+    profile = _get_or_create_profile(db, job)
+
+    safe_name = sanitize_filename_part(Path(attachment.filename or "piece_jointe").name)
+    storage_name = f"recruitment/jobs/{job.id}/{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}_{safe_name}"
+    stored_path = save_upload_file(attachment.file, filename=storage_name)
+    attachments = _json_load(profile.submission_attachments_json, [])
+    attachments.append(
+        {
+            "name": attachment.filename,
+            "content_type": attachment.content_type,
+            "path": stored_path,
+        }
+    )
+    profile.submission_attachments_json = json_dump(attachments)
+
+    _log_activity(
+        db,
+        employer_id=job.employer_id,
+        user=user,
+        event_type="recruitment.job.attachment.uploaded",
+        message=f"Piece jointe ajoutee a l'offre: {job.title}",
+        job_posting_id=job.id,
+        payload={"filename": attachment.filename},
+    )
+    record_audit(
+        db,
+        actor=user,
+        action="recruitment.job.attachment.uploaded",
+        entity_type="recruitment_job_profile",
+        entity_id=profile.id,
+        route=f"/recruitment/jobs/{job_id}/attachments/upload",
+        employer_id=job.employer_id,
+        after={"filename": attachment.filename},
+    )
+    db.commit()
+    db.refresh(profile)
+    return _serialize_profile(profile)
+
+
 @router.post("/jobs/{job_id}/generate-announcement", response_model=schemas.RecruitmentAnnouncementOut)
 def generate_announcement(
     job_id: int,
@@ -646,7 +961,7 @@ def generate_announcement(
     user: models.AppUser = Depends(require_roles(*WRITE_ROLES)),
 ):
     job = _get_job_or_404(db, job_id)
-    _assert_employer_scope(user, job.employer_id)
+    _assert_employer_scope(db, user, job.employer_id)
     profile = _get_or_create_profile(db, job)
     payload = build_announcement_payload(job, _serialize_profile(profile).model_dump())
     profile.announcement_title = payload["title"]
@@ -659,7 +974,7 @@ def generate_announcement(
         employer_id=job.employer_id,
         user=user,
         event_type="recruitment.announcement.generated",
-        message=f"Annonce générée depuis la fiche: {job.title}",
+        message=f"Annonce gÃ©nÃ©rÃ©e depuis la fiche: {job.title}",
         job_posting_id=job.id,
     )
     record_audit(
@@ -676,32 +991,34 @@ def generate_announcement(
     return schemas.RecruitmentAnnouncementOut(**payload)
 
 
-@router.post("/jobs/{job_id}/publish", response_model=schemas.RecruitmentJobProfileOut)
+@router.post("/jobs/{job_id}/publish", response_model=schemas.RecruitmentPublishResultOut)
 def publish_job(
     job_id: int,
+    payload: schemas.RecruitmentPublishRequest,
     db: Session = Depends(get_db),
-    user: models.AppUser = Depends(require_roles(*WRITE_ROLES)),
+    user: models.AppUser = Depends(require_roles(*PUBLICATION_WRITE_ROLES)),
 ):
     job = _get_job_or_404(db, job_id)
-    _assert_employer_scope(user, job.employer_id)
+    _assert_employer_scope(db, user, job.employer_id)
     profile = _get_or_create_profile(db, job)
-    if profile.workflow_status != "validated":
-        raise HTTPException(status_code=400, detail="Job profile must be validated before publication")
-    if not profile.announcement_share_pack_json or profile.announcement_status == "draft":
-        payload = build_announcement_payload(job, _serialize_profile(profile).model_dump())
-        profile.announcement_title = payload["title"]
-        profile.announcement_body = payload["web_body"]
-        profile.announcement_slug = payload["slug"]
-        profile.announcement_share_pack_json = json_dump(payload)
-    profile.announcement_status = "published"
-    job.status = "published"
+    try:
+        logs = publish_job_channels(
+            db,
+            job=job,
+            profile=profile,
+            user=user,
+            requested_channels=payload.channels,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     _log_activity(
         db,
         employer_id=job.employer_id,
         user=user,
         event_type="recruitment.job.published",
-        message=f"Annonce publiée: {job.title}",
+        message=f"Annonce publiée sur {len(logs)} canal(aux): {job.title}",
         job_posting_id=job.id,
+        payload={"publish_status": job.publish_status, "channels": [item.channel for item in logs]},
     )
     record_audit(
         db,
@@ -715,7 +1032,73 @@ def publish_job(
     )
     db.commit()
     db.refresh(profile)
-    return _serialize_profile(profile)
+    db.refresh(job)
+    for item in logs:
+        db.refresh(item)
+    return schemas.RecruitmentPublishResultOut(
+        job=_serialize_job(job),
+        profile=_serialize_profile(profile),
+        channel_results=[_serialize_publication_log(item) for item in logs],
+    )
+
+
+@router.get("/jobs/{job_id}/publication-logs", response_model=list[schemas.RecruitmentPublicationLogOut])
+def list_job_publication_logs(
+    job_id: int,
+    db: Session = Depends(get_db),
+    user: models.AppUser = Depends(require_roles(*READ_ROLES)),
+):
+    job = _get_job_or_404(db, job_id)
+    _assert_employer_scope(db, user, job.employer_id)
+    items = (
+        db.query(models.RecruitmentPublicationLog)
+        .filter(models.RecruitmentPublicationLog.job_id == job_id)
+        .order_by(models.RecruitmentPublicationLog.timestamp.desc(), models.RecruitmentPublicationLog.id.desc())
+        .all()
+    )
+    return [_serialize_publication_log(item) for item in items]
+
+
+@router.post("/jobs/{job_id}/publish/retry", response_model=schemas.RecruitmentPublishResultOut)
+def retry_publish_job_channel(
+    job_id: int,
+    payload: schemas.RecruitmentPublishRetryRequest,
+    db: Session = Depends(get_db),
+    user: models.AppUser = Depends(require_roles(*PUBLICATION_WRITE_ROLES)),
+):
+    job = _get_job_or_404(db, job_id)
+    _assert_employer_scope(db, user, job.employer_id)
+    profile = _get_or_create_profile(db, job)
+    try:
+        logs = publish_job_channels(
+            db,
+            job=job,
+            profile=profile,
+            user=user,
+            requested_channels=[payload.channel],
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    _log_activity(
+        db,
+        employer_id=job.employer_id,
+        user=user,
+        event_type="recruitment.job.publish.retry",
+        message=f"Relance de publication sur {payload.channel}: {job.title}",
+        job_posting_id=job.id,
+        payload={"channel": payload.channel},
+    )
+    db.commit()
+    db.refresh(job)
+    db.refresh(profile)
+    for item in logs:
+        db.refresh(item)
+    return schemas.RecruitmentPublishResultOut(
+        job=_serialize_job(job),
+        profile=_serialize_profile(profile),
+        channel_results=[_serialize_publication_log(item) for item in logs],
+    )
 
 
 @router.get("/jobs/{job_id}/share-pack", response_model=schemas.RecruitmentAnnouncementOut)
@@ -725,7 +1108,7 @@ def get_share_pack(
     user: models.AppUser = Depends(require_roles(*READ_ROLES)),
 ):
     job = _get_job_or_404(db, job_id)
-    _assert_employer_scope(user, job.employer_id)
+    _assert_employer_scope(db, user, job.employer_id)
     profile = _get_or_create_profile(db, job)
     payload = _json_load(profile.announcement_share_pack_json, {})
     if not payload:
@@ -745,7 +1128,7 @@ def get_announcement_pdf(
     user: models.AppUser = Depends(require_roles(*READ_ROLES)),
 ):
     job = _get_job_or_404(db, job_id)
-    _assert_employer_scope(user, job.employer_id)
+    _assert_employer_scope(db, user, job.employer_id)
     profile = _get_or_create_profile(db, job)
     payload = _json_load(profile.announcement_share_pack_json, {})
     if not payload:
@@ -766,7 +1149,7 @@ def list_candidates(
     user: models.AppUser = Depends(require_roles(*READ_ROLES)),
 ):
     query = db.query(models.RecruitmentCandidate)
-    if user.role_code == "employeur" and user.employer_id:
+    if user_has_any_role(db, user, "employeur") and user.employer_id:
         query = query.filter(models.RecruitmentCandidate.employer_id == user.employer_id)
     elif employer_id:
         query = query.filter(models.RecruitmentCandidate.employer_id == employer_id)
@@ -779,7 +1162,7 @@ def create_candidate(
     db: Session = Depends(get_db),
     user: models.AppUser = Depends(require_roles(*WRITE_ROLES)),
 ):
-    _assert_employer_scope(user, payload.employer_id)
+    _assert_employer_scope(db, user, payload.employer_id)
     item = models.RecruitmentCandidate(**payload.model_dump())
     db.add(item)
     db.flush()
@@ -788,7 +1171,7 @@ def create_candidate(
         employer_id=item.employer_id,
         user=user,
         event_type="recruitment.candidate.create",
-        message=f"Candidat créé: {item.first_name} {item.last_name}",
+        message=f"Candidat crÃ©Ã©: {item.first_name} {item.last_name}",
         candidate_id=item.id,
     )
     record_audit(
@@ -824,7 +1207,7 @@ async def upload_candidate(
     db: Session = Depends(get_db),
     user: models.AppUser = Depends(require_roles(*WRITE_ROLES)),
 ):
-    _assert_employer_scope(user, employer_id)
+    _assert_employer_scope(db, user, employer_id)
     if job_posting_id:
         job = _get_job_or_404(db, job_posting_id)
         if job.employer_id != employer_id:
@@ -836,9 +1219,9 @@ async def upload_candidate(
 
     candidate = models.RecruitmentCandidate(
         employer_id=employer_id,
-        first_name=(first_name or "").strip() or "Prénom à confirmer",
-        last_name=(last_name or "").strip() or "Nom à confirmer",
-        email=(email or "").strip() or parsed_profile.get("email") or f"candidate-{datetime.utcnow().timestamp():.0f}@placeholder.local",
+        first_name=(first_name or "").strip() or "PrÃ©nom Ã  confirmer",
+        last_name=(last_name or "").strip() or "Nom Ã  confirmer",
+        email=(email or "").strip() or parsed_profile.get("email") or f"candidate-{datetime.now(timezone.utc).timestamp():.0f}@placeholder.local",
         phone=(phone or "").strip() or parsed_profile.get("phone"),
         education_level=(education_level or "").strip() or parsed_profile.get("education_level"),
         experience_years=experience_years or parsed_profile.get("experience_years") or 0.0,
@@ -892,7 +1275,7 @@ async def upload_candidate(
                 candidate_id=candidate.id,
                 stage="applied",
                 score=None,
-                notes="Candidature créée depuis le formulaire avec CV et pièces jointes.",
+                notes="Candidature crÃ©Ã©e depuis le formulaire avec CV et piÃ¨ces jointes.",
             )
             db.add(application)
             db.flush()
@@ -902,7 +1285,7 @@ async def upload_candidate(
                 employer_id=employer_id,
                 user=user,
                 event_type="recruitment.application.create",
-                message="Candidature créée depuis le dépôt de CV",
+                message="Candidature crÃ©Ã©e depuis le dÃ©pÃ´t de CV",
                 job_posting_id=job_posting_id,
                 candidate_id=candidate.id,
                 application_id=application.id,
@@ -915,7 +1298,7 @@ async def upload_candidate(
         employer_id=employer_id,
         user=user,
         event_type="recruitment.candidate.upload",
-        message=f"CV original déposé pour {candidate.first_name} {candidate.last_name}",
+        message=f"CV original dÃ©posÃ© pour {candidate.first_name} {candidate.last_name}",
         candidate_id=candidate.id,
         application_id=application_id,
         payload={"cv_file": cv_file.filename, "attachments_count": len(attachment_entries)},
@@ -948,7 +1331,7 @@ def update_candidate(
     user: models.AppUser = Depends(require_roles(*WRITE_ROLES)),
 ):
     item = _get_candidate_or_404(db, candidate_id)
-    _assert_employer_scope(user, item.employer_id)
+    _assert_employer_scope(db, user, item.employer_id)
     before = {"first_name": item.first_name, "last_name": item.last_name, "status": item.status}
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(item, field, value)
@@ -957,7 +1340,7 @@ def update_candidate(
         employer_id=item.employer_id,
         user=user,
         event_type="recruitment.candidate.update",
-        message=f"Candidat mis à jour: {item.first_name} {item.last_name}",
+        message=f"Candidat mis Ã  jour: {item.first_name} {item.last_name}",
         candidate_id=item.id,
     )
     record_audit(
@@ -983,7 +1366,7 @@ def get_candidate_asset(
     user: models.AppUser = Depends(require_roles(*READ_ROLES)),
 ):
     candidate = _get_candidate_or_404(db, candidate_id)
-    _assert_employer_scope(user, candidate.employer_id)
+    _assert_employer_scope(db, user, candidate.employer_id)
     asset = db.query(models.RecruitmentCandidateAsset).filter(models.RecruitmentCandidateAsset.candidate_id == candidate_id).first()
     if not asset:
         raise HTTPException(status_code=404, detail="Candidate asset not found")
@@ -997,7 +1380,7 @@ def download_candidate_resume(
     user: models.AppUser = Depends(require_roles(*READ_ROLES)),
 ):
     candidate = _get_candidate_or_404(db, candidate_id)
-    _assert_employer_scope(user, candidate.employer_id)
+    _assert_employer_scope(db, user, candidate.employer_id)
     asset = db.query(models.RecruitmentCandidateAsset).filter(models.RecruitmentCandidateAsset.candidate_id == candidate_id).first()
     if not asset or not asset.resume_storage_path:
         raise HTTPException(status_code=404, detail="Resume not found")
@@ -1020,7 +1403,7 @@ def list_applications(
         models.RecruitmentJobPosting,
         models.RecruitmentApplication.job_posting_id == models.RecruitmentJobPosting.id,
     )
-    if user.role_code == "employeur" and user.employer_id:
+    if user_has_any_role(db, user, "employeur") and user.employer_id:
         query = query.filter(models.RecruitmentJobPosting.employer_id == user.employer_id)
     elif employer_id:
         query = query.filter(models.RecruitmentJobPosting.employer_id == employer_id)
@@ -1039,7 +1422,7 @@ def create_application(
     candidate = _get_candidate_or_404(db, payload.candidate_id)
     if job.employer_id != candidate.employer_id:
         raise HTTPException(status_code=400, detail="Candidate and job posting must belong to the same employer")
-    _assert_employer_scope(user, job.employer_id)
+    _assert_employer_scope(db, user, job.employer_id)
     item = models.RecruitmentApplication(**payload.model_dump())
     db.add(item)
     db.flush()
@@ -1048,7 +1431,7 @@ def create_application(
         employer_id=job.employer_id,
         user=user,
         event_type="recruitment.application.create",
-        message=f"Candidature créée pour {candidate.first_name} {candidate.last_name}",
+        message=f"Candidature crÃ©Ã©e pour {candidate.first_name} {candidate.last_name}",
         job_posting_id=job.id,
         candidate_id=candidate.id,
         application_id=item.id,
@@ -1077,7 +1460,7 @@ def update_application(
 ):
     item = _get_application_or_404(db, application_id)
     job = _get_job_or_404(db, item.job_posting_id)
-    _assert_employer_scope(user, job.employer_id)
+    _assert_employer_scope(db, user, job.employer_id)
     before = {"stage": item.stage, "score": item.score}
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(item, field, value)
@@ -1089,7 +1472,7 @@ def update_application(
         employer_id=job.employer_id,
         user=user,
         event_type="recruitment.application.update",
-        message=f"Candidature mise à jour: étape {item.stage}",
+        message=f"Candidature mise Ã  jour: Ã©tape {item.stage}",
         job_posting_id=job.id,
         candidate_id=item.candidate_id,
         application_id=item.id,
@@ -1119,7 +1502,7 @@ def list_application_activities(
 ):
     application = _get_application_or_404(db, application_id)
     job = _get_job_or_404(db, application.job_posting_id)
-    _assert_employer_scope(user, job.employer_id)
+    _assert_employer_scope(db, user, job.employer_id)
     items = db.query(models.RecruitmentActivity).filter(
         models.RecruitmentActivity.application_id == application_id
     ).order_by(models.RecruitmentActivity.created_at.desc()).all()
@@ -1134,7 +1517,7 @@ def list_interviews(
 ):
     application = _get_application_or_404(db, application_id)
     job = _get_job_or_404(db, application.job_posting_id)
-    _assert_employer_scope(user, job.employer_id)
+    _assert_employer_scope(db, user, job.employer_id)
     items = db.query(models.RecruitmentInterview).filter(
         models.RecruitmentInterview.application_id == application_id
     ).order_by(models.RecruitmentInterview.round_number.asc(), models.RecruitmentInterview.scheduled_at.asc()).all()
@@ -1150,7 +1533,7 @@ def create_interview(
 ):
     application = _get_application_or_404(db, application_id)
     job = _get_job_or_404(db, application.job_posting_id)
-    _assert_employer_scope(user, job.employer_id)
+    _assert_employer_scope(db, user, job.employer_id)
     item = models.RecruitmentInterview(
         application_id=application_id,
         round_number=payload.round_number,
@@ -1174,7 +1557,7 @@ def create_interview(
         employer_id=job.employer_id,
         user=user,
         event_type="recruitment.interview.create",
-        message=f"Entretien planifié ({item.round_label})",
+        message=f"Entretien planifiÃ© ({item.round_label})",
         job_posting_id=job.id,
         candidate_id=application.candidate_id,
         application_id=application.id,
@@ -1208,7 +1591,7 @@ def update_interview(
         raise HTTPException(status_code=404, detail="Interview not found")
     application = _get_application_or_404(db, item.application_id)
     job = _get_job_or_404(db, application.job_posting_id)
-    _assert_employer_scope(user, job.employer_id)
+    _assert_employer_scope(db, user, job.employer_id)
     before = {"status": item.status, "score_total": item.score_total}
     update_data = payload.model_dump(exclude_unset=True)
     if "scorecard" in update_data and update_data["scorecard"] is not None:
@@ -1220,7 +1603,7 @@ def update_interview(
         employer_id=job.employer_id,
         user=user,
         event_type="recruitment.interview.update",
-        message=f"Entretien mis à jour ({item.round_label})",
+        message=f"Entretien mis Ã  jour ({item.round_label})",
         job_posting_id=job.id,
         candidate_id=application.candidate_id,
         application_id=application.id,
@@ -1252,7 +1635,7 @@ def record_decision(
 ):
     application = _get_application_or_404(db, application_id)
     job = _get_job_or_404(db, application.job_posting_id)
-    _assert_employer_scope(user, job.employer_id)
+    _assert_employer_scope(db, user, job.employer_id)
     candidate = _get_candidate_or_404(db, application.candidate_id)
     item = db.query(models.RecruitmentDecision).filter(models.RecruitmentDecision.application_id == application_id).first()
     if not item:
@@ -1265,7 +1648,7 @@ def record_decision(
     item.decision_status = payload.decision_status
     item.decision_comment = payload.decision_comment
     item.decided_by_user_id = user.id
-    item.decided_at = datetime.utcnow()
+    item.decided_at = datetime.now(timezone.utc)
 
     if payload.shortlist_rank is not None:
         application.stage = "shortlist"
@@ -1282,7 +1665,7 @@ def record_decision(
         employer_id=job.employer_id,
         user=user,
         event_type="recruitment.decision.recorded",
-        message=f"Décision enregistrée: {payload.decision_status}",
+        message=f"DÃ©cision enregistrÃ©e: {payload.decision_status}",
         job_posting_id=job.id,
         candidate_id=candidate.id,
         application_id=application.id,
@@ -1303,7 +1686,6 @@ def record_decision(
     db.refresh(item)
     return _serialize_decision(item)
 
-
 @router.post("/applications/{application_id}/convert-to-worker", response_model=schemas.RecruitmentConversionOut)
 def convert_application_to_worker(
     application_id: int,
@@ -1313,7 +1695,7 @@ def convert_application_to_worker(
     application = _get_application_or_404(db, application_id)
     job = _get_job_or_404(db, application.job_posting_id)
     candidate = _get_candidate_or_404(db, application.candidate_id)
-    _assert_employer_scope(user, job.employer_id)
+    _assert_employer_scope(db, user, job.employer_id)
 
     decision = db.query(models.RecruitmentDecision).filter(models.RecruitmentDecision.application_id == application_id).first()
     if not decision:
@@ -1344,6 +1726,8 @@ def convert_application_to_worker(
         etablissement=job.location,
         departement=job.department,
         poste=job.title,
+        categorie_prof=profile.classification,
+        indice=profile.classification,
         salaire_base=profile.salary_min or 0.0,
         vhm=173.33,
         horaire_hebdo=40.0,
@@ -1367,21 +1751,44 @@ def convert_application_to_worker(
     )
     db.add(contract)
     db.flush()
+    contract_version = create_contract_version(
+        db,
+        contract=contract,
+        worker=worker,
+        actor=user,
+        source_module="recruitment_conversion",
+        status="draft",
+        effective_date=worker.date_embauche,
+        salary_amount=profile.salary_min or worker.salaire_base,
+        classification_index=profile.classification or worker.indice,
+    )
 
     application.stage = "hired"
     candidate.status = "hired"
     decision.decision_status = "hired"
     decision.decided_by_user_id = user.id
-    decision.decided_at = datetime.utcnow()
+    decision.decided_at = datetime.now(timezone.utc)
     decision.converted_worker_id = worker.id
     decision.contract_draft_id = contract.id
+    sync_worker_master_data(
+        db,
+        worker,
+        candidate=candidate,
+        application=application,
+        decision=decision,
+        job_posting=job,
+        job_profile=profile,
+        contract=contract,
+        contract_version=contract_version,
+    )
+    sync_employer_register(db, job.employer_id)
 
     _log_activity(
         db,
         employer_id=job.employer_id,
         user=user,
         event_type="recruitment.conversion.completed",
-        message=f"Candidat converti en salarié: {candidate.first_name} {candidate.last_name}",
+        message=f"Candidat converti en salariÃ©: {candidate.first_name} {candidate.last_name}",
         job_posting_id=job.id,
         candidate_id=candidate.id,
         application_id=application.id,
@@ -1400,3 +1807,5 @@ def convert_application_to_worker(
     )
     db.commit()
     return schemas.RecruitmentConversionOut(worker_id=worker.id, contract_draft_id=contract.id, decision_id=decision.id)
+
+

@@ -15,6 +15,7 @@ import psycopg2.extras
 from hypothesis import given, strategies as st, settings, example
 from typing import List, Dict, Set, Optional, Tuple
 from dataclasses import dataclass
+import builtins
 import sys
 import os
 
@@ -26,6 +27,16 @@ from app.services.organizational_structure_service import OrganizationalStructur
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from test_db_config import get_database_url, get_psycopg2_config
+
+
+def _safe_print(*args, sep=" ", end="\n", file=sys.stdout, flush=False):
+    """Force ASCII-only test logs to avoid cp1252 console failures on Windows."""
+    text = sep.join(str(arg) for arg in args)
+    safe_text = text.encode("ascii", "replace").decode("ascii")
+    builtins.print(safe_text, end=end, file=file, flush=flush)
+
+
+print = _safe_print
 
 
 @dataclass
@@ -52,6 +63,10 @@ class PathConsistencyTests(unittest.TestCase):
         cls.database_url = get_database_url()
         cls.engine = create_engine(cls.database_url)
         cls.SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=cls.engine)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.engine.dispose()
     
     def get_db_connection(self):
         """Get database connection"""

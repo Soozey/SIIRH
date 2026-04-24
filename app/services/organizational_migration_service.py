@@ -1,4 +1,4 @@
-"""
+﻿"""
 OrganizationalMigrationService - Service for migrating flat organizational data to hierarchical structure
 
 This service handles the migration from the old flat organizational structure (text fields in workers)
@@ -14,7 +14,7 @@ from sqlalchemy import and_, or_, func, text
 from ..models import OrganizationalUnit, Employer, Worker
 from ..schemas import ValidationResult
 from .organizational_structure_service import OrganizationalStructureService
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 import json
 from dataclasses import dataclass, asdict
@@ -126,28 +126,28 @@ class OrganizationalMigrationService:
             conflicts.append({
                 'type': 'unused_values',
                 'level': 'etablissement',
-                'message': f"Établissements définis mais jamais utilisés: {unused_etablissements}"
+                'message': f"Ã‰tablissements dÃ©finis mais jamais utilisÃ©s: {unused_etablissements}"
             })
         
         if unused_departements:
             conflicts.append({
                 'type': 'unused_values',
                 'level': 'departement',
-                'message': f"Départements définis mais jamais utilisés: {unused_departements}"
+                'message': f"DÃ©partements dÃ©finis mais jamais utilisÃ©s: {unused_departements}"
             })
         
         if unused_services:
             conflicts.append({
                 'type': 'unused_values',
                 'level': 'service',
-                'message': f"Services définis mais jamais utilisés: {unused_services}"
+                'message': f"Services dÃ©finis mais jamais utilisÃ©s: {unused_services}"
             })
         
         if unused_unites:
             conflicts.append({
                 'type': 'unused_values',
                 'level': 'unite',
-                'message': f"Unités définies mais jamais utilisées: {unused_unites}"
+                'message': f"UnitÃ©s dÃ©finies mais jamais utilisÃ©es: {unused_unites}"
             })
         
         # Check for hierarchical inconsistencies
@@ -157,21 +157,21 @@ class OrganizationalMigrationService:
                 conflicts.append({
                     'type': 'missing_parent',
                     'level': 'departement',
-                    'message': f"Département '{combo['departement']}' sans établissement parent"
+                    'message': f"DÃ©partement '{combo['departement']}' sans Ã©tablissement parent"
                 })
             
             if combo['service'] and not combo['departement']:
                 conflicts.append({
                     'type': 'missing_parent',
                     'level': 'service',
-                    'message': f"Service '{combo['service']}' sans département parent"
+                    'message': f"Service '{combo['service']}' sans dÃ©partement parent"
                 })
             
             if combo['unite'] and not combo['service']:
                 conflicts.append({
                     'type': 'missing_parent',
                     'level': 'unite',
-                    'message': f"Unité '{combo['unite']}' sans service parent"
+                    'message': f"UnitÃ© '{combo['unite']}' sans service parent"
                 })
         
         # Generate proposed hierarchy
@@ -503,8 +503,8 @@ class OrganizationalMigrationService:
                         code=combo['etablissement'][:50],  # Truncate if needed
                         name=combo['etablissement'],
                         is_active=True,
-                        created_at=datetime.utcnow(),
-                        updated_at=datetime.utcnow()
+                        created_at=datetime.now(timezone.utc),
+                        updated_at=datetime.now(timezone.utc)
                     )
                     self.db.add(unit)
                     self.db.flush()  # Get the ID
@@ -528,8 +528,8 @@ class OrganizationalMigrationService:
                         code=combo['departement'][:50],
                         name=combo['departement'],
                         is_active=True,
-                        created_at=datetime.utcnow(),
-                        updated_at=datetime.utcnow()
+                        created_at=datetime.now(timezone.utc),
+                        updated_at=datetime.now(timezone.utc)
                     )
                     self.db.add(unit)
                     self.db.flush()
@@ -554,8 +554,8 @@ class OrganizationalMigrationService:
                         code=combo['service'][:50],
                         name=combo['service'],
                         is_active=True,
-                        created_at=datetime.utcnow(),
-                        updated_at=datetime.utcnow()
+                        created_at=datetime.now(timezone.utc),
+                        updated_at=datetime.now(timezone.utc)
                     )
                     self.db.add(unit)
                     self.db.flush()
@@ -581,8 +581,8 @@ class OrganizationalMigrationService:
                         code=combo['unite'][:50],
                         name=combo['unite'],
                         is_active=True,
-                        created_at=datetime.utcnow(),
-                        updated_at=datetime.utcnow()
+                        created_at=datetime.now(timezone.utc),
+                        updated_at=datetime.now(timezone.utc)
                     )
                     self.db.add(unit)
                     self.db.flush()
@@ -685,28 +685,30 @@ class OrganizationalMigrationService:
         recommendations = []
         
         if not conflicts:
-            recommendations.append("✅ Aucun conflit détecté. Migration recommandée.")
+            recommendations.append("âœ… Aucun conflit dÃ©tectÃ©. Migration recommandÃ©e.")
         else:
-            recommendations.append("⚠️ Conflits détectés nécessitant une attention:")
+            recommendations.append("âš ï¸ Conflits dÃ©tectÃ©s nÃ©cessitant une attention:")
             
             for conflict in conflicts:
                 if conflict['type'] == 'unused_values':
                     recommendations.append(
-                        f"- Nettoyer les valeurs non utilisées dans {conflict['level']}"
+                        f"- Nettoyer les valeurs non utilisÃ©es dans {conflict['level']}"
                     )
                 elif conflict['type'] == 'missing_parent':
                     recommendations.append(
-                        f"- Corriger les relations hiérarchiques manquantes"
+                        f"- Corriger les relations hiÃ©rarchiques manquantes"
                     )
         
         if len(unique_combinations) > 50:
-            recommendations.append("⚠️ Structure complexe détectée. Considérer une migration par phases.")
+            recommendations.append("âš ï¸ Structure complexe dÃ©tectÃ©e. ConsidÃ©rer une migration par phases.")
         
-        recommendations.append("📋 Étapes recommandées:")
-        recommendations.append("1. Résoudre les conflits identifiés")
+        recommendations.append("ðŸ“‹ Ã‰tapes recommandÃ©es:")
+        recommendations.append("1. RÃ©soudre les conflits identifiÃ©s")
         recommendations.append("2. Tester la migration en mode dry-run")
-        recommendations.append("3. Sauvegarder les données avant migration")
-        recommendations.append("4. Exécuter la migration en production")
-        recommendations.append("5. Valider l'intégrité post-migration")
+        recommendations.append("3. Sauvegarder les donnÃ©es avant migration")
+        recommendations.append("4. ExÃ©cuter la migration en production")
+        recommendations.append("5. Valider l'intÃ©gritÃ© post-migration")
         
         return recommendations
+
+

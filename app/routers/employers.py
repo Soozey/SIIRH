@@ -13,6 +13,7 @@ from ..security import (
     can_access_employer,
     require_roles,
     resolve_user_employer_id,
+    user_has_any_role,
 )
 from ..services.audit_service import record_audit
 from ..services.file_storage import build_static_path, sanitize_filename_part, save_upload_file
@@ -102,12 +103,12 @@ def list_employers(
     user: models.AppUser = Depends(require_roles(*READ_PAYROLL_ROLES)),
 ):
     query = db.query(models.Employer)
-    if user.role_code in {"employeur", "direction", "juridique", "recrutement", "inspecteur"}:
+    if user_has_any_role(db, user, "employeur", "direction", "juridique", "recrutement", "inspecteur"):
         if user.employer_id:
             query = query.filter(models.Employer.id == user.employer_id)
         else:
             query = query.filter(models.Employer.id == -1)
-    elif user.role_code in {"manager", "departement", "employe"}:
+    elif user_has_any_role(db, user, "manager", "departement", "employe"):
         scoped_employer_id = resolve_user_employer_id(db, user)
         if scoped_employer_id:
             query = query.filter(models.Employer.id == scoped_employer_id)
@@ -127,12 +128,12 @@ def list_employers_paginated(
     user: models.AppUser = Depends(require_roles(*READ_PAYROLL_ROLES)),
 ):
     query = db.query(models.Employer)
-    if user.role_code in {"employeur", "direction", "juridique", "recrutement", "inspecteur"}:
+    if user_has_any_role(db, user, "employeur", "direction", "juridique", "recrutement", "inspecteur"):
         if user.employer_id:
             query = query.filter(models.Employer.id == user.employer_id)
         else:
             query = query.filter(models.Employer.id == -1)
-    elif user.role_code in {"manager", "departement", "employe"}:
+    elif user_has_any_role(db, user, "manager", "departement", "employe"):
         scoped_employer_id = resolve_user_employer_id(db, user)
         if scoped_employer_id:
             query = query.filter(models.Employer.id == scoped_employer_id)
@@ -296,14 +297,14 @@ def get_workers_organizational_data(
         unites = set()
         
         for worker in workers:
-            if worker.etablissement and worker.etablissement.strip():
-                etablissements.add(worker.etablissement.strip())
-            if worker.departement and worker.departement.strip():
-                departements.add(worker.departement.strip())
-            if worker.service and worker.service.strip():
-                services.add(worker.service.strip())
-            if worker.unite and worker.unite.strip():
-                unites.add(worker.unite.strip())
+            if worker.effective_etablissement and worker.effective_etablissement.strip():
+                etablissements.add(worker.effective_etablissement.strip())
+            if worker.effective_departement and worker.effective_departement.strip():
+                departements.add(worker.effective_departement.strip())
+            if worker.effective_service and worker.effective_service.strip():
+                services.add(worker.effective_service.strip())
+            if worker.effective_unite and worker.effective_unite.strip():
+                unites.add(worker.effective_unite.strip())
         
         return {
             "etablissements": sorted(list(etablissements)),
@@ -387,14 +388,14 @@ def get_filtered_organizational_data(
         unites = set()
         
         for worker in workers:
-            if worker.etablissement and worker.etablissement.strip():
-                etablissements.add(worker.etablissement.strip())
-            if worker.departement and worker.departement.strip():
-                departements.add(worker.departement.strip())
-            if worker.service and worker.service.strip():
-                services.add(worker.service.strip())
-            if worker.unite and worker.unite.strip():
-                unites.add(worker.unite.strip())
+            if worker.effective_etablissement and worker.effective_etablissement.strip():
+                etablissements.add(worker.effective_etablissement.strip())
+            if worker.effective_departement and worker.effective_departement.strip():
+                departements.add(worker.effective_departement.strip())
+            if worker.effective_service and worker.effective_service.strip():
+                services.add(worker.effective_service.strip())
+            if worker.effective_unite and worker.effective_unite.strip():
+                unites.add(worker.effective_unite.strip())
         
         return {
             "etablissements": sorted(list(etablissements)),

@@ -236,6 +236,29 @@ SYSTEM_LIBRARY_ITEMS = [
     },
 ]
 
+PROFESSIONAL_CLASSIFICATION_SYSTEM_ITEMS = [
+    {"code": "M1", "label": "Manoeuvre ordinaire", "family": "Industrie", "group": 1, "description": "Travaux simples sans qualification specifique."},
+    {"code": "M2", "label": "Manoeuvre specialise", "family": "Industrie", "group": 1, "description": "Execution de taches simples avec adaptation pratique."},
+    {"code": "OS1", "label": "Ouvrier", "family": "Industrie", "group": 2, "description": "Execution de travaux de production selon consignes."},
+    {"code": "OS2", "label": "Ouvrier superieur", "family": "Industrie", "group": 2, "description": "Production qualifiee avec autonomie partielle."},
+    {"code": "OS3", "label": "Ouvrier specialise", "family": "Industrie", "group": 3, "description": "Execution specialisee avec expertise metier terrain."},
+    {"code": "OP1A", "label": "Ouvrier professionnel", "family": "Industrie", "group": 3, "description": "Metier technique avec pratique confirmee."},
+    {"code": "OP1B", "label": "Ouvrier professionnel experimente", "family": "Industrie", "group": 3, "description": "Meme famille OP1 avec experience complementaire."},
+    {"code": "OP2A", "label": "Agent de maitrise", "family": "Industrie", "group": 4, "description": "Pilotage d'activites techniques et coordination d'equipe."},
+    {"code": "OP2B", "label": "Agent de maitrise experimente", "family": "Industrie", "group": 4, "description": "Maitrise experimentee sur poste technique ou encadrement."},
+    {"code": "OP3", "label": "Agent de maitrise confirme / chef", "family": "Industrie", "group": 4, "description": "Responsabilite de pilotage operationnel et coordination."},
+    {"code": "1A", "label": "Personnel subalterne", "family": "Services / Administratif", "group": 1, "description": "Travaux de support administratif de base."},
+    {"code": "1B", "label": "Personnel subalterne experimente", "family": "Services / Administratif", "group": 1, "description": "Support administratif avec experience pratique."},
+    {"code": "2A", "label": "Personnel executant travaux simples", "family": "Services / Administratif", "group": 2, "description": "Execution de travaux simples selon procedures."},
+    {"code": "2B", "label": "Personnel executant experimente", "family": "Services / Administratif", "group": 2, "description": "Execution avec experience et autonomie accrue."},
+    {"code": "3A", "label": "Personnel avec connaissances professionnelles", "family": "Services / Administratif", "group": 3, "description": "Fonctions necessitant une base professionnelle solide."},
+    {"code": "3B", "label": "Personnel avec experience confirmee", "family": "Services / Administratif", "group": 3, "description": "Niveau confirme avec execution maitrisee."},
+    {"code": "4A", "label": "Personnel formation approfondie", "family": "Services / Administratif", "group": 4, "description": "Fonctions necessitant formation technique approfondie."},
+    {"code": "4B", "label": "Personnel experimente formation avancee", "family": "Services / Administratif", "group": 4, "description": "Niveau avance avec forte autonomie professionnelle."},
+    {"code": "5A", "label": "Personnel hautement qualifie", "family": "Cadre", "group": 5, "description": "Expertise elevee, fonctions de pilotage ou conception."},
+    {"code": "5B", "label": "Personnel hautement qualifie experimente", "family": "Cadre", "group": 5, "description": "Niveau cadre confirme, forte responsabilite."},
+]
+
 SYSTEM_REFERENCE_VALUES = {
     "department": [
         "Ressources humaines",
@@ -257,12 +280,150 @@ SYSTEM_REFERENCE_VALUES = {
         "Antsiranana",
         "Nosy Be",
     ],
-    "contract_type": ["CDI", "CDD", "Stage", "Consultant", "Prestataire", "Temps partiel", "Temps plein"],
+    "contract_type": [
+        "CDI",
+        "CDD",
+        "Contrat d'essai",
+        "Contrat d'apprentissage",
+        "Contrat saisonnier",
+        "Contrat occasionnel",
+        "Travail interimaire",
+        "Portage salarial",
+        "Travailleur migrant / expatrie",
+        "Stage",
+        "Consultant",
+        "Prestataire",
+        "Temps partiel",
+        "Temps plein",
+    ],
     "status": ["Cadre", "Non cadre", "Agent", "Ouvrier", "Manager", "Direction", "Stagiaire"],
     "publication_channel": ["E-mail", "Lien public", "PDF", "Facebook", "LinkedIn", "WhatsApp"],
     "language": ["Français", "Malgache", "Anglais"],
     "education_level": ["Niveau secondaire", "Bac", "Bac+2", "Bac+3", "Master"],
     "experience_level": ["Débutant", "1 à 2 ans", "3 à 5 ans", "5 ans et plus"],
+    "candidate_source": ["Candidature spontanee", "Cooptation", "LinkedIn", "Facebook", "Site entreprise", "Cabinet"],
+    "benefit": ["Cantine", "Transport", "CNaPS", "OSTIE", "FMFP", "IRSA", "Assurance sante", "Prime de panier"],
+    "working_schedule": ["Temps plein", "Temps partiel", "Horaire de nuit", "Horaire decale", "Shift / rotation"],
+    "working_days": ["Lundi-Vendredi", "Lundi-Samedi", "Lundi-Samedi matin", "Lundi-Samedi apres-midi"],
+    "interview_stage": ["Entretien RH", "Entretien technique", "Entretien manager", "Entretien DG", "Reference check"],
+}
+
+CONTRACT_TYPE_DESCRIPTIONS = {
+    "CDI": "Contrat a duree indeterminee, reference standard pour un besoin permanent.",
+    "CDD": "Contrat a duree determinee, borne dans le temps avec motif de recours a verifier.",
+    "Contrat d'essai": "Contrat ou periode d'essai a cadrer avec duree, evaluation et date d'echeance.",
+    "Contrat d'apprentissage": "Cadre de transmission de competences avec tutorat et objectifs pedagogiques.",
+    "Contrat saisonnier": "Contrat lie a une activite repetitive ou cyclique sur une periode identifiee.",
+    "Contrat occasionnel": "Mobilisation ponctuelle pour un besoin limite ou evenementiel.",
+    "Travail interimaire": "Mission temporaire avec intervenant externe ou agence de travail temporaire.",
+    "Portage salarial": "Modalite specifique pour prestation encadree contractuellement.",
+    "Travailleur migrant / expatrie": "Contrat avec vigilance sur autorisations, mobilite et langue du document.",
+    "Stage": "Convention de stage ou periode d'immersion professionnalisante.",
+    "Consultant": "Mission d'expertise independante ou de conseil selon cahier des charges.",
+    "Prestataire": "Intervention externe encadree par prestations et livrables.",
+    "Temps partiel": "Organisation du temps de travail avec quotite reduite.",
+    "Temps plein": "Organisation standard a plein temps.",
+}
+
+JOB_FAMILY_TEMPLATES = {
+    "it": {
+        "description": "Dans le cadre du renforcement de son equipe technique, l'entreprise recherche un profil capable de concevoir, developper, maintenir et securiser des solutions applicatives fiables au service des operations.",
+        "mission_summary": "Concevoir, developper et maintenir des solutions techniques performantes en garantissant la qualite, la stabilite et la maintenabilite.",
+        "main_activities": ["Developpement de fonctionnalites", "Correction de bugs", "Participation aux reunions techniques", "Tests et documentation"],
+        "technical_skills": ["Python", "JavaScript / TypeScript", "API REST", "SQL", "Tests automatises"],
+        "behavioral_skills": ["Rigueur", "Esprit d'analyse", "Travail en equipe", "Autonomie"],
+        "tools": ["Git", "VS Code", "Docker", "Postman"],
+        "certifications": ["Certification cloud ou devops (optionnelle)"],
+        "languages": ["Francais", "Anglais technique"],
+        "interview_criteria": ["Logique (40%)", "Technique (40%)", "Communication (20%)"],
+        "education_level": "Bac+3 a Bac+5 en informatique",
+        "experience_required": "1 a 3 ans selon le niveau de responsabilite",
+        "recommended_contracts": ["CDI", "CDD", "Contrat d'essai"],
+    },
+    "finance": {
+        "description": "Pour fiabiliser ses operations financieres et comptables, l'entreprise recherche un profil capable de produire des donnees justes, conformes et exploitables pour le pilotage.",
+        "mission_summary": "Assurer la fiabilite comptable et financiere, la conformite documentaire et la production des etats de gestion.",
+        "main_activities": ["Tenue des ecritures comptables", "Rapprochements et clotures", "Suivi fiscal et social", "Alerte sur les ecarts"],
+        "technical_skills": ["Comptabilite generale", "Excel avance", "Fiscalite", "Analyse financiere"],
+        "behavioral_skills": ["Precision", "Fiabilite", "Discretion", "Respect des delais"],
+        "tools": ["Excel", "ERP comptable", "Outils de reporting"],
+        "certifications": ["Certification comptable ou fiscale (optionnelle)"],
+        "languages": ["Francais", "Malgache"],
+        "interview_criteria": ["Technique comptable (45%)", "Controle interne (35%)", "Communication (20%)"],
+        "education_level": "Bac+3 en comptabilite, finance ou gestion",
+        "experience_required": "2 a 4 ans en comptabilite ou finance",
+        "recommended_contracts": ["CDI", "CDD"],
+    },
+    "rh": {
+        "description": "Dans le cadre du renforcement de sa fonction RH, l'entreprise recherche un profil capable de securiser les processus sociaux, administratifs et humains.",
+        "mission_summary": "Piloter ou appuyer les activites RH en assurant la conformite sociale, la qualite documentaire et l'accompagnement des salaries.",
+        "main_activities": ["Gestion des dossiers du personnel", "Suivi des absences et contrats", "Appui recrutement et integration", "Fiabilisation des donnees paie"],
+        "technical_skills": ["Administration du personnel", "Droit social", "Excel", "Organisation documentaire"],
+        "behavioral_skills": ["Confidentialite", "Ecoute", "Rigueur", "Sens du service"],
+        "tools": ["SIRH", "Excel", "Word"],
+        "certifications": ["Formation RH ou droit social (optionnelle)"],
+        "languages": ["Francais", "Malgache"],
+        "interview_criteria": ["Conformite RH (40%)", "Organisation (35%)", "Relationnel (25%)"],
+        "education_level": "Bac+3 en RH, droit ou gestion",
+        "experience_required": "2 a 5 ans selon le niveau du poste",
+        "recommended_contracts": ["CDI", "CDD", "Contrat d'essai"],
+    },
+    "commercial": {
+        "description": "Afin d'accelerer son developpement commercial, l'entreprise recherche un profil capable de generer des opportunites, conclure des ventes et entretenir la relation client.",
+        "mission_summary": "Developper le portefeuille client, generer du chiffre d'affaires et contribuer a la visibilite commerciale de l'entreprise.",
+        "main_activities": ["Prospection et qualification", "Presentation des offres", "Suivi des objectifs et relances", "Remontee des besoins du marche"],
+        "technical_skills": ["Prospection", "Negociation", "CRM", "Suivi de pipeline"],
+        "behavioral_skills": ["Aisance relationnelle", "Persuasion", "Resilience", "Orientation resultat"],
+        "tools": ["CRM", "Excel", "PowerPoint"],
+        "certifications": ["Formation vente / marketing (optionnelle)"],
+        "languages": ["Francais", "Malgache"],
+        "interview_criteria": ["Commercial (45%)", "Argumentation (35%)", "Communication (20%)"],
+        "education_level": "Bac+2 a Bac+3 commercial ou marketing",
+        "experience_required": "1 a 3 ans en vente ou developpement commercial",
+        "recommended_contracts": ["CDI", "CDD", "Contrat occasionnel"],
+    },
+    "management": {
+        "description": "Dans une logique de pilotage et de structuration, l'entreprise recherche un manager capable de coordonner une equipe, suivre les indicateurs et garantir la continuite de service.",
+        "mission_summary": "Organiser, piloter et animer une equipe afin d'atteindre les objectifs de performance, de qualite et de conformite.",
+        "main_activities": ["Planification de l'activite", "Suivi des indicateurs", "Encadrement de l'equipe", "Coordination avec la direction"],
+        "technical_skills": ["Pilotage d'activite", "Reporting", "Gestion d'equipe", "Analyse de performance"],
+        "behavioral_skills": ["Leadership", "Decision", "Organisation", "Communication"],
+        "tools": ["Excel", "PowerPoint", "Tableaux de bord"],
+        "certifications": ["Formation management (optionnelle)"],
+        "languages": ["Francais", "Malgache"],
+        "interview_criteria": ["Leadership (40%)", "Pilotage (35%)", "Communication (25%)"],
+        "education_level": "Bac+3 a Bac+5 selon le perimetre",
+        "experience_required": "3 a 5 ans avec responsabilites progressives",
+        "recommended_contracts": ["CDI", "CDD"],
+    },
+    "operations": {
+        "description": "Pour soutenir ses activites terrain et operationnelles, l'entreprise recherche un profil capable d'executer ses missions avec rigueur, securite et respect des procedures.",
+        "mission_summary": "Executer ou coordonner les operations terrain en assurant la qualite, la securite et la continuite du service.",
+        "main_activities": ["Execution quotidienne selon procedures", "Suivi des controles et mouvements", "Remontee des anomalies", "Respect des standards securite et qualite"],
+        "technical_skills": ["Procedures operationnelles", "Securite", "Controle qualite", "Organisation terrain"],
+        "behavioral_skills": ["Discipline", "Vigilance", "Fiabilite", "Reactivite"],
+        "tools": ["Outils terrain", "Checklists", "Excel de suivi"],
+        "certifications": ["Habilitation metier ou securite (si applicable)"],
+        "languages": ["Malgache", "Francais"],
+        "interview_criteria": ["Execution (40%)", "Securite (35%)", "Comportement (25%)"],
+        "education_level": "Niveau secondaire a Bac+2 selon le metier",
+        "experience_required": "1 a 3 ans ou premiere experience structuree",
+        "recommended_contracts": ["CDI", "CDD", "Contrat saisonnier", "Contrat occasionnel"],
+    },
+    "autre": {
+        "description": "L'entreprise recherche un profil capable de prendre en charge le poste dans un cadre professionnel structure, avec des objectifs clairs et une adaptation rapide au contexte.",
+        "mission_summary": "Prendre en charge les responsabilites du poste en garantissant qualite de service, fiabilite et bonne integration a l'equipe.",
+        "main_activities": ["Execution des missions principales", "Coordination avec les parties prenantes", "Suivi des livrables", "Proposition d'ameliorations pratiques"],
+        "technical_skills": ["Organisation", "Outils bureautiques", "Suivi d'activite"],
+        "behavioral_skills": ["Rigueur", "Adaptabilite", "Communication", "Esprit d'equipe"],
+        "tools": ["Excel", "Word", "Messagerie professionnelle"],
+        "certifications": [],
+        "languages": ["Francais", "Malgache"],
+        "interview_criteria": ["Metier (40%)", "Organisation (30%)", "Communication (30%)"],
+        "education_level": "A definir selon le poste",
+        "experience_required": "Ajustable selon le niveau de responsabilite",
+        "recommended_contracts": ["CDI", "CDD"],
+    },
 }
 
 
@@ -288,39 +449,77 @@ def json_dump(value) -> str:
     return json.dumps(value, ensure_ascii=False)
 
 
-def ensure_recruitment_library(db) -> None:
-    existing = db.query(models.RecruitmentLibraryItem).filter(models.RecruitmentLibraryItem.is_system == True).count()
+def _seed_system_library_item(
+    db,
+    *,
+    category: str,
+    label: str,
+    description: str | None = None,
+    payload: dict | None = None,
+) -> None:
+    normalized_key = _normalize_key(label)
+    existing = (
+        db.query(models.RecruitmentLibraryItem)
+        .filter(models.RecruitmentLibraryItem.employer_id.is_(None))
+        .filter(models.RecruitmentLibraryItem.category == category)
+        .filter(models.RecruitmentLibraryItem.normalized_key == normalized_key)
+        .first()
+    )
     if existing:
+        if existing.is_system:
+            existing.description = description
+            existing.payload_json = json_dump(payload or {})
+            existing.is_active = True
         return
 
+    db.add(
+        models.RecruitmentLibraryItem(
+            employer_id=None,
+            category=category,
+            label=label,
+            normalized_key=normalized_key,
+            description=description,
+            payload_json=json_dump(payload or {}),
+            is_system=True,
+            is_active=True,
+        )
+    )
+
+
+def ensure_recruitment_library(db) -> None:
     for item in SYSTEM_LIBRARY_ITEMS:
-        db.add(
-            models.RecruitmentLibraryItem(
-                employer_id=None,
-                category=item["category"],
-                label=item["label"],
-                normalized_key=_normalize_key(item["label"]),
-                description=item.get("description"),
-                payload_json=json_dump(item.get("payload", {})),
-                is_system=True,
-                is_active=True,
-            )
+        _seed_system_library_item(
+            db,
+            category=item["category"],
+            label=item["label"],
+            description=item.get("description"),
+            payload=item.get("payload", {}),
         )
 
     for category, values in SYSTEM_REFERENCE_VALUES.items():
         for value in values:
-            db.add(
-                models.RecruitmentLibraryItem(
-                    employer_id=None,
-                    category=category,
-                    label=value,
-                    normalized_key=_normalize_key(value),
-                    description=None,
-                    payload_json=json_dump({"value": value}),
-                    is_system=True,
-                    is_active=True,
-                )
+            _seed_system_library_item(
+                db,
+                category=category,
+                label=value,
+                payload={"value": value},
             )
+
+    for item in PROFESSIONAL_CLASSIFICATION_SYSTEM_ITEMS:
+        label = f"{item['code']} - {item['label']}"
+        _seed_system_library_item(
+            db,
+            category="professional_classification",
+            label=label,
+            description=item["description"],
+            payload={
+                "code": item["code"],
+                "label": item["label"],
+                "family": item["family"],
+                "group": item["group"],
+                "description": item["description"],
+            },
+        )
 
     db.commit()
 
@@ -354,39 +553,127 @@ def _match_job_templates(db, title: str, department: str, description: str, empl
         matches = [entry for entry in entries if title_key in entry.normalized_key or entry.normalized_key in title_key]
     return matches[:3]
 
+def _detect_job_family(title: str, department: str, description: str, sector: str = "") -> str:
+    haystack = f"{title} {department} {description} {sector}".lower()
+    normalized_haystack = _normalize_key(haystack).replace("-", " ")
+    mapping = {
+        "it": ["developpeur", "developer", "informatique", "it", "si", "support", "tech", "logiciel", "reseau", "systeme"],
+        "finance": ["comptable", "finance", "tresor", "audit", "controleur", "fiscal", "paie"],
+        "rh": ["rh", "ressources humaines", "recrutement", "talent", "paie", "social"],
+        "commercial": ["commercial", "vente", "marketing", "business", "crm", "client"],
+        "management": ["responsable", "manager", "chef", "directeur", "superviseur", "coordinateur"],
+        "operations": ["chauffeur", "magasinier", "terrain", "operation", "production", "logistique", "agent", "technicien"],
+    }
+    for family, keywords in mapping.items():
+        for keyword in keywords:
+            normalized_keyword = _normalize_key(keyword).replace("-", " ")
+            if not normalized_keyword:
+                continue
+            if len(normalized_keyword) <= 2 or " " in normalized_keyword:
+                if re.search(rf"(^|\\s){re.escape(normalized_keyword)}(\\s|$)", normalized_haystack):
+                    return family
+            elif normalized_keyword in normalized_haystack:
+                return family
+    return "autre"
 
-def suggest_job_profile(db, *, title: str, department: str = "", description: str = "", employer_id=None):
+
+def _family_from_template_matches(matches: list) -> str | None:
+    for entry in matches:
+        payload = _json_load(getattr(entry, "payload_json", None), {})
+        department = str(payload.get("department") or "")
+        mission_summary = str(payload.get("mission_summary") or "")
+        family = _detect_job_family(entry.label, department, mission_summary)
+        if family != "autre":
+            return family
+    return None
+
+
+def _merge_unique(values: list[str], extras: list[str]) -> list[str]:
+    merged = list(values)
+    for value in extras:
+        if value and value not in merged:
+            merged.append(value)
+    return merged
+
+
+def _build_contract_type_suggestions(job_family: str, requested_contract_type: str = "") -> list[dict]:
+    recommended = JOB_FAMILY_TEMPLATES.get(job_family, JOB_FAMILY_TEMPLATES["autre"]).get("recommended_contracts", ["CDI", "CDD"])
+    ordered = []
+    seed = [requested_contract_type] if requested_contract_type else []
+    for item in seed + recommended + list(SYSTEM_REFERENCE_VALUES["contract_type"]):
+        if item and item not in ordered:
+            ordered.append(item)
+    return [
+        {
+            "code": item,
+            "label": item,
+            "description": CONTRACT_TYPE_DESCRIPTIONS.get(item, "Type de contrat personnalisable selon le contexte de l'entreprise."),
+            "recommended": item in recommended or item == requested_contract_type,
+        }
+        for item in ordered
+    ]
+
+
+def suggest_job_profile(
+    db,
+    *,
+    title: str,
+    department: str = "",
+    description: str = "",
+    employer_id=None,
+    sector: str = "",
+    mode: str = "generate",
+    version: str = "long",
+    focus_block: str | None = None,
+    contract_type: str = "",
+):
     matches = _match_job_templates(db, title, department, description, employer_id=employer_id)
+    family = _family_from_template_matches(matches) or _detect_job_family(title, department, description, sector)
+    family_template = JOB_FAMILY_TEMPLATES.get(family, JOB_FAMILY_TEMPLATES["autre"])
+    classification_entries = get_library_entries(
+        db,
+        employer_id=employer_id,
+        category="professional_classification",
+    )
     suggested = {
         "probable_title": title or (matches[0].label if matches else ""),
         "probable_department": department or "",
-        "mission_summary": "",
+        "detected_job_family": family,
+        "generated_context": family_template["description"],
+        "mission_summary": family_template["mission_summary"],
         "main_activities": [],
         "technical_skills": [],
         "behavioral_skills": [],
-        "education_level": "",
-        "experience_required": "",
-        "languages": [],
-        "tools": [],
-        "certifications": [],
-        "interview_criteria": [],
+        "education_level": family_template["education_level"],
+        "experience_required": family_template["experience_required"],
+        "languages": list(family_template["languages"]),
+        "tools": list(family_template["tools"]),
+        "certifications": list(family_template["certifications"]),
+        "interview_criteria": list(family_template["interview_criteria"]),
         "suggestion_sources": [],
+        "classification": "",
+        "contract_type_suggestions": _build_contract_type_suggestions(family, contract_type),
     }
 
     if matches:
         top_payload = _json_load(matches[0].payload_json, {})
         suggested["probable_department"] = department or top_payload.get("department", "")
-        suggested["mission_summary"] = top_payload.get("mission_summary", "")
-        suggested["main_activities"] = list(top_payload.get("main_activities", []))
-        suggested["technical_skills"] = list(top_payload.get("technical_skills", []))
-        suggested["behavioral_skills"] = list(top_payload.get("behavioral_skills", []))
-        suggested["education_level"] = top_payload.get("education_level", "")
-        suggested["experience_required"] = top_payload.get("experience_required", "")
-        suggested["languages"] = list(top_payload.get("languages", []))
-        suggested["tools"] = list(top_payload.get("tools", []))
-        suggested["certifications"] = list(top_payload.get("certifications", []))
-        suggested["interview_criteria"] = list(top_payload.get("interview_criteria", []))
+        suggested["mission_summary"] = top_payload.get("mission_summary", suggested["mission_summary"])
+        suggested["main_activities"] = _merge_unique(list(top_payload.get("main_activities", [])), family_template["main_activities"])
+        suggested["technical_skills"] = _merge_unique(list(top_payload.get("technical_skills", [])), family_template["technical_skills"])
+        suggested["behavioral_skills"] = _merge_unique(list(top_payload.get("behavioral_skills", [])), family_template["behavioral_skills"])
+        suggested["education_level"] = top_payload.get("education_level", suggested["education_level"])
+        suggested["experience_required"] = top_payload.get("experience_required", suggested["experience_required"])
+        suggested["languages"] = _merge_unique(list(top_payload.get("languages", [])), family_template["languages"])
+        suggested["tools"] = _merge_unique(list(top_payload.get("tools", [])), family_template["tools"])
+        suggested["certifications"] = _merge_unique(list(top_payload.get("certifications", [])), family_template["certifications"])
+        suggested["interview_criteria"] = _merge_unique(list(top_payload.get("interview_criteria", [])), family_template["interview_criteria"])
         suggested["suggestion_sources"].append(matches[0].label)
+        suggested["classification"] = top_payload.get("classification", "") or suggested["classification"]
+    else:
+        suggested["main_activities"] = list(family_template["main_activities"])
+        suggested["technical_skills"] = list(family_template["technical_skills"])
+        suggested["behavioral_skills"] = list(family_template["behavioral_skills"])
 
     department_key = _normalize_key(department)
     department_map = {
@@ -435,6 +722,60 @@ def suggest_job_profile(db, *, title: str, department: str = "", description: st
             if experience and not suggested["experience_required"]:
                 suggested["experience_required"] = experience
 
+    suggest_text = f"{title or ''} {department or ''} {description or ''}".lower()
+    for entry in classification_entries:
+        payload = _json_load(entry.payload_json, {})
+        code = str(payload.get("code") or "").strip()
+        label = str(payload.get("label") or "").strip().lower()
+        family = str(payload.get("family") or "").strip().lower()
+        if not code:
+            continue
+        if code.lower() in suggest_text or label in suggest_text or (family and family in suggest_text):
+            suggested["classification"] = code
+            if entry.label not in suggested["suggestion_sources"]:
+                suggested["suggestion_sources"].append(entry.label)
+            break
+
+    if not suggested["classification"] and matches:
+        top_payload = _json_load(matches[0].payload_json, {})
+        fallback_classification = top_payload.get("classification")
+        if isinstance(fallback_classification, str):
+            suggested["classification"] = fallback_classification
+
+    if version == "short":
+        suggested["main_activities"] = suggested["main_activities"][:3]
+        suggested["technical_skills"] = suggested["technical_skills"][:4]
+        suggested["behavioral_skills"] = suggested["behavioral_skills"][:3]
+        suggested["tools"] = suggested["tools"][:3]
+        suggested["interview_criteria"] = suggested["interview_criteria"][:3]
+        suggested["generated_context"] = suggested["generated_context"].split(".")[0] + "."
+
+    if mode == "improve":
+        suggested["mission_summary"] = f"{suggested['mission_summary']} L'accent est mis sur la qualite d'execution, la conformite et la coordination efficace avec les parties prenantes."
+        suggested["generated_context"] = f"{suggested['generated_context']} La version amelioree renforce la precision RH et l'exploitabilite de l'annonce."
+        suggested["suggestion_sources"].append("amelioration_interne")
+    elif mode == "adapt":
+        target_label = suggested["probable_title"] or title or "poste"
+        suggested["generated_context"] = f"{suggested['generated_context']} Suggestion adaptee au poste {target_label}."
+        suggested["suggestion_sources"].append(f"famille:{family}")
+
+    if focus_block:
+        focus_map = {
+            "description": "generated_context",
+            "mission_summary": "mission_summary",
+            "main_activities": "main_activities",
+            "technical_skills": "technical_skills",
+            "behavioral_skills": "behavioral_skills",
+            "tools": "tools",
+            "languages": "languages",
+            "interview_criteria": "interview_criteria",
+            "education_level": "education_level",
+            "experience_required": "experience_required",
+        }
+        target = focus_map.get(focus_block)
+        if target:
+            suggested["suggestion_sources"].append(f"bloc:{focus_block}")
+
     return suggested
 
 
@@ -452,6 +793,8 @@ def build_announcement_payload(job, profile: dict) -> dict:
     tools = profile.get("tools", [])
     certifications = profile.get("certifications", [])
     benefits = profile.get("benefits", [])
+    working_hours = profile.get("working_hours") or ""
+    working_days = profile.get("working_days", [])
     salary_min = profile.get("salary_min")
     salary_max = profile.get("salary_max")
     salary_range = ""
@@ -475,6 +818,10 @@ def build_announcement_payload(job, profile: dict) -> dict:
         requirements.append("Outils / logiciels: " + ", ".join(tools))
     if certifications:
         requirements.append("Certifications: " + ", ".join(certifications))
+    if working_hours:
+        requirements.append(f"Horaires: {working_hours}")
+    if working_days:
+        requirements.append("Jours de travail: " + ", ".join(working_days))
 
     publication_deadline = profile.get("application_deadline") or ""
     public_link = f"{settings.APP_PUBLIC_URL.rstrip('/')}/careers/{job.id}-{_slugify(title)}"
@@ -524,6 +871,77 @@ def build_announcement_payload(job, profile: dict) -> dict:
         "linkedin_text": linkedin_text,
         "whatsapp_text": whatsapp_text,
         "copy_text": web_body,
+    }
+
+
+def build_contract_guidance(job, profile: dict) -> dict:
+    title = (job.title or "").lower()
+    description = f"{job.description or ''} {profile.get('mission_summary') or ''}".lower()
+    contract_type = (job.contract_type or "CDI").strip() or "CDI"
+    alerts = []
+    recommendations = []
+
+    if contract_type == "CDD":
+        alerts.append(
+            {
+                "severity": "warning",
+                "code": "cdd_duration_check",
+                "message": "Le CDD doit rester borne dans le temps. Verifier la date de fin et le motif de recours.",
+            }
+        )
+        recommendations.append("Prevoir une date de fin explicite et documenter le motif du CDD.")
+
+    permanent_keywords = ("responsable", "manager", "superviseur", "pilotage", "permanent", "continu")
+    if any(keyword in title or keyword in description for keyword in permanent_keywords):
+        recommendations.append("Le besoin semble durable: evaluer un CDI comme solution de reference.")
+        if contract_type == "CDD":
+            alerts.append(
+                {
+                    "severity": "info",
+                    "code": "suggest_cdi",
+                    "message": "Un usage permanent semble probable; le systeme suggere d'evaluer un CDI.",
+                }
+            )
+
+    if contract_type == "Travailleur migrant / expatrie":
+        alerts.append(
+            {
+                "severity": "warning",
+                "code": "migrant_compliance",
+                "message": "Verifier les autorisations administratives, la langue du contrat et les clauses de mobilite.",
+            }
+        )
+        recommendations.append("Prevoir une version bilingue FR/MG ou FR/EN selon le contexte de signature.")
+
+    if contract_type == "Contrat d'apprentissage":
+        recommendations.append("Ajouter les modalites de tutorat et les objectifs pedagogiques.")
+    if contract_type == "Contrat saisonnier":
+        recommendations.append("Documenter la saisonalite, la periode couverte et le site d'affectation.")
+    if contract_type == "Contrat d'essai":
+        recommendations.append("Verifier la duree d'essai et sa date d'echeance conformement au poste.")
+
+    if not profile.get("classification"):
+        alerts.append(
+            {
+                "severity": "info",
+                "code": "classification_missing",
+                "message": "La classification professionnelle n'est pas encore renseignee.",
+            }
+        )
+
+    return {
+        "suggested_primary_type": contract_type,
+        "available_types": list(SYSTEM_REFERENCE_VALUES["contract_type"]),
+        "language_options": ["FR", "MG", "FR/MG"],
+        "required_fields": ["fonction", "categorie professionnelle", "salaire", "date d'effet"],
+        "alerts": alerts,
+        "recommendations": recommendations,
+        "suggested_defaults": {
+            "fonction": job.title,
+            "categorie_professionnelle": profile.get("classification") or "",
+            "salaire": profile.get("salary_min") or job.salary_range or "",
+            "date_effet": profile.get("desired_start_date") or "",
+        },
     }
 
 

@@ -1,5 +1,5 @@
 # backend/app/payroll_logic.py
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 from datetime import date, datetime
 
 ABS_DIVISOR = 21.67  # Salaire journalier = base / 21.67 (tu peux mettre 30 si tu préfères)
@@ -46,11 +46,18 @@ def compute_smie(brut_base: float, taux_sal: float, taux_pat: float, forfait_sal
     return base_cot, sal, pat
 
 
-from datetime import date
-from math import ceil, floor
-from .constants.payroll_constants import CALCULATION_CONSTANTS, FORMULA_VARIABLES
+from .constants.payroll_constants import CALCULATION_CONSTANTS
+from .services.payroll_regulation_service import resolve_regulatory_snapshot
 
-def calculate_constants(worker, payvar, brut_numeraire_courant: float, salaire_base: float, salaire_horaire: float, salaire_journalier: float) -> Dict[str, float]:
+def calculate_constants(
+    worker,
+    payvar,
+    brut_numeraire_courant: float,
+    salaire_base: float,
+    salaire_horaire: float,
+    salaire_journalier: float,
+    period: Optional[str] = None,
+) -> Dict[str, float]:
     """
     Génère le dictionnaire des constantes utilisables dans les formules.
     Utilise maintenant le référentiel centralisé de constantes.
@@ -101,12 +108,12 @@ def calculate_constants(worker, payvar, brut_numeraire_courant: float, salaire_b
 
     # --- DAYSWORK (Jours travaillés du mois) ---
     # Utilise la constante centralisée pour le diviseur
-    abs_divisor = float(CALCULATION_CONSTANTS["abs_divisor"])
     
     days_work = 0.0
-    if payvar and payvar.period:
+    target_period = period or getattr(payvar, "period", None)
+    if target_period:
         try:
-            year_str, month_str = payvar.period.split('-')
+            year_str, month_str = target_period.split('-')
             year = int(year_str)
             month = int(month_str)
             
@@ -116,24 +123,29 @@ def calculate_constants(worker, payvar, brut_numeraire_courant: float, salaire_b
             # Charger les overrides en mémoire pour éviter N requêtes
             # worker.employer.calendar_days est une liste d'objets CalendarDay
             # On crée un dict: date -> is_worked
+            # date -> worked/off/closed (fallback legacy: is_worked)
             calendar_map = {}
             if worker.employer:
                  for cd in worker.employer.calendar_days:
                      if cd.date.year == year and cd.date.month == month:
-                         calendar_map[cd.date] = cd.is_worked
+                         if hasattr(cd, "status") and cd.status:
+                             calendar_map[cd.date] = cd.status
+                         else:
+                             calendar_map[cd.date] = "worked" if cd.is_worked else "off"
 
             for day in range(1, last_day + 1):
                 current_date = date(year, month, day)
                 
                 # Check Override
-                is_worked = calendar_map.get(current_date)
+                status = calendar_map.get(current_date)
                 
-                if is_worked is None:
+                if status is None:
+                    # default: weekday=worked, saturday/sunday=off
                     # Défaut : Lundi(0)..Vendredi(4) = True
                     # Samedi(5)..Dimanche(6) = False
-                    is_worked = (current_date.weekday() < 5)
+                    status = "worked" if (current_date.weekday() < 5) else "off"
                 
-                if is_worked:
+                if status == "worked":
                     days_work += 1.0
 
         except Exception as e:
@@ -155,7 +167,6 @@ def _safe_eval(expr: str, constants: Dict[str, float]) -> float:
     if not expr or not expr.strip():
         return 0.0
         
-    allowed_names = constants.keys()
     code = expr.strip().upper()
     
     # Trier les clés par longueur décroissante pour éviter les collisions de remplacement
@@ -191,9 +202,6 @@ def compute_preview(employer, worker, payvar, period: str, custom_primes_overrid
     computed_constants = {}
     working_primes = []
     lines: List[Dict[str, Any]] = []
-    
-    # Trace debugging
-    trace = []
 
     # Données de base
     salaire_base = _money(worker.salaire_base)
@@ -243,23 +251,25 @@ def compute_preview(employer, worker, payvar, period: str, custom_primes_overrid
     # -------- ABSENCES --------
     per_day = _money(salaire_base / ABS_DIVISOR)
 
-    def add_abs(label: str, valeur, use_hourly=False):
+    def add_abs(label: str, valeur, use_hourly=False, informative_only: bool = False):
         valeur = float(valeur or 0)
         if valeur:
             if use_hourly:
-                m = -_money(valeur * taux_h)
-                lines.append(_row(label, valeur, taux_h, "", m, "", 0))
+                base_value = taux_h
+                m = 0.0 if informative_only else -_money(valeur * taux_h)
+                lines.append(_row(label, valeur, base_value, "", m, "", 0))
             else:
-                m = -_money(valeur * per_day)
-                lines.append(_row(label, valeur, per_day, "", m, "", 0))
+                base_value = per_day
+                m = 0.0 if informative_only else -_money(valeur * per_day)
+                lines.append(_row(label, valeur, base_value, "", m, "", 0))
 
     # Priorité: données importées > payvar
     absence_dict = kwargs.get("absence_dict", None)
     
     if absence_dict:
         # Utiliser données importées depuis Excel
-        add_abs("Absence maladie (jours)", absence_dict.get("ABSM_J", 0))
-        add_abs("Absence maladie (heures)", absence_dict.get("ABSM_H", 0), use_hourly=True)
+        add_abs("Absence maladie (jours)", absence_dict.get("ABSM_J", 0), informative_only=True)
+        add_abs("Absence maladie (heures)", absence_dict.get("ABSM_H", 0), use_hourly=True, informative_only=True)
         add_abs("Absence non rémunérée (jours)", absence_dict.get("ABSNR_J", 0))
         add_abs("Absence non rémunérée (heures)", absence_dict.get("ABSNR_H", 0), use_hourly=True)
         add_abs("Mise à pied", absence_dict.get("ABSMP", 0))
@@ -281,7 +291,7 @@ def compute_preview(employer, worker, payvar, period: str, custom_primes_overrid
             if abs_non_remu_j is None:
                 abs_non_remu_j = getattr(pv, "absences_non_remu", 0) or 0
 
-            add_abs("Absence maladie", abs_maladie_j)
+            add_abs("Absence maladie", abs_maladie_j, informative_only=True)
             add_abs("Absence non rémunérée (jours)", abs_non_remu_j)
             add_abs("Mise à pied", mise_a_pied_j)
             add_abs("Absence non rémunérée (heures)", abs_non_remu_h, use_hourly=True)
@@ -341,7 +351,8 @@ def compute_preview(employer, worker, payvar, period: str, custom_primes_overrid
         brut_courant, 
         worker.salaire_base, 
         taux_h,
-        (worker.salaire_base / 21.67)
+        (worker.salaire_base / 21.67),
+        period=period,
     )
 
     primes_overrides_dict = kwargs.get("primes_overrides", {}) or {}
@@ -666,6 +677,7 @@ def compute_preview(employer, worker, payvar, period: str, custom_primes_overrid
     # ---- CNaPS / SMIE / FMFP ----
     cotis_sal_total = 0.0
     cotis_pat_total = 0.0
+    regulatory_snapshot = resolve_regulatory_snapshot(employer, worker)
     
     # CNaPS
     # Calcul du plafond : soit défini explicitement, soit par régime
@@ -694,6 +706,11 @@ def compute_preview(employer, worker, payvar, period: str, custom_primes_overrid
     taux_pat_cnaps = getattr(worker, "taux_pat_cnaps_override", None)
     if taux_pat_cnaps is None:
         taux_pat_cnaps = getattr(employer, "taux_pat_cnaps", 13.0) or 0.0
+
+    cnaps_cfg = regulatory_snapshot.get("cnaps", {})
+    plafond_cnaps = cnaps_cfg.get("plafond", plafond_cnaps)
+    taux_sal_cnaps = cnaps_cfg.get("taux_sal", taux_sal_cnaps)
+    taux_pat_cnaps = cnaps_cfg.get("taux_pat", taux_pat_cnaps)
     
     base_cnaps, cnaps_sal, cnaps_pat = compute_cnaps(
         brut_total,
@@ -722,23 +739,30 @@ def compute_preview(employer, worker, payvar, period: str, custom_primes_overrid
     # SMIE - Use worker override if set, otherwise employer default
     taux_sal_smie = getattr(worker, "taux_sal_smie_override", None)
     if taux_sal_smie is None:
-        taux_sal_smie = getattr(employer, "taux_sal_smie", 0.0) or 1.0
+        taux_sal_smie = getattr(employer, "taux_sal_smie", 0.0) or 0.0
     
     taux_pat_smie = getattr(worker, "taux_pat_smie_override", None)
     if taux_pat_smie is None:
-        taux_pat_smie = getattr(employer, "taux_pat_smie", 0.0) or 5.0
+        taux_pat_smie = getattr(employer, "taux_pat_smie", 0.0) or 0.0
+
+    smie_cfg = regulatory_snapshot.get("smie", {})
+    plafond_smie = smie_cfg.get("plafond", plafond_smie)
+    taux_sal_smie = smie_cfg.get("taux_sal", taux_sal_smie)
+    taux_pat_smie = smie_cfg.get("taux_pat", taux_pat_smie)
+    smie_forfait_sal = smie_cfg.get("forfait_sal", getattr(employer, "smie_forfait_sal", 0.0) or 0.0)
+    smie_forfait_pat = smie_cfg.get("forfait_pat", getattr(employer, "smie_forfait_pat", 0.0) or 0.0)
     
     base_smie, smie_sal, smie_pat = compute_smie(
         brut_total,
         taux_sal_smie,
         taux_pat_smie,
-        getattr(employer, "smie_forfait_sal", 0.0) or 0.0,
-        getattr(employer, "smie_forfait_pat", 0.0) or 0.0,
+        smie_forfait_sal,
+        smie_forfait_pat,
         plafond_smie
     )
     if smie_sal or smie_pat:
-        taux_sal_txt = f"{getattr(employer, 'taux_sal_smie', 0.0) or 1.0}%" if not getattr(employer, "smie_forfait_sal", 0) else "Forfait"
-        taux_pat_txt = f"{getattr(employer, 'taux_pat_smie', 0.0) or 5.0}%" if not getattr(employer, "smie_forfait_pat", 0) else "Forfait"
+        taux_sal_txt = f"{taux_sal_smie}%" if not smie_forfait_sal else "Forfait"
+        taux_pat_txt = f"{taux_pat_smie}%" if not smie_forfait_pat else "Forfait"
         lines.append(_row("Cotisation SMIE", "", f"{base_smie}", taux_sal_txt, -smie_sal, taux_pat_txt, smie_pat))
         cotis_sal_total += smie_sal
         cotis_pat_total += smie_pat
@@ -749,11 +773,15 @@ def compute_preview(employer, worker, payvar, period: str, custom_primes_overrid
     taux_pat_fmfp = getattr(worker, "taux_pat_fmfp_override", None)
     if taux_pat_fmfp is None:
         taux_pat_fmfp = getattr(employer, "taux_pat_fmfp", 1.0) or 0.0
-    
-    fmfp_pat = compute_fmfp(brut_total, taux_pat_fmfp, plafond_cnaps)
+
+    fmfp_cfg = regulatory_snapshot.get("fmfp", {})
+    taux_pat_fmfp = fmfp_cfg.get("taux_pat", taux_pat_fmfp)
+    fmfp_plafond = fmfp_cfg.get("plafond", plafond_cnaps)
+
+    fmfp_pat = compute_fmfp(brut_total, taux_pat_fmfp, fmfp_plafond)
     if fmfp_pat:
         taux_pat_txt = f"{taux_pat_fmfp}%"
-        lines.append(_row("Cotisation FMFP", "", f"{plafond_cnaps if brut_total > plafond_cnaps else brut_total}", "", 0.0, taux_pat_txt, fmfp_pat))
+        lines.append(_row("Cotisation FMFP", "", f"{fmfp_plafond if brut_total > fmfp_plafond else brut_total}", "", 0.0, taux_pat_txt, fmfp_pat))
         cotis_pat_total += fmfp_pat
 
     # ---- Totaux finaux ----
@@ -812,14 +840,8 @@ def compute_preview(employer, worker, payvar, period: str, custom_primes_overrid
         "debits": _money(debits),
         "credits": _money(credits),
         "net": net,
+        "regulatory_snapshot": regulatory_snapshot,
         "computed_at": datetime.now().strftime("%d/%m/%Y %H:%M"),
     }
-
-    # Trace debugging
-    trace.append(f"Override Type: {type(custom_primes_override)}")
-    if custom_primes_override:
-         trace.append(f"Override Len: {len(custom_primes_override)}")
-    
-    trace.append(f"Final Working Primes Len: {len(working_primes)}")
     
     return lines, totals, computed_constants

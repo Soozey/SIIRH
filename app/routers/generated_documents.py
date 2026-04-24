@@ -13,6 +13,7 @@ from ..routers.reporting import (
     get_full_report_data,
 )
 from ..security import READ_PAYROLL_ROLES, can_access_worker, get_current_user, require_roles
+from ..services.master_data_service import build_worker_reporting_payload
 from ..services.pdf_generation_service import build_contract_pdf, build_payslip_pdf, build_report_pdf
 
 
@@ -33,11 +34,14 @@ def generate_payslip_pdf_document(
         raise HTTPException(status_code=403, detail="Forbidden")
 
     preview = generate_preview_data(worker_id, period, db)
-    pdf_bytes = build_payslip_pdf(preview, f"{worker.prenom} {worker.nom}", period)
+    worker_identity = build_worker_reporting_payload(db, worker)
+    worker_name = f"{worker_identity.get('prenom', '')} {worker_identity.get('nom', '')}".strip()
+    worker_number = worker_identity.get("matricule") or worker.matricule
+    pdf_bytes = build_payslip_pdf(preview, worker_name, period)
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename="bulletin_{worker.matricule}_{period}.pdf"'},
+        headers={"Content-Disposition": f'attachment; filename="bulletin_{worker_number}_{period}.pdf"'},
     )
 
 
@@ -57,7 +61,9 @@ def generate_contract_pdf_document(
     if not can_access_worker(db, user, worker):
         raise HTTPException(status_code=403, detail="Forbidden")
 
-    pdf_bytes = build_contract_pdf(contract.title, contract.content, f"{worker.prenom} {worker.nom}")
+    worker_identity = build_worker_reporting_payload(db, worker)
+    worker_name = f"{worker_identity.get('prenom', '')} {worker_identity.get('nom', '')}".strip()
+    pdf_bytes = build_contract_pdf(contract.title, contract.content, worker_name)
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",

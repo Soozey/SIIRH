@@ -7,7 +7,7 @@ from .. import models
 from .. import schemas as models_schemas
 from ..payroll_logic import compute_preview
 from ..leave_logic import get_leave_summary_for_period, get_permission_summary_for_period
-from ..security import READ_PAYROLL_ROLES, can_access_worker, require_roles
+from ..security import READ_PAYROLL_ROLES, can_access_worker, require_roles, user_has_any_role
 from ..services.organizational_filters import apply_worker_hierarchy_filters
 from datetime import datetime, date
 
@@ -15,10 +15,107 @@ router = APIRouter(prefix="/payroll", tags=["payroll"])
 PAYROLL_BULK_ROLES = {"admin", "rh", "comptable", "employeur", "manager"}
 
 
+def _parse_node_id(raw_value) -> int | None:
+    if raw_value is None:
+        return None
+    text_value = str(raw_value).strip()
+    if not text_value:
+        return None
+    try:
+        return int(text_value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _collect_worker_node_ids(db: Session, employer_id: int, worker) -> set[int]:
+    node_ids = {
+        _parse_node_id(getattr(worker, "etablissement", None)),
+        _parse_node_id(getattr(worker, "departement", None)),
+        _parse_node_id(getattr(worker, "service", None)),
+        _parse_node_id(getattr(worker, "unite", None)),
+    }
+    seed_ids = {node_id for node_id in node_ids if node_id is not None}
+    if not seed_ids:
+        return set()
+
+    nodes = db.query(models.OrganizationalNode).filter(
+        models.OrganizationalNode.id.in_(seed_ids),
+        models.OrganizationalNode.employer_id == employer_id,
+    ).all()
+    by_id = {node.id: node for node in nodes}
+
+    collected: set[int] = set()
+    for node_id in seed_ids:
+        current = by_id.get(node_id)
+        visited: set[int] = set()
+        while current is not None and current.id not in visited:
+            collected.add(current.id)
+            visited.add(current.id)
+            parent_id = current.parent_id
+            current = by_id.get(parent_id)
+            if current is None and parent_id is not None:
+                current = db.query(models.OrganizationalNode).filter(
+                    models.OrganizationalNode.id == parent_id,
+                    models.OrganizationalNode.employer_id == employer_id,
+                ).first()
+                if current is not None:
+                    by_id[current.id] = current
+    return collected
+
+
+def _collect_worker_unit_ids(db: Session, employer_id: int, worker) -> set[int]:
+    seed_id = getattr(worker, "organizational_unit_id", None)
+    if not seed_id:
+        return set()
+
+    current = db.query(models.OrganizationalUnit).filter(
+        models.OrganizationalUnit.id == seed_id,
+        models.OrganizationalUnit.employer_id == employer_id,
+        models.OrganizationalUnit.is_active == True,
+    ).first()
+    collected: set[int] = set()
+    visited: set[int] = set()
+    while current is not None and current.id not in visited:
+        collected.add(current.id)
+        visited.add(current.id)
+        current = current.parent
+    return collected
+
+
+def _is_prime_applicable_to_worker(
+    db: Session,
+    employer_id: int,
+    prime,
+    worker,
+    link_map: dict[int, tuple[bool, str]],
+    target_node_ids: set[int],
+    target_unit_ids: set[int],
+) -> bool:
+    link_state = link_map.get(getattr(prime, "id", None))
+    link_is_active = link_state[0] if link_state else True
+    link_type = link_state[1] if link_state else "include"
+    if not link_is_active:
+        return False
+
+    target_mode = getattr(prime, "target_mode", "global") or "global"
+    if target_mode == "individual":
+        return link_type == "include" and link_state is not None
+
+    if link_type == "exclude":
+        return False
+
+    if target_mode == "segment":
+        worker_node_ids = _collect_worker_node_ids(db, employer_id, worker)
+        worker_unit_ids = _collect_worker_unit_ids(db, employer_id, worker)
+        return bool(worker_node_ids.intersection(target_node_ids) or worker_unit_ids.intersection(target_unit_ids))
+
+    return True
+
+
 def _filter_runs_for_user(query, db: Session, user: models.AppUser):
-    if user.role_code in {"admin", "rh", "comptable", "audit"}:
+    if user_has_any_role(db, user, "admin", "rh", "comptable", "audit"):
         return query
-    if user.role_code == "employeur" and user.employer_id:
+    if user_has_any_role(db, user, "employeur") and user.employer_id:
         return query.filter(models.PayrollRun.employer_id == user.employer_id)
     if user.worker_id:
         worker = db.query(models.Worker).filter(models.Worker.id == user.worker_id).first()
@@ -37,9 +134,9 @@ def get_or_create_payroll_run_endpoint(
     RÃ©cupÃ¨re un payroll_run existant pour (employer_id, period)
     ou en crÃ©e un nouveau s'il n'existe pas.
     """
-    if user.role_code == "employeur" and user.employer_id != employer_id:
+    if user_has_any_role(db, user, "employeur") and user.employer_id != employer_id:
         raise HTTPException(status_code=403, detail="Forbidden")
-    if user.role_code == "manager":
+    if user_has_any_role(db, user, "manager"):
         manager_worker = db.query(models.Worker).filter(models.Worker.id == user.worker_id).first()
         if not manager_worker or manager_worker.employer_id != employer_id:
             raise HTTPException(status_code=403, detail="Forbidden")
@@ -85,6 +182,95 @@ def get_all_payroll_runs(
     return runs
 
 
+@router.get("/reverse-calculate")
+def reverse_calculate_salary(
+    worker_id: int = Query(...),
+    period: str = Query(...),
+    target_net: float = Query(...),
+    db: Session = Depends(get_db),
+    user: models.AppUser = Depends(require_roles(*READ_PAYROLL_ROLES)),
+):
+    """
+    Calcule le salaire de base nécessaire pour approcher un net cible.
+    Ne persiste aucune modification dans la base.
+    """
+    if target_net <= 0:
+        raise HTTPException(status_code=400, detail="target_net must be > 0")
+
+    worker = db.query(models.Worker).filter(models.Worker.id == worker_id).first()
+    if not worker:
+        raise HTTPException(status_code=404, detail="Worker not found")
+    if not can_access_worker(db, user, worker):
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    original_salary = float(worker.salaire_base or 0.0)
+    original_hourly = float(worker.salaire_horaire or 0.0)
+
+    min_salary = max(0.0, target_net * 0.5)
+    max_salary = max(min_salary + 1.0, target_net * 2.0)
+    tolerance = 1.0
+    max_iterations = 60
+
+    best_salary = original_salary if original_salary > 0 else (min_salary + max_salary) / 2.0
+    best_net: Optional[float] = None
+    best_preview = None
+
+    def _evaluate(test_salary: float):
+        worker.salaire_base = float(test_salary)
+        if worker.vhm and float(worker.vhm) > 0:
+            worker.salaire_horaire = float(test_salary) / float(worker.vhm)
+        else:
+            worker.salaire_horaire = original_hourly
+
+        with db.no_autoflush:
+            preview = generate_preview_data(worker_id, period, db)
+        net_value = float(preview.get("totaux", {}).get("net", 0.0) or 0.0)
+        return net_value, preview
+
+    iteration_count = 0
+    try:
+        for idx in range(max_iterations):
+            iteration_count = idx + 1
+            test_salary = (min_salary + max_salary) / 2.0
+            calculated_net, preview = _evaluate(test_salary)
+
+            if best_net is None or abs(calculated_net - target_net) < abs(best_net - target_net):
+                best_salary = test_salary
+                best_net = calculated_net
+                best_preview = preview
+
+            if abs(calculated_net - target_net) <= tolerance:
+                break
+
+            if calculated_net < target_net:
+                min_salary = test_salary
+            else:
+                max_salary = test_salary
+
+        final_net, final_preview = _evaluate(best_salary)
+        if best_net is None or abs(final_net - target_net) <= abs(best_net - target_net):
+            best_net = final_net
+            best_preview = final_preview
+
+        return {
+            "target_net": round(target_net, 2),
+            "calculated_base_salary": round(best_salary, 2),
+            "actual_net": round(best_net or 0.0, 2),
+            "difference": round((best_net or 0.0) - target_net, 2),
+            "original_base_salary": round(original_salary, 2),
+            "iterations": iteration_count,
+            "preview": best_preview,
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Erreur lors du calcul inverse: {exc}")
+    finally:
+        worker.salaire_base = original_salary
+        worker.salaire_horaire = original_hourly
+        db.rollback()
+
+
 @router.get("/preview")
 def payroll_preview(
     worker_id: int = Query(...),
@@ -110,7 +296,7 @@ def payroll_bulk_preview(
     db: Session = Depends(get_db),
     user: models.AppUser = Depends(require_roles(*PAYROLL_BULK_ROLES)),
 ):
-    if user.role_code == "employeur" and user.employer_id != employer_id:
+    if user_has_any_role(db, user, "employeur") and user.employer_id != employer_id:
         raise HTTPException(status_code=403, detail="Forbidden")
 
     # Construire la requÃªte de base pour les travailleurs de l'employeur
@@ -300,7 +486,25 @@ def generate_preview_data(worker_id: int, period: str, db: Session):
         
         # 2. Fetch Worker Links (Associations / Exclusions)
         worker_links = db.query(models.WorkerPrimeLink).filter(models.WorkerPrimeLink.worker_id == worker_id).all()
-        link_map = {l.prime_id: l.is_active for l in worker_links}
+        link_map = {
+            l.prime_id: (l.is_active, (l.link_type or "include"))
+            for l in worker_links
+        }
+        prime_target_rows = db.query(models.PrimeOrganizationalTarget).join(
+            models.Prime,
+            models.Prime.id == models.PrimeOrganizationalTarget.prime_id,
+        ).filter(models.Prime.employer_id == employer.id).all()
+        target_unit_map: dict[int, set[int]] = {}
+        for row in prime_target_rows:
+            target_unit_map.setdefault(row.prime_id, set()).add(row.node_id)
+
+        prime_unit_target_rows = db.query(models.PrimeOrganizationalUnitTarget).join(
+            models.Prime,
+            models.Prime.id == models.PrimeOrganizationalUnitTarget.prime_id,
+        ).filter(models.Prime.employer_id == employer.id).all()
+        target_organizational_unit_map: dict[int, set[int]] = {}
+        for row in prime_unit_target_rows:
+            target_organizational_unit_map.setdefault(row.prime_id, set()).add(row.organizational_unit_id)
         
         # 3. Construct "Effective Primes" list
         effective_primes = []
@@ -323,7 +527,15 @@ def generate_preview_data(worker_id: int, period: str, db: Session):
         
         for gp in global_primes:
             # Check explicit link status
-            is_active_for_worker = link_map.get(gp.id, True)
+            is_active_for_worker = _is_prime_applicable_to_worker(
+                db,
+                employer.id,
+                gp,
+                worker,
+                link_map,
+                target_unit_map.get(gp.id, set()),
+                target_organizational_unit_map.get(gp.id, set()),
+            )
             
             # Check for data presence (Fuzzy)
             gp_label_norm = gp.label.lower().strip()
@@ -545,55 +757,33 @@ def generate_preview_data(worker_id: int, period: str, db: Session):
         leave_summary = get_leave_summary_for_period(db, worker_id, period)
         permission_summary = get_permission_summary_for_period(db, worker_id, period)
 
-        # RÃ©cupÃ©rer les noms des structures organisationnelles
-        etablissement_name = None
-        departement_name = None
-        service_name = None
-        unite_name = None
-        
-        if worker.etablissement:
+        def _resolve_node_name(raw_value):
+            if not raw_value:
+                return None
+            text_value = str(raw_value).strip()
+            if not text_value:
+                return None
             try:
-                etab_id = int(worker.etablissement)
-                etab_node = db.query(models.OrganizationalNode).filter(
-                    models.OrganizationalNode.id == etab_id
-                ).first()
-                if etab_node:
-                    etablissement_name = etab_node.name
-            except (ValueError, TypeError):
-                pass
-        
-        if worker.departement:
-            try:
-                dept_id = int(worker.departement)
-                dept_node = db.query(models.OrganizationalNode).filter(
-                    models.OrganizationalNode.id == dept_id
-                ).first()
-                if dept_node:
-                    departement_name = dept_node.name
-            except (ValueError, TypeError):
-                pass
-        
-        if worker.service:
-            try:
-                serv_id = int(worker.service)
-                serv_node = db.query(models.OrganizationalNode).filter(
-                    models.OrganizationalNode.id == serv_id
-                ).first()
-                if serv_node:
-                    service_name = serv_node.name
-            except (ValueError, TypeError):
-                pass
-        
-        if worker.unite:
-            try:
-                unite_id = int(worker.unite)
-                unite_node = db.query(models.OrganizationalNode).filter(
-                    models.OrganizationalNode.id == unite_id
-                ).first()
-                if unite_node:
-                    unite_name = unite_node.name
-            except (ValueError, TypeError):
-                pass
+                node_id = int(text_value)
+            except (TypeError, ValueError):
+                return text_value
+
+            node = db.query(models.OrganizationalNode).filter(
+                models.OrganizationalNode.id == node_id
+            ).first()
+            if node:
+                return node.name
+            return text_value
+
+        effective_etablissement = worker.effective_etablissement if hasattr(worker, "effective_etablissement") else worker.etablissement
+        effective_departement = worker.effective_departement if hasattr(worker, "effective_departement") else worker.departement
+        effective_service = worker.effective_service if hasattr(worker, "effective_service") else worker.service
+        effective_unite = worker.effective_unite if hasattr(worker, "effective_unite") else worker.unite
+
+        etablissement_name = _resolve_node_name(effective_etablissement)
+        departement_name = _resolve_node_name(effective_departement)
+        service_name = _resolve_node_name(effective_service)
+        unite_name = _resolve_node_name(effective_unite)
         
         result = {
             "employer": {
@@ -618,10 +808,10 @@ def generate_preview_data(worker_id: int, period: str, db: Session):
                 "cnaps": worker.cnaps_num,
                 "secteur": worker.secteur,
                 "mode_paiement": worker.mode_paiement,
-                "etablissement": worker.etablissement,
-                "departement": worker.departement,
-                "service": worker.service,
-                "unite": worker.unite,
+                "etablissement": effective_etablissement,
+                "departement": effective_departement,
+                "service": effective_service,
+                "unite": effective_unite,
                 "etablissement_name": etablissement_name,
                 "departement_name": departement_name,
                 "service_name": service_name,
@@ -630,6 +820,7 @@ def generate_preview_data(worker_id: int, period: str, db: Session):
             "period": period,
             "lines": lines,
             "totaux": totals,
+            "debug_constants": debug_csts,
             "hs_hm": hs_hm_data,
             "leave": leave_summary,
             "permission": permission_summary

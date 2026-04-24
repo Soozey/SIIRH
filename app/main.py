@@ -4,11 +4,11 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 # Import depuis config.py au lieu de db.py
-from .config.config import Base, engine, create_tables, settings
-from . import models
-from .routers import employers, workers, variables, payroll, hs, absences, payroll_hs_hm, type_regimes, primes, calendar, leaves, workers_import, reporting, custom_contracts, auth, generated_documents, recruitment, talents, sst
+from .config.config import create_tables, settings
+from .routers import employers, workers, variables, payroll, hs, absences, payroll_hs_hm, type_regimes, primes, calendar, leaves, workers_import, reporting, custom_contracts, auth, generated_documents, recruitment, recruitment_import, talents, sst, compliance, statutory_exports, employee_portal, people_ops, messages, master_data, system_data_import, system_data_export, system_update
 from .services.file_storage import get_upload_root
 from .security import seed_default_admin
+from .services.legal_operations_service import seed_legal_demo_data
 
 # Création des tables au démarrage
 if settings.AUTO_CREATE_TABLES:
@@ -17,10 +17,24 @@ if settings.AUTO_CREATE_TABLES:
     db = SessionLocal()
     try:
         seed_default_admin(db)
+        seed_legal_demo_data(db)
+        db.commit()
     finally:
         db.close()
 
 app = FastAPI(title="SIRH Paie MG")
+
+
+@app.get("/", tags=["system"])
+def root():
+    return {
+        "message": "API SIIRH active",
+        "application": "SIRH Paie MG",
+        "docs_url": "/docs",
+        "openapi_url": "/openapi.json",
+        "frontend_url": "http://127.0.0.1:5173",
+        "status": "ok",
+    }
 
 # Autorise ton front Vite (ports 5173/5174, localhost ET 127.0.0.1)
 origins = [
@@ -68,8 +82,18 @@ app.include_router(reporting.router)
 app.include_router(auth.router)
 app.include_router(generated_documents.router)
 app.include_router(recruitment.router)
+app.include_router(recruitment_import.router)
 app.include_router(talents.router)
 app.include_router(sst.router)
+app.include_router(compliance.router)
+app.include_router(statutory_exports.router)
+app.include_router(employee_portal.router)
+app.include_router(people_ops.router)
+app.include_router(messages.router)
+app.include_router(master_data.router)
+app.include_router(system_data_import.router)
+app.include_router(system_data_export.router)
+app.include_router(system_update.router)
 
 # Import du nouveau router constants
 from .routers import constants

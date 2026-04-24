@@ -9,16 +9,26 @@ from sqlalchemy.orm import Session
 
 from .. import models, schemas
 from ..config.config import get_db
-from ..security import READ_PAYROLL_ROLES, WRITE_RH_ROLES, can_access_worker, require_roles
+from ..security import (
+    READ_PAYROLL_ROLES,
+    WRITE_RH_ROLES,
+    can_access_employer,
+    can_access_worker,
+    get_inspector_assigned_employer_ids,
+    require_roles,
+    user_has_any_role,
+)
 from ..services.audit_service import record_audit
+from ..services.master_data_service import build_worker_reporting_payload
 
 
 router = APIRouter(prefix="/document-templates", tags=["document-templates"])
-DOCUMENT_TEMPLATE_READ_ROLES = {"admin", "rh", "comptable", "employeur", "manager"}
+DOCUMENT_TEMPLATE_READ_ROLES = set(READ_PAYROLL_ROLES)
+DOCUMENT_TEMPLATE_WRITE_ROLES = {*WRITE_RH_ROLES, "inspecteur"}
 
 
 def _viewer_employer_id(db: Session, user: models.AppUser) -> Optional[int]:
-    if user.role_code == "employeur":
+    if user.employer_id:
         return user.employer_id
     if user.worker_id:
         worker = db.query(models.Worker).filter(models.Worker.id == user.worker_id).first()
@@ -26,18 +36,30 @@ def _viewer_employer_id(db: Session, user: models.AppUser) -> Optional[int]:
     return None
 
 
-def _can_manage_template(user: models.AppUser, employer_id: Optional[int]) -> bool:
+def _can_manage_template(db: Session, user: models.AppUser, employer_id: Optional[int]) -> bool:
     if employer_id is None:
-        return user.role_code == "admin"
-    if user.role_code in {"admin", "rh"}:
+        return user_has_any_role(db, user, "admin")
+    if user_has_any_role(db, user, "admin", "rh"):
         return True
-    return user.role_code == "employeur" and user.employer_id == employer_id
+    if user_has_any_role(db, user, "inspecteur"):
+        return can_access_employer(db, user, employer_id)
+    return user_has_any_role(db, user, "employeur") and user.employer_id == employer_id
 
 
 def _template_query_for_user(db: Session, user: models.AppUser):
     query = db.query(models.DocumentTemplate).filter(models.DocumentTemplate.is_active == True)
-    if user.role_code in {"admin", "rh", "comptable", "audit"}:
+    if user_has_any_role(db, user, "admin", "rh", "comptable", "audit"):
         return query
+    if user_has_any_role(db, user, "inspecteur"):
+        employer_ids = list(get_inspector_assigned_employer_ids(db, user))
+        if not employer_ids:
+            return query.filter(models.DocumentTemplate.id == -1)
+        return query.filter(
+            or_(
+                models.DocumentTemplate.employer_id.in_(employer_ids),
+                models.DocumentTemplate.employer_id.is_(None),
+            )
+        )
 
     employer_id = _viewer_employer_id(db, user)
     if not employer_id:
@@ -68,9 +90,14 @@ def get_document_templates(
     query = _template_query_for_user(db, user)
 
     if employer_id:
-        viewer_employer_id = _viewer_employer_id(db, user)
-        if user.role_code not in {"admin", "rh", "comptable", "audit"} and employer_id != viewer_employer_id:
-            raise HTTPException(status_code=403, detail="Forbidden")
+        if not user_has_any_role(db, user, "admin", "rh", "comptable", "audit"):
+            if user_has_any_role(db, user, "inspecteur"):
+                if not can_access_employer(db, user, employer_id):
+                    raise HTTPException(status_code=403, detail="Forbidden")
+            else:
+                viewer_employer_id = _viewer_employer_id(db, user)
+                if employer_id != viewer_employer_id:
+                    raise HTTPException(status_code=403, detail="Forbidden")
         query = query.filter(
             or_(
                 models.DocumentTemplate.employer_id == employer_id,
@@ -88,9 +115,9 @@ def get_document_templates(
 def create_document_template(
     template: schemas.DocumentTemplateIn,
     db: Session = Depends(get_db),
-    user: models.AppUser = Depends(require_roles(*WRITE_RH_ROLES)),
+    user: models.AppUser = Depends(require_roles(*DOCUMENT_TEMPLATE_WRITE_ROLES)),
 ):
-    if not _can_manage_template(user, template.employer_id):
+    if not _can_manage_template(db, user, template.employer_id):
         raise HTTPException(status_code=403, detail="Forbidden")
 
     if template.employer_id:
@@ -132,14 +159,14 @@ def update_document_template(
     template_id: int,
     template_update: schemas.DocumentTemplateUpdate,
     db: Session = Depends(get_db),
-    user: models.AppUser = Depends(require_roles(*WRITE_RH_ROLES)),
+    user: models.AppUser = Depends(require_roles(*DOCUMENT_TEMPLATE_WRITE_ROLES)),
 ):
     db_template = db.query(models.DocumentTemplate).filter(
         models.DocumentTemplate.id == template_id
     ).first()
     if not db_template:
         raise HTTPException(status_code=404, detail="Template not found")
-    if not _can_manage_template(user, db_template.employer_id):
+    if not _can_manage_template(db, user, db_template.employer_id):
         raise HTTPException(status_code=403, detail="Forbidden")
     if db_template.is_system:
         raise HTTPException(status_code=403, detail="Cannot modify system template")
@@ -180,14 +207,14 @@ def update_document_template(
 def delete_document_template(
     template_id: int,
     db: Session = Depends(get_db),
-    user: models.AppUser = Depends(require_roles(*WRITE_RH_ROLES)),
+    user: models.AppUser = Depends(require_roles(*DOCUMENT_TEMPLATE_WRITE_ROLES)),
 ):
     db_template = db.query(models.DocumentTemplate).filter(
         models.DocumentTemplate.id == template_id
     ).first()
     if not db_template:
         raise HTTPException(status_code=404, detail="Template not found")
-    if not _can_manage_template(user, db_template.employer_id):
+    if not _can_manage_template(db, user, db_template.employer_id):
         raise HTTPException(status_code=403, detail="Forbidden")
     if db_template.is_system:
         raise HTTPException(status_code=403, detail="Cannot delete system template")
@@ -231,8 +258,9 @@ def apply_template_to_worker(
 
     from .constants import get_employer_constants, get_system_constants, get_worker_constants
 
-    worker_data = get_worker_constants(worker_id, db)
-    employer_data = get_employer_constants(worker.employer_id, db)
+    worker_data = get_worker_constants(worker_id, db, user)
+    worker_identity = build_worker_reporting_payload(db, worker)
+    employer_data = get_employer_constants(worker.employer_id, db, user)
     system_data = get_system_constants()
     all_data = {**worker_data, **employer_data, **system_data}
 
@@ -251,7 +279,7 @@ def apply_template_to_worker(
         "template_id": template_id,
         "template_name": template.name,
         "worker_id": worker_id,
-        "worker_name": f"{worker.prenom} {worker.nom}",
+        "worker_name": f"{worker_identity.get('prenom', '')} {worker_identity.get('nom', '')}".strip(),
         "content": content,
         "original_content": template.content,
     }

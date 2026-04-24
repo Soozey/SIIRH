@@ -1,0 +1,95 @@
+CREATE TABLE IF NOT EXISTS hr_employee_files (
+    id INTEGER PRIMARY KEY,
+    employer_id INTEGER NOT NULL,
+    worker_id INTEGER NOT NULL UNIQUE,
+    manual_sections_json TEXT NOT NULL DEFAULT '{}',
+    checklist_overrides_json TEXT NOT NULL DEFAULT '{}',
+    revision_number INTEGER NOT NULL DEFAULT 1,
+    created_by_user_id INTEGER NULL,
+    updated_by_user_id INTEGER NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (employer_id) REFERENCES employers(id),
+    FOREIGN KEY (worker_id) REFERENCES workers(id) ON DELETE CASCADE,
+    FOREIGN KEY (created_by_user_id) REFERENCES app_users(id),
+    FOREIGN KEY (updated_by_user_id) REFERENCES app_users(id)
+);
+
+CREATE TABLE IF NOT EXISTS hr_employee_documents (
+    id INTEGER PRIMARY KEY,
+    employer_id INTEGER NOT NULL,
+    worker_id INTEGER NOT NULL,
+    hr_file_id INTEGER NULL,
+    section_code VARCHAR(80) NOT NULL DEFAULT 'documents',
+    document_type VARCHAR(80) NOT NULL DEFAULT 'other',
+    title VARCHAR(255) NOT NULL,
+    status VARCHAR(50) NOT NULL DEFAULT 'active',
+    source_module VARCHAR(50) NOT NULL DEFAULT 'hr_dossier',
+    source_record_type VARCHAR(80) NULL,
+    source_record_id INTEGER NULL,
+    document_date DATE NULL,
+    expiration_date DATE NULL,
+    comment TEXT NULL,
+    visibility_scope VARCHAR(50) NOT NULL DEFAULT 'hr_only',
+    visible_to_employee BOOLEAN NOT NULL DEFAULT 0,
+    visible_to_manager BOOLEAN NOT NULL DEFAULT 0,
+    visible_to_payroll BOOLEAN NOT NULL DEFAULT 0,
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    current_version_number INTEGER NOT NULL DEFAULT 1,
+    created_by_user_id INTEGER NULL,
+    updated_by_user_id INTEGER NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (employer_id) REFERENCES employers(id),
+    FOREIGN KEY (worker_id) REFERENCES workers(id) ON DELETE CASCADE,
+    FOREIGN KEY (hr_file_id) REFERENCES hr_employee_files(id) ON DELETE CASCADE,
+    FOREIGN KEY (created_by_user_id) REFERENCES app_users(id),
+    FOREIGN KEY (updated_by_user_id) REFERENCES app_users(id)
+);
+
+CREATE INDEX IF NOT EXISTS ix_hr_employee_documents_scope
+ON hr_employee_documents (employer_id, worker_id, document_type);
+
+CREATE TABLE IF NOT EXISTS hr_employee_document_versions (
+    id INTEGER PRIMARY KEY,
+    employer_id INTEGER NOT NULL,
+    worker_id INTEGER NOT NULL,
+    document_id INTEGER NOT NULL,
+    version_number INTEGER NOT NULL DEFAULT 1,
+    storage_path VARCHAR(500) NOT NULL,
+    original_name VARCHAR(255) NOT NULL,
+    mime_type VARCHAR(255) NULL,
+    file_size INTEGER NULL,
+    checksum VARCHAR(128) NULL,
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    created_by_user_id INTEGER NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (employer_id) REFERENCES employers(id),
+    FOREIGN KEY (worker_id) REFERENCES workers(id) ON DELETE CASCADE,
+    FOREIGN KEY (document_id) REFERENCES hr_employee_documents(id) ON DELETE CASCADE,
+    FOREIGN KEY (created_by_user_id) REFERENCES app_users(id),
+    UNIQUE (document_id, version_number)
+);
+
+CREATE TABLE IF NOT EXISTS hr_employee_events (
+    id INTEGER PRIMARY KEY,
+    employer_id INTEGER NOT NULL,
+    worker_id INTEGER NOT NULL,
+    hr_file_id INTEGER NULL,
+    section_code VARCHAR(80) NOT NULL DEFAULT 'general',
+    event_type VARCHAR(80) NOT NULL DEFAULT 'manual_update',
+    title VARCHAR(255) NOT NULL,
+    description TEXT NULL,
+    status VARCHAR(50) NOT NULL DEFAULT 'recorded',
+    event_date DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    source_module VARCHAR(50) NOT NULL DEFAULT 'hr_dossier',
+    source_record_type VARCHAR(80) NULL,
+    source_record_id INTEGER NULL,
+    payload_json TEXT NOT NULL DEFAULT '{}',
+    created_by_user_id INTEGER NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (employer_id) REFERENCES employers(id),
+    FOREIGN KEY (worker_id) REFERENCES workers(id) ON DELETE CASCADE,
+    FOREIGN KEY (hr_file_id) REFERENCES hr_employee_files(id) ON DELETE CASCADE,
+    FOREIGN KEY (created_by_user_id) REFERENCES app_users(id)
+);

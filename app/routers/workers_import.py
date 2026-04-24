@@ -1,597 +1,1195 @@
-﻿from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
-from fastapi.responses import Response, StreamingResponse
-from sqlalchemy.orm import Session
-from typing import List
+from __future__ import annotations
+
+from datetime import date, datetime
+from io import BytesIO
+import logging
+import re
+from typing import Any, Optional
+
 import pandas as pd
-import io
-from datetime import datetime
-from ..config.config import get_db
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi.responses import Response
+from openpyxl import Workbook
+from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.utils import get_column_letter
+from sqlalchemy import func
+from sqlalchemy.orm import Session
+
 from .. import models, schemas
+from ..config.config import get_db
 from ..security import WRITE_RH_ROLES, can_manage_worker, require_roles
 from ..services.audit_service import record_audit
+from ..services.master_data_service import sync_worker_master_data
+from ..services.tabular_io import dataframe_to_csv_bytes, issues_to_csv, normalize_header, read_tabular_bytes
 
 router = APIRouter(prefix="/workers/import", tags=["workers-import"])
+logger = logging.getLogger(__name__)
+
+WORKER_TEMPLATE_COLUMNS = [
+    "Raison Sociale",
+    "Matricule",
+    "Nom",
+    "Prenom",
+    "Sexe (M/F)",
+    "Date de Naissance (JJ/MM/AAAA)",
+    "Lieu de Naissance",
+    "Situation Familiale",
+    "Nombre Enfants",
+    "CIN",
+    "CIN Delivre le (JJ/MM/AAAA)",
+    "CIN Lieu de delivrance",
+    "Adresse",
+    "Telephone",
+    "Email",
+    "Numero CNaPS",
+    "Date Embauche (JJ/MM/AAAA)",
+    "Date Debut Contrat (JJ/MM/AAAA)",
+    "Date Fin Contrat (JJ/MM/AAAA)",
+    "Nature du Contrat",
+    "Duree Essai (jours)",
+    "Date Fin Essai (JJ/MM/AAAA)",
+    "Poste Actuel",
+    "Categorie Professionnelle",
+    "Indice Classification",
+    "Etablissement",
+    "Departement",
+    "Service",
+    "Unite",
+    "Type Regime (Agricole/Non Agricole)",
+    "Secteur (agricole/non_agricole)",
+    "Horaire Hebdo",
+    "Salaire Base",
+    "Taux Horaire",
+    "Mode de Paiement",
+    "RIB",
+    "Nom de la Banque",
+    "Nom du Guichet",
+    "BIC / SWIFT",
+    "Code Banque",
+    "Code Guichet",
+    "Numero de Compte",
+    "Cle RIB",
+    "SMIE Agence",
+    "SMIE Numero Carte",
+    "Avantage Vehicule",
+    "Avantage Logement",
+    "Avantage Telephone",
+    "Avantage Autres",
+    "Solde Conge Initial",
+    "Niveau Etudes Principal",
+    "Autres Diplomes",
+    "Annees Experience",
+    "Competences (separees par ;)",
+    "Langues (separees par ;)",
+    "Source Recrutement",
+    "Type Recrutement",
+    "Statut Onboarding",
+    "Reference Candidat",
+    "Observations",
+]
+
+REQUIRED_COLUMNS = ["Matricule", "Nom"]
+EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+COLUMN_ALIASES = {
+    "Prenom": ["Prénom", "First Name"],
+    "Date Debut Contrat (JJ/MM/AAAA)": ["Date Debut Contrat", "Date debut"],
+    "Date Fin Contrat (JJ/MM/AAAA)": ["Date Fin Contrat", "Date fin"],
+    "Nature du Contrat": ["Type Contrat", "Contract Type"],
+    "Categorie Professionnelle": ["Categorie", "Classification", "CSP"],
+    "Indice Classification": ["Indice", "Classification Index"],
+    "Salaire Base": ["Salaire de base", "Base Salary"],
+    "Taux Horaire": ["Salaire Horaire", "Hourly Rate"],
+    "Type Regime (Agricole/Non Agricole)": ["Type Regime", "Regime"],
+    "Numero CNaPS": ["Numero CNAPS", "CNaPS"],
+    "Raison Sociale": ["Employeur", "Employer"],
+    "Competences (separees par ;)": ["Competences", "Skills"],
+    "Langues (separees par ;)": ["Langues", "Languages"],
+    "Source Recrutement": ["Source"],
+    "Type Recrutement": ["Recruitment Type"],
+    "Statut Onboarding": ["Onboarding Status"],
+    "Reference Candidat": ["Candidate ID", "Candidate Reference"],
+}
+
+EXAMPLE_ROW = {
+    "Raison Sociale": "Karibo Services",
+    "Matricule": "M001",
+    "Nom": "RAKOTO",
+    "Prenom": "Jean",
+    "Sexe (M/F)": "M",
+    "Date de Naissance (JJ/MM/AAAA)": "15/05/1985",
+    "Lieu de Naissance": "Antananarivo",
+    "Situation Familiale": "Marie(e)",
+    "Nombre Enfants": 2,
+    "CIN": "101234567890",
+    "CIN Delivre le (JJ/MM/AAAA)": "01/01/2020",
+    "CIN Lieu de delivrance": "Antananarivo",
+    "Adresse": "Lot IVC Tana",
+    "Telephone": "0340000000",
+    "Email": "jean.rakoto@example.com",
+    "Numero CNaPS": "9876543210X",
+    "Date Embauche (JJ/MM/AAAA)": "01/01/2024",
+    "Date Debut Contrat (JJ/MM/AAAA)": "01/01/2024",
+    "Date Fin Contrat (JJ/MM/AAAA)": "",
+    "Nature du Contrat": "CDI",
+    "Duree Essai (jours)": 90,
+    "Date Fin Essai (JJ/MM/AAAA)": "31/03/2024",
+    "Poste Actuel": "Gestionnaire Paie",
+    "Categorie Professionnelle": "M1",
+    "Indice Classification": "1A",
+    "Etablissement": "Siege Social",
+    "Departement": "Ressources Humaines",
+    "Service": "Administration",
+    "Unite": "Paie",
+    "Type Regime (Agricole/Non Agricole)": "Non Agricole",
+    "Secteur (agricole/non_agricole)": "non_agricole",
+    "Horaire Hebdo": 40,
+    "Salaire Base": 250000,
+    "Taux Horaire": 1442.31,
+    "Mode de Paiement": "Virement",
+    "RIB": "",
+    "Nom de la Banque": "BNI",
+    "Nom du Guichet": "Antananarivo Centre",
+    "BIC / SWIFT": "BNIMMG",
+    "Code Banque": "00005",
+    "Code Guichet": "00081",
+    "Numero de Compte": "12345678901",
+    "Cle RIB": "63",
+    "SMIE Agence": "Tana",
+    "SMIE Numero Carte": "",
+    "Avantage Vehicule": 0,
+    "Avantage Logement": 0,
+    "Avantage Telephone": 0,
+    "Avantage Autres": 0,
+    "Solde Conge Initial": 0,
+    "Niveau Etudes Principal": "Licence",
+    "Autres Diplomes": "Certification paie",
+    "Annees Experience": 5,
+    "Competences (separees par ;)": "Paie;Excel avance",
+    "Langues (separees par ;)": "Francais;Malagasy",
+    "Source Recrutement": "Cooptation",
+    "Type Recrutement": "Interne",
+    "Statut Onboarding": "hired",
+    "Reference Candidat": "",
+    "Observations": "Dossier complet",
+}
+
+
+def _has_value(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str) and value.strip() == "":
+        return False
+    return not pd.isna(value)
+
+
+def _safe_str(value: Any) -> str:
+    return str(value).strip() if _has_value(value) else ""
+
+
+def _safe_float(value: Any, default: float = 0.0) -> float:
+    if not _has_value(value):
+        return default
+    try:
+        return float(value)
+    except Exception:
+        return default
+
+
+def _safe_int(value: Any, default: int = 0) -> int:
+    if not _has_value(value):
+        return default
+    try:
+        return int(float(value))
+    except Exception:
+        return default
+
+
+def _parse_optional_date(value: Any) -> Optional[date]:
+    if not _has_value(value):
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    raw = str(value).strip()
+    for fmt in ("%d/%m/%Y", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(raw, fmt).date()
+        except ValueError:
+            pass
+    try:
+        return pd.to_datetime(raw).date()
+    except Exception:
+        return None
+
+
+def _parse_optional_date_strict(value: Any) -> tuple[Optional[date], bool]:
+    if not _has_value(value):
+        return None, True
+    parsed = _parse_optional_date(value)
+    return parsed, parsed is not None
+
+
+def _parse_optional_float_strict(value: Any, default: float = 0.0) -> tuple[float, bool]:
+    if not _has_value(value):
+        return default, True
+    try:
+        parsed = float(str(value).strip().replace(" ", "").replace(",", "."))
+        return parsed, True
+    except Exception:
+        return default, False
+
+
+def _parse_optional_int_strict(value: Any, default: int = 0) -> tuple[int, bool]:
+    if not _has_value(value):
+        return default, True
+    try:
+        parsed = int(float(str(value).strip().replace(" ", "").replace(",", ".")))
+        return parsed, True
+    except Exception:
+        return default, False
+
+
+def _normalize_phone(value: Any) -> tuple[str, bool]:
+    raw = _safe_str(value)
+    if not raw:
+        return "", True
+    normalized = raw.replace(" ", "").replace("-", "").replace(".", "")
+    if normalized.startswith("00"):
+        normalized = f"+{normalized[2:]}"
+    allowed = set("+()0123456789")
+    if any(char not in allowed for char in normalized):
+        return raw, False
+    digits_count = sum(char.isdigit() for char in normalized)
+    if digits_count < 7:
+        return raw, False
+    return normalized, True
+
+
+def _normalize_email(value: Any) -> tuple[str, bool]:
+    raw = _safe_str(value).lower()
+    if not raw:
+        return "", True
+    return raw, bool(EMAIL_RE.match(raw))
+
+
+def _normalize_cin(value: Any) -> str:
+    raw = _safe_str(value).upper()
+    if not raw:
+        return ""
+    return "".join(char for char in raw if char.isalnum())
+
+
+def _split_multi_values(value: Any) -> list[str]:
+    raw = _safe_str(value).replace("|", ";").replace(",", ";").replace("\n", ";")
+    return [item.strip() for item in raw.split(";") if item.strip()]
+
+
+def _normalize_skill_code(value: str) -> str:
+    token = "".join(char if char.isalnum() else "_" for char in value.lower())
+    token = "_".join(part for part in token.split("_") if part)
+    return (token or "competence")[:80]
+
+
+def _build_column_mapping_with_aliases(actual_columns: list[object]) -> tuple[dict[str, str], list[str], list[str]]:
+    alias_lookup: dict[str, str] = {}
+    for canonical in WORKER_TEMPLATE_COLUMNS:
+        alias_lookup[normalize_header(canonical)] = canonical
+        for alias in COLUMN_ALIASES.get(canonical, []):
+            alias_lookup[normalize_header(alias)] = canonical
+
+    mapping: dict[str, str] = {}
+    unknown: list[str] = []
+    for raw in actual_columns:
+        raw_str = str(raw).strip()
+        canonical = alias_lookup.get(normalize_header(raw_str))
+        if canonical:
+            mapping.setdefault(canonical, raw_str)
+        else:
+            unknown.append(raw_str)
+    missing = [required for required in REQUIRED_COLUMNS if required not in mapping]
+    return mapping, unknown, missing
+
+
+def _build_workers_template_xlsx(df: pd.DataFrame) -> bytes:
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Salaries"
+    header_fill = PatternFill(start_color="1E40AF", end_color="1E40AF", fill_type="solid")
+    header_font = Font(color="FFFFFF", bold=True)
+    for col_idx, header in enumerate(WORKER_TEMPLATE_COLUMNS, start=1):
+        cell = ws.cell(row=1, column=col_idx, value=header)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    for row_idx, row in enumerate(df.itertuples(index=False), start=2):
+        for col_idx, value in enumerate(row, start=1):
+            ws.cell(row=row_idx, column=col_idx, value=value)
+    ws.freeze_panes = "A2"
+    for idx, column in enumerate(WORKER_TEMPLATE_COLUMNS, start=1):
+        width = min(max(len(column) + 2, 12), 50)
+        ws.column_dimensions[get_column_letter(idx)].width = width
+
+    instructions = wb.create_sheet("Instructions")
+    lines = [
+        ("Regle", "Matricule et Nom sont obligatoires."),
+        ("Regle", "Les champs non essentiels peuvent rester vides."),
+        ("Regle", "Les colonnes inconnues sont ignorees."),
+        ("Flux", "Import -> Worker -> MasterData (auto sync)."),
+        ("Flux", "Recrutement/Talents sont enrichis si colonnes remplies."),
+    ]
+    for row_idx, (col1, col2) in enumerate(lines, start=1):
+        instructions.cell(row=row_idx, column=1, value=col1)
+        instructions.cell(row=row_idx, column=2, value=col2)
+    instructions.column_dimensions["A"].width = 16
+    instructions.column_dimensions["B"].width = 96
+
+    buffer = BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+    return buffer.getvalue()
+
+
+def _add_issue(
+    issues: list[dict[str, Any]],
+    *,
+    row_number: int,
+    code: str,
+    message: str,
+    column: Optional[str] = None,
+    value: Optional[Any] = None,
+) -> None:
+    issues.append(
+        {
+            "row_number": row_number,
+            "column": column,
+            "code": code,
+            "message": message,
+            "value": None if value is None else str(value),
+        }
+    )
+
+
+def _build_report(
+    *,
+    mode: str,
+    total_rows: int,
+    processed_rows: int,
+    created: int,
+    updated: int,
+    skipped: int,
+    failed: int,
+    unknown_columns: list[str],
+    missing_columns: list[str],
+    issues: list[dict[str, Any]],
+) -> schemas.TabularImportReport:
+    return schemas.TabularImportReport(
+        mode=mode if mode in {"create", "update", "mixed"} else "mixed",
+        total_rows=total_rows,
+        processed_rows=processed_rows,
+        created=created,
+        updated=updated,
+        skipped=skipped,
+        failed=failed,
+        unknown_columns=unknown_columns,
+        missing_columns=missing_columns,
+        issues=[schemas.ImportIssue(**item) for item in issues],
+        error_report_csv=issues_to_csv(issues) if issues else None,
+    )
+
+
+def _ensure_talent_skill(db: Session, employer_id: int, name: str) -> models.TalentSkill:
+    existing = (
+        db.query(models.TalentSkill)
+        .filter(models.TalentSkill.employer_id == employer_id, func.lower(models.TalentSkill.name) == name.lower())
+        .first()
+    )
+    if existing:
+        return existing
+    code_base = _normalize_skill_code(name)
+    code = code_base
+    n = 1
+    while (
+        db.query(models.TalentSkill)
+        .filter(models.TalentSkill.employer_id == employer_id, models.TalentSkill.code == code)
+        .first()
+        is not None
+    ):
+        n += 1
+        suffix = f"_{n}"
+        code = f"{code_base[: max(1, 80 - len(suffix))]}{suffix}"
+    skill = models.TalentSkill(
+        employer_id=employer_id,
+        code=code,
+        name=name,
+        description="Cree via import travailleurs",
+        scale_max=5,
+        is_active=True,
+    )
+    db.add(skill)
+    db.flush()
+    return skill
+
+
+def _upsert_worker_skills(db: Session, worker: models.Worker, names: list[str]) -> None:
+    for skill_name in sorted(set(name for name in names if name)):
+        skill = _ensure_talent_skill(db, worker.employer_id, skill_name)
+        existing_link = (
+            db.query(models.TalentEmployeeSkill)
+            .filter(models.TalentEmployeeSkill.worker_id == worker.id, models.TalentEmployeeSkill.skill_id == skill.id)
+            .first()
+        )
+        if existing_link:
+            existing_link.source = "import_excel"
+            if existing_link.level <= 0:
+                existing_link.level = 3
+            continue
+        db.add(models.TalentEmployeeSkill(worker_id=worker.id, skill_id=skill.id, level=3, source="import_excel"))
+
+
+def _upsert_recruitment_candidate(
+    *,
+    db: Session,
+    employer_id: int,
+    first_name: str,
+    last_name: str,
+    email: str,
+    phone: str,
+    education_level: str,
+    experience_years: float,
+    source_recruitment: str,
+    recruitment_type: str,
+    onboarding_status: str,
+    candidate_reference: str,
+    summary: str,
+) -> Optional[models.RecruitmentCandidate]:
+    has_payload = any(
+        [
+            email,
+            education_level,
+            source_recruitment,
+            recruitment_type,
+            onboarding_status,
+            candidate_reference,
+            summary,
+        ]
+    )
+    if not has_payload:
+        return None
+
+    candidate: Optional[models.RecruitmentCandidate] = None
+    if candidate_reference.isdigit():
+        candidate = (
+            db.query(models.RecruitmentCandidate)
+            .filter(
+                models.RecruitmentCandidate.id == int(candidate_reference),
+                models.RecruitmentCandidate.employer_id == employer_id,
+            )
+            .first()
+        )
+    if candidate is None and email:
+        candidate = (
+            db.query(models.RecruitmentCandidate)
+            .filter(
+                models.RecruitmentCandidate.employer_id == employer_id,
+                func.lower(models.RecruitmentCandidate.email) == email.lower(),
+            )
+            .first()
+        )
+
+    merged_source = " / ".join(part for part in [source_recruitment, recruitment_type] if part)
+    status = onboarding_status or "hired"
+    if candidate is None:
+        if not email:
+            return None
+        candidate = models.RecruitmentCandidate(
+            employer_id=employer_id,
+            first_name=first_name or "N/A",
+            last_name=last_name or "N/A",
+            email=email,
+            phone=phone or None,
+            education_level=education_level or None,
+            experience_years=experience_years,
+            source=merged_source or None,
+            status=status,
+            summary=summary or None,
+        )
+        db.add(candidate)
+        db.flush()
+        return candidate
+
+    if first_name:
+        candidate.first_name = first_name
+    if last_name:
+        candidate.last_name = last_name
+    if email:
+        candidate.email = email
+    if phone:
+        candidate.phone = phone
+    if education_level:
+        candidate.education_level = education_level
+    if experience_years > 0:
+        candidate.experience_years = experience_years
+    if merged_source:
+        candidate.source = merged_source
+    if status:
+        candidate.status = status
+    if summary:
+        candidate.summary = summary
+    return candidate
+
+
+def _build_template_dataframe(
+    db: Session,
+    user: models.AppUser,
+    *,
+    prefilled: bool,
+    employer_id: Optional[int],
+) -> pd.DataFrame:
+    rows: list[dict[str, Any]] = []
+    if not prefilled:
+        rows.append(dict(EXAMPLE_ROW))
+        return pd.DataFrame(rows, columns=WORKER_TEMPLATE_COLUMNS)
+
+    query = db.query(models.Worker).order_by(models.Worker.matricule.asc())
+    if employer_id is not None:
+        if not can_manage_worker(db, user, employer_id=employer_id):
+            raise HTTPException(status_code=403, detail="Forbidden")
+        query = query.filter(models.Worker.employer_id == employer_id)
+    workers = query.all()
+
+    employer_ids = {worker.employer_id for worker in workers}
+    employers = db.query(models.Employer).filter(models.Employer.id.in_(employer_ids)).all() if employer_ids else []
+    employer_map = {item.id: item for item in employers}
+
+    worker_ids = [worker.id for worker in workers]
+    worker_skills: dict[int, list[str]] = {}
+    if worker_ids:
+        links = db.query(models.TalentEmployeeSkill).filter(models.TalentEmployeeSkill.worker_id.in_(worker_ids)).all()
+        skill_ids = {link.skill_id for link in links}
+        skills = db.query(models.TalentSkill).filter(models.TalentSkill.id.in_(skill_ids)).all() if skill_ids else []
+        skill_map = {skill.id: skill.name for skill in skills}
+        for link in links:
+            skill_name = skill_map.get(link.skill_id)
+            if skill_name:
+                worker_skills.setdefault(link.worker_id, []).append(skill_name)
+
+    candidate_map: dict[tuple[int, str], models.RecruitmentCandidate] = {}
+    email_keys = {(worker.employer_id, (worker.email or "").lower().strip()) for worker in workers if worker.email}
+    if email_keys:
+        candidates = (
+            db.query(models.RecruitmentCandidate)
+            .filter(
+                models.RecruitmentCandidate.employer_id.in_(list({item[0] for item in email_keys})),
+                func.lower(models.RecruitmentCandidate.email).in_(list({item[1] for item in email_keys})),
+            )
+            .all()
+        )
+        for candidate in candidates:
+            candidate_map[(candidate.employer_id, (candidate.email or "").lower().strip())] = candidate
+
+    for worker in workers:
+        if not can_manage_worker(db, user, worker=worker):
+            continue
+        employer = employer_map.get(worker.employer_id)
+        regime = db.query(models.TypeRegime).filter(models.TypeRegime.id == worker.type_regime_id).first()
+        regime_label = "Agricole" if regime and regime.code == "agricole" else "Non Agricole"
+        candidate = candidate_map.get((worker.employer_id, (worker.email or "").lower().strip()), None)
+
+        rows.append(
+            {
+                "Raison Sociale": employer.raison_sociale if employer else "",
+                "Matricule": worker.matricule or "",
+                "Nom": worker.nom or "",
+                "Prenom": worker.prenom or "",
+                "Sexe (M/F)": worker.sexe or "",
+                "Date de Naissance (JJ/MM/AAAA)": worker.date_naissance.strftime("%d/%m/%Y") if worker.date_naissance else "",
+                "Lieu de Naissance": worker.lieu_naissance or "",
+                "Situation Familiale": worker.situation_familiale or "",
+                "Nombre Enfants": worker.nombre_enfant or 0,
+                "CIN": worker.cin or "",
+                "CIN Delivre le (JJ/MM/AAAA)": worker.cin_delivre_le.strftime("%d/%m/%Y") if worker.cin_delivre_le else "",
+                "CIN Lieu de delivrance": worker.cin_lieu or "",
+                "Adresse": worker.adresse or "",
+                "Telephone": worker.telephone or "",
+                "Email": worker.email or "",
+                "Numero CNaPS": worker.cnaps_num or "",
+                "Date Embauche (JJ/MM/AAAA)": worker.date_embauche.strftime("%d/%m/%Y") if worker.date_embauche else "",
+                "Date Debut Contrat (JJ/MM/AAAA)": worker.date_embauche.strftime("%d/%m/%Y") if worker.date_embauche else "",
+                "Date Fin Contrat (JJ/MM/AAAA)": worker.date_debauche.strftime("%d/%m/%Y") if worker.date_debauche else "",
+                "Nature du Contrat": worker.nature_contrat or "",
+                "Duree Essai (jours)": worker.duree_essai_jours or 0,
+                "Date Fin Essai (JJ/MM/AAAA)": worker.date_fin_essai.strftime("%d/%m/%Y") if worker.date_fin_essai else "",
+                "Poste Actuel": worker.poste or "",
+                "Categorie Professionnelle": worker.categorie_prof or "",
+                "Indice Classification": worker.indice or "",
+                "Etablissement": worker.etablissement or "",
+                "Departement": worker.departement or "",
+                "Service": worker.service or "",
+                "Unite": worker.unite or "",
+                "Type Regime (Agricole/Non Agricole)": regime_label,
+                "Secteur (agricole/non_agricole)": worker.secteur or "",
+                "Horaire Hebdo": worker.horaire_hebdo or 40,
+                "Salaire Base": worker.salaire_base or 0,
+                "Taux Horaire": worker.salaire_horaire or 0,
+                "Mode de Paiement": worker.mode_paiement or "",
+                "RIB": worker.rib or "",
+                "Nom de la Banque": worker.banque or "",
+                "Nom du Guichet": worker.nom_guichet or "",
+                "BIC / SWIFT": worker.bic or "",
+                "Code Banque": worker.code_banque or "",
+                "Code Guichet": worker.code_guichet or "",
+                "Numero de Compte": worker.compte_num or "",
+                "Cle RIB": worker.cle_rib or "",
+                "SMIE Agence": worker.smie_agence or "",
+                "SMIE Numero Carte": worker.smie_carte_num or "",
+                "Avantage Vehicule": worker.avantage_vehicule or 0,
+                "Avantage Logement": worker.avantage_logement or 0,
+                "Avantage Telephone": worker.avantage_telephone or 0,
+                "Avantage Autres": worker.avantage_autres or 0,
+                "Solde Conge Initial": worker.solde_conge_initial or 0,
+                "Niveau Etudes Principal": candidate.education_level if candidate else "",
+                "Autres Diplomes": "",
+                "Annees Experience": candidate.experience_years if candidate else 0,
+                "Competences (separees par ;)": "; ".join(sorted(set(worker_skills.get(worker.id, [])))),
+                "Langues (separees par ;)": "",
+                "Source Recrutement": candidate.source if candidate else "",
+                "Type Recrutement": "",
+                "Statut Onboarding": candidate.status if candidate else "",
+                "Reference Candidat": candidate.id if candidate else "",
+                "Observations": candidate.summary if candidate else "",
+            }
+        )
+    return pd.DataFrame(rows, columns=WORKER_TEMPLATE_COLUMNS)
+
+
+def _import_workers_dataframe(
+    *,
+    df: pd.DataFrame,
+    update_existing: bool,
+    db: Session,
+    user: models.AppUser,
+    dry_run: bool,
+) -> tuple[schemas.TabularImportReport, int, int, int]:
+    mode = "mixed" if update_existing else "create"
+    mapping, unknown_columns, missing_columns = _build_column_mapping_with_aliases(df.columns.tolist())
+    issues: list[dict[str, Any]] = []
+
+    if unknown_columns:
+        _add_issue(
+            issues,
+            row_number=1,
+            code="unknown_columns_ignored",
+            message=f"Colonnes inconnues ignorees: {', '.join(unknown_columns)}",
+        )
+    if missing_columns:
+        _add_issue(
+            issues,
+            row_number=1,
+            code="missing_columns",
+            message=f"Colonnes obligatoires manquantes: {', '.join(missing_columns)}",
+        )
+        report = _build_report(
+            mode=mode,
+            total_rows=0,
+            processed_rows=0,
+            created=0,
+            updated=0,
+            skipped=0,
+            failed=0,
+            unknown_columns=unknown_columns,
+            missing_columns=missing_columns,
+            issues=issues,
+        )
+        return report, 0, 0, 0
+
+    regimes = db.query(models.TypeRegime).all()
+    default_regime = next((item for item in regimes if item.code == "non_agricole"), regimes[0] if regimes else None)
+    if not default_regime:
+        raise HTTPException(status_code=400, detail="Aucun regime configure.")
+    employers = db.query(models.Employer).all()
+    if not employers:
+        raise HTTPException(status_code=400, detail="Aucun employeur configure.")
+    employer_by_name = {item.raison_sociale.lower().strip(): item for item in employers}
+    default_employer = employers[0]
+
+    total_rows = 0
+    processed_rows = 0
+    created = 0
+    updated = 0
+    skipped = 0
+    failed = 0
+    seen_matricules: set[str] = set()
+    seen_cins: set[str] = set()
+    seen_emails: set[str] = set()
+
+    def value(row: pd.Series, column: str) -> Any:
+        source_column = mapping.get(column)
+        return row.get(source_column) if source_column else None
+
+    for idx, row in df.iterrows():
+        row_number = idx + 2
+        raw_matricule = value(row, "Matricule")
+        raw_nom = value(row, "Nom")
+        if not _has_value(raw_matricule) and not _has_value(raw_nom):
+            continue
+        if str(raw_matricule).strip() == "M001" and str(raw_nom).strip().upper() == "RAKOTO":
+            skipped += 1
+            _add_issue(issues, row_number=row_number, code="template_example_skipped", message="Ligne exemple ignoree.")
+            continue
+
+        total_rows += 1
+        matricule = _safe_str(raw_matricule)
+        if not matricule:
+            failed += 1
+            _add_issue(issues, row_number=row_number, column="Matricule", code="missing_matricule", message="Matricule obligatoire.")
+            continue
+        if matricule in seen_matricules:
+            failed += 1
+            _add_issue(
+                issues,
+                row_number=row_number,
+                column="Matricule",
+                code="duplicate_in_file",
+                message=f"Matricule duplique dans le fichier: {matricule}.",
+                value=matricule,
+            )
+            continue
+        seen_matricules.add(matricule)
+
+        nom = _safe_str(raw_nom).upper()
+        if not nom:
+            failed += 1
+            _add_issue(issues, row_number=row_number, column="Nom", code="missing_name", message=f"Nom obligatoire pour {matricule}.")
+            continue
+
+        email, email_valid = _normalize_email(value(row, "Email"))
+        if not email_valid:
+            failed += 1
+            _add_issue(
+                issues,
+                row_number=row_number,
+                column="Email",
+                code="invalid_email",
+                message=f"Email invalide pour {matricule}.",
+                value=value(row, "Email"),
+            )
+            continue
+        if email:
+            if email in seen_emails:
+                failed += 1
+                _add_issue(
+                    issues,
+                    row_number=row_number,
+                    column="Email",
+                    code="duplicate_email_in_file",
+                    message=f"Email duplique dans le fichier: {email}.",
+                    value=email,
+                )
+                continue
+            seen_emails.add(email)
+
+        cin = _normalize_cin(value(row, "CIN"))
+        if cin:
+            if len(cin) < 6:
+                failed += 1
+                _add_issue(
+                    issues,
+                    row_number=row_number,
+                    column="CIN",
+                    code="invalid_cin",
+                    message=f"CIN invalide pour {matricule}.",
+                    value=cin,
+                )
+                continue
+            if cin in seen_cins:
+                failed += 1
+                _add_issue(
+                    issues,
+                    row_number=row_number,
+                    column="CIN",
+                    code="duplicate_cin_in_file",
+                    message=f"CIN duplique dans le fichier: {cin}.",
+                    value=cin,
+                )
+                continue
+            seen_cins.add(cin)
+
+        telephone, phone_valid = _normalize_phone(value(row, "Telephone"))
+        if not phone_valid:
+            failed += 1
+            _add_issue(
+                issues,
+                row_number=row_number,
+                column="Telephone",
+                code="invalid_phone",
+                message=f"Telephone invalide pour {matricule}.",
+                value=value(row, "Telephone"),
+            )
+            continue
+
+        employer_name = _safe_str(value(row, "Raison Sociale"))
+        target_employer = default_employer
+        if employer_name:
+            found = employer_by_name.get(employer_name.lower())
+            if not found:
+                failed += 1
+                _add_issue(
+                    issues,
+                    row_number=row_number,
+                    column="Raison Sociale",
+                    code="unknown_employer",
+                    message=f"Employeur introuvable: {employer_name}.",
+                    value=employer_name,
+                )
+                continue
+            target_employer = found
+        if not can_manage_worker(db, user, employer_id=target_employer.id):
+            failed += 1
+            _add_issue(
+                issues,
+                row_number=row_number,
+                code="forbidden_employer_scope",
+                message=f"Droits insuffisants sur l employeur {target_employer.raison_sociale}.",
+            )
+            continue
+
+        regime_text = _safe_str(value(row, "Type Regime (Agricole/Non Agricole)")).lower()
+        sector_text = _safe_str(value(row, "Secteur (agricole/non_agricole)")).lower()
+        if "agricole" in f"{regime_text} {sector_text}" and "non" not in f"{regime_text} {sector_text}":
+            selected_regime = next((item for item in regimes if item.code == "agricole"), default_regime)
+        else:
+            selected_regime = next((item for item in regimes if item.code == "non_agricole"), default_regime)
+        date_debut_contrat, date_debut_valid = _parse_optional_date_strict(value(row, "Date Debut Contrat (JJ/MM/AAAA)"))
+        date_embauche_alt, date_embauche_valid = _parse_optional_date_strict(value(row, "Date Embauche (JJ/MM/AAAA)"))
+        if not date_debut_valid or not date_embauche_valid:
+            failed += 1
+            _add_issue(
+                issues,
+                row_number=row_number,
+                column="Date Debut Contrat (JJ/MM/AAAA)" if not date_debut_valid else "Date Embauche (JJ/MM/AAAA)",
+                code="invalid_date",
+                message=f"Format de date invalide pour {matricule}. Utiliser JJ/MM/AAAA ou YYYY-MM-DD.",
+            )
+            continue
+        date_embauche = date_debut_contrat or date_embauche_alt
+        date_fin_contrat, date_fin_valid = _parse_optional_date_strict(value(row, "Date Fin Contrat (JJ/MM/AAAA)"))
+        date_fin_essai, date_fin_essai_valid = _parse_optional_date_strict(value(row, "Date Fin Essai (JJ/MM/AAAA)"))
+        date_naissance, date_naissance_valid = _parse_optional_date_strict(value(row, "Date de Naissance (JJ/MM/AAAA)"))
+        cin_delivre_le, cin_delivre_le_valid = _parse_optional_date_strict(value(row, "CIN Delivre le (JJ/MM/AAAA)"))
+        invalid_date_columns = []
+        if not date_fin_valid:
+            invalid_date_columns.append("Date Fin Contrat (JJ/MM/AAAA)")
+        if not date_fin_essai_valid:
+            invalid_date_columns.append("Date Fin Essai (JJ/MM/AAAA)")
+        if not date_naissance_valid:
+            invalid_date_columns.append("Date de Naissance (JJ/MM/AAAA)")
+        if not cin_delivre_le_valid:
+            invalid_date_columns.append("CIN Delivre le (JJ/MM/AAAA)")
+        if invalid_date_columns:
+            failed += 1
+            _add_issue(
+                issues,
+                row_number=row_number,
+                column=invalid_date_columns[0],
+                code="invalid_date",
+                message=f"Formats de date invalides pour {matricule}: {', '.join(invalid_date_columns)}.",
+            )
+            continue
+        salary_base, salary_base_valid = _parse_optional_float_strict(value(row, "Salaire Base"), 0.0)
+        horaire_hebdo, horaire_hebdo_valid = _parse_optional_float_strict(value(row, "Horaire Hebdo"), 40.0)
+        taux_horaire_raw, taux_horaire_valid = _parse_optional_float_strict(value(row, "Taux Horaire"), 0.0)
+        nb_enfants, nb_enfants_valid = _parse_optional_int_strict(value(row, "Nombre Enfants"), 0)
+        duree_essai, duree_essai_valid = _parse_optional_int_strict(value(row, "Duree Essai (jours)"), 0)
+        invalid_numeric_columns = []
+        if not salary_base_valid:
+            invalid_numeric_columns.append("Salaire Base")
+        if not horaire_hebdo_valid:
+            invalid_numeric_columns.append("Horaire Hebdo")
+        if not taux_horaire_valid:
+            invalid_numeric_columns.append("Taux Horaire")
+        if not nb_enfants_valid:
+            invalid_numeric_columns.append("Nombre Enfants")
+        if not duree_essai_valid:
+            invalid_numeric_columns.append("Duree Essai (jours)")
+        if invalid_numeric_columns:
+            failed += 1
+            _add_issue(
+                issues,
+                row_number=row_number,
+                column=invalid_numeric_columns[0],
+                code="invalid_numeric",
+                message=f"Valeurs numeriques invalides pour {matricule}: {', '.join(invalid_numeric_columns)}.",
+            )
+            continue
+        if salary_base < 0 or horaire_hebdo < 0 or taux_horaire_raw < 0 or nb_enfants < 0 or duree_essai < 0:
+            failed += 1
+            _add_issue(
+                issues,
+                row_number=row_number,
+                code="negative_numeric",
+                message=f"Les valeurs numeriques negatives sont interdites pour {matricule}.",
+            )
+            continue
+        vhm_value = selected_regime.vhm or (173.33 if horaire_hebdo <= 40 else 200.0)
+        salary_horaire = taux_horaire_raw
+        if salary_horaire <= 0 and vhm_value > 0:
+            salary_horaire = salary_base / vhm_value if salary_base > 0 else 0.0
+
+        payload = {
+            "nom": nom,
+            "prenom": _safe_str(value(row, "Prenom")),
+            "sexe": _safe_str(value(row, "Sexe (M/F)")).upper(),
+            "situation_familiale": _safe_str(value(row, "Situation Familiale")),
+            "date_naissance": date_naissance,
+            "lieu_naissance": _safe_str(value(row, "Lieu de Naissance")),
+            "date_embauche": date_embauche,
+            "nature_contrat": _safe_str(value(row, "Nature du Contrat")) or "CDI",
+            "duree_essai_jours": duree_essai,
+            "date_fin_essai": date_fin_essai,
+            "date_debauche": date_fin_contrat,
+            "salaire_base": salary_base,
+            "salaire_horaire": salary_horaire,
+            "horaire_hebdo": horaire_hebdo,
+            "vhm": vhm_value,
+            "etablissement": _safe_str(value(row, "Etablissement")),
+            "departement": _safe_str(value(row, "Departement")),
+            "service": _safe_str(value(row, "Service")),
+            "unite": _safe_str(value(row, "Unite")),
+            "adresse": _safe_str(value(row, "Adresse")),
+            "telephone": telephone,
+            "email": email,
+            "cin": cin,
+            "cin_delivre_le": cin_delivre_le,
+            "cin_lieu": _safe_str(value(row, "CIN Lieu de delivrance")),
+            "cnaps_num": _safe_str(value(row, "Numero CNaPS")),
+            "nombre_enfant": nb_enfants,
+            "poste": _safe_str(value(row, "Poste Actuel")),
+            "categorie_prof": _safe_str(value(row, "Categorie Professionnelle")),
+            "indice": _safe_str(value(row, "Indice Classification")),
+            "mode_paiement": _safe_str(value(row, "Mode de Paiement")) or "Virement",
+            "rib": _safe_str(value(row, "RIB")),
+            "banque": _safe_str(value(row, "Nom de la Banque")),
+            "nom_guichet": _safe_str(value(row, "Nom du Guichet")),
+            "bic": _safe_str(value(row, "BIC / SWIFT")),
+            "code_banque": _safe_str(value(row, "Code Banque")),
+            "code_guichet": _safe_str(value(row, "Code Guichet")),
+            "compte_num": _safe_str(value(row, "Numero de Compte")),
+            "cle_rib": _safe_str(value(row, "Cle RIB")),
+            "smie_agence": _safe_str(value(row, "SMIE Agence")),
+            "smie_carte_num": _safe_str(value(row, "SMIE Numero Carte")),
+            "avantage_vehicule": _safe_float(value(row, "Avantage Vehicule"), 0.0),
+            "avantage_logement": _safe_float(value(row, "Avantage Logement"), 0.0),
+            "avantage_telephone": _safe_float(value(row, "Avantage Telephone"), 0.0),
+            "avantage_autres": _safe_float(value(row, "Avantage Autres"), 0.0),
+            "solde_conge_initial": _safe_float(value(row, "Solde Conge Initial"), 0.0),
+            "secteur": sector_text,
+            "type_regime_id": selected_regime.id,
+            "employer_id": target_employer.id,
+        }
+
+        candidate_summary = " | ".join(
+            part for part in [_safe_str(value(row, "Observations")), _safe_str(value(row, "Autres Diplomes"))] if part
+        )
+
+        try:
+            with db.begin_nested():
+                existing = db.query(models.Worker).filter(models.Worker.matricule == matricule).first()
+                if cin:
+                    duplicate_cin_worker = (
+                        db.query(models.Worker)
+                        .filter(models.Worker.cin == cin, models.Worker.matricule != matricule)
+                        .first()
+                    )
+                    if duplicate_cin_worker and (existing is None or duplicate_cin_worker.id != existing.id):
+                        raise HTTPException(status_code=400, detail=f"CIN deja utilise par le matricule {duplicate_cin_worker.matricule}.")
+                if email:
+                    duplicate_email_worker = (
+                        db.query(models.Worker)
+                        .filter(func.lower(models.Worker.email) == email.lower(), models.Worker.matricule != matricule)
+                        .first()
+                    )
+                    if duplicate_email_worker and (existing is None or duplicate_email_worker.id != existing.id):
+                        raise HTTPException(status_code=400, detail=f"Email deja utilise par le matricule {duplicate_email_worker.matricule}.")
+                if existing:
+                    if not can_manage_worker(db, user, worker=existing):
+                        raise HTTPException(status_code=403, detail=f"Droits insuffisants pour modifier {matricule}.")
+                    if not update_existing:
+                        skipped += 1
+                        _add_issue(
+                            issues,
+                            row_number=row_number,
+                            column="Matricule",
+                            code="existing_skipped",
+                            message=f"Matricule {matricule} deja existant (ignore).",
+                            value=matricule,
+                        )
+                        continue
+                    for field, field_value in payload.items():
+                        if _has_value(field_value):
+                            setattr(existing, field, field_value)
+                    worker = existing
+                    updated += 1
+                else:
+                    worker = models.Worker(matricule=matricule, **payload)
+                    db.add(worker)
+                    db.flush()
+                    if worker.poste:
+                        db.add(
+                            models.WorkerPositionHistory(
+                                worker_id=worker.id,
+                                poste=worker.poste,
+                                categorie_prof=worker.categorie_prof,
+                                indice=worker.indice,
+                                start_date=worker.date_embauche or datetime.now().date(),
+                            )
+                        )
+                    created += 1
+
+                candidate = _upsert_recruitment_candidate(
+                    db=db,
+                    employer_id=worker.employer_id,
+                    first_name=_safe_str(value(row, "Prenom")),
+                    last_name=nom.title(),
+                    email=_safe_str(value(row, "Email")).lower(),
+                    phone=_safe_str(value(row, "Telephone")),
+                    education_level=_safe_str(value(row, "Niveau Etudes Principal")),
+                    experience_years=_safe_float(value(row, "Annees Experience"), 0.0),
+                    source_recruitment=_safe_str(value(row, "Source Recrutement")),
+                    recruitment_type=_safe_str(value(row, "Type Recrutement")),
+                    onboarding_status=_safe_str(value(row, "Statut Onboarding")),
+                    candidate_reference=_safe_str(value(row, "Reference Candidat")),
+                    summary=candidate_summary,
+                )
+                skill_names = _split_multi_values(value(row, "Competences (separees par ;)"))
+                language_names = [f"Langue - {item}" for item in _split_multi_values(value(row, "Langues (separees par ;)"))]
+                _upsert_worker_skills(db, worker, skill_names + language_names)
+                sync_worker_master_data(db, worker, candidate=candidate)
+                processed_rows += 1
+        except HTTPException as exc:
+            failed += 1
+            logger.warning("workers.import row_rejected row=%s matricule=%s reason=%s", row_number, matricule, exc.detail)
+            _add_issue(issues, row_number=row_number, code="business_rule_error", message=str(exc.detail))
+        except Exception as exc:
+            failed += 1
+            logger.exception("workers.import row_failed row=%s matricule=%s", row_number, matricule)
+            _add_issue(issues, row_number=row_number, code="unexpected_error", message=f"Erreur inattendue: {exc}")
+
+    if dry_run:
+        db.rollback()
+
+    report = _build_report(
+        mode=mode,
+        total_rows=total_rows,
+        processed_rows=processed_rows,
+        created=created,
+        updated=updated,
+        skipped=skipped,
+        failed=failed,
+        unknown_columns=unknown_columns,
+        missing_columns=missing_columns,
+        issues=issues,
+    )
+    return report, created, updated, skipped
+
+
+def _response_from_report(report: schemas.TabularImportReport) -> dict[str, Any]:
+    return {
+        "imported": report.created,
+        "updated": report.updated,
+        "skipped": report.skipped,
+        "errors": [issue.message for issue in report.issues],
+        "report": report.model_dump(mode="json"),
+    }
+
 
 @router.get("/template")
 def get_workers_import_template(
+    prefilled: bool = Query(False, description="Template pre-rempli avec salaries existants"),
+    employer_id: Optional[int] = Query(None),
+    export_format: str = Query("xlsx", pattern="^(xlsx|csv)$"),
     db: Session = Depends(get_db),
     user: models.AppUser = Depends(require_roles(*WRITE_RH_ROLES)),
 ):
-    """
-    Génère un modèle Excel pour l'import des salariés.
-    """
-    # Create DataFrame with headers - Raison Sociale en première colonne
-    headers = [
-        "Raison Sociale", "Matricule", "Nom", "Prenom", "Sexe (M/F)", "Situation Familiale", 
-        "Date de Naissance (JJ/MM/AAAA)", "Lieu de Naissance", "Date Embauche (JJ/MM/AAAA)", 
-        "Nature du Contrat", "Duree Essai (jours)", "Date Fin Essai (JJ/MM/AAAA)", "Salaire Base", 
-        "Horaire Hebdo", "Type Regime (Agricole/Non Agricole)", "Groupe de Preavis (1-5)", 
-        "Etablissement", "Departement", "Service", "Unite",  # Nouveaux champs organisationnels
-        "Adresse", "Telephone", "Email", "CIN", "CIN Delivre le (JJ/MM/AAAA)", 
-        "CIN Lieu de delivrance", "Numero CNaPS", "Nombre Enfants", "Poste Actuel", 
-        "Categorie Professionnelle", "Mode de Paiement", "Nom de la Banque", "BIC / SWIFT", 
-        "Code Banque", "Code Guichet", "Numero de Compte", "Cle RIB", "Solde Conge Initial"
-    ]
-    
-    df = pd.DataFrame(columns=headers)
-    
-    # Add an example row
-    example = {
-        "Raison Sociale": "Karibo Services",
-        "Matricule": "M001",
-        "Nom": "RAKOTO",
-        "Prenom": "Jean",
-        "Sexe (M/F)": "M",
-        "Situation Familiale": "Marié(e)",
-        "Date de Naissance (JJ/MM/AAAA)": "15/05/1985",
-        "Lieu de Naissance": "Antananarivo",
-        "Date Embauche (JJ/MM/AAAA)": "01/01/2024",
-        "Nature du Contrat": "CDI",
-        "Duree Essai (jours)": 90,
-        "Date Fin Essai (JJ/MM/AAAA)": "31/03/2024",
-        "Salaire Base": 250000,
-        "Horaire Hebdo": 40,
-        "Type Regime (Agricole/Non Agricole)": "Non Agricole",
-        "Groupe de Preavis (1-5)": 2,
-        "Etablissement": "Siège Social",  # Exemple de structure organisationnelle
-        "Departement": "Ressources Humaines",
-        "Service": "Administration",
-        "Unite": "Paie",
-        "Adresse": "Lot IVC Tana",
-        "Telephone": "0340000000",
-        "Email": "jean.rakoto@example.com",
-        "CIN": "101234567890",
-        "CIN Delivre le (JJ/MM/AAAA)": "01/01/2020",
-        "CIN Lieu de delivrance": "Antananarivo",
-        "Numero CNaPS": "9876543210X",
-        "Nombre Enfants": 2,
-        "Poste Actuel": "Ouvrier",
-        "Categorie Professionnelle": "M1",
-        "Mode de Paiement": "Virement",
-        "Nom de la Banque": "BNI",
-        "BIC / SWIFT": "BNIMMG",
-        "Code Banque": "'00005",  # Apostrophe pour forcer le texte
-        "Code Guichet": "'00081",  # Apostrophe pour forcer le texte
-        "Numero de Compte": "'12345678901",  # Apostrophe pour forcer le texte
-        "Cle RIB": "63",
-        "Solde Conge Initial": 0
-    }
-    df = pd.concat([df, pd.DataFrame([example])], ignore_index=True)
-
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        df.to_excel(writer, index=False, sheet_name='Salariés')
-        
-        # Adjust column widths and format bank codes as text
-        worksheet = writer.sheets['Salariés']
-        workbook = writer.book
-        
-        # Format pour forcer le texte sur les colonnes bancaires
-        text_format = workbook.add_format({'num_format': '@'})
-        
-        for i, col in enumerate(df.columns):
-            column_len = max(df[col].astype(str).map(len).max(), len(col)) + 2
-            worksheet.set_column(i, i, column_len)
-            
-            # Forcer le format texte pour les codes bancaires
-            if col in ["Code Banque", "Code Guichet", "Numero de Compte"]:
-                worksheet.set_column(i, i, column_len, text_format)
-
-        # Ajouter des listes déroulantes pour faciliter la saisie
-        # Trouver les indices des colonnes
-        col_indices = {col: i for i, col in enumerate(df.columns)}
-        
-        # Définir les options pour chaque liste déroulante
-        dropdown_options = {
-            "Sexe (M/F)": ["M", "F"],
-            "Situation Familiale": ["Célibataire", "Marié(e)", "Divorcé(e)", "Veuf(ve)"],
-            "Nature du Contrat": ["CDI", "CDD"],
-            "Type Regime (Agricole/Non Agricole)": ["Agricole", "Non Agricole"],
-            "Mode de Paiement": ["Virement", "Espèces", "Chèque"],
-            "Groupe de Preavis (1-5)": [1, 2, 3, 4, 5]
-        }
-        
-        # Appliquer les validations de données (listes déroulantes)
-        for col_name, options in dropdown_options.items():
-            if col_name in col_indices:
-                col_idx = col_indices[col_name]
-                # Convertir les options en chaîne pour xlsxwriter
-                if col_name == "Groupe de Preavis (1-5)":
-                    options_str = [str(x) for x in options]
-                else:
-                    options_str = options
-                
-                # Appliquer la validation sur les lignes 2 à 1000 (ligne 1 = en-têtes)
-                worksheet.data_validation(1, col_idx, 1000, col_idx, {
-                    'validate': 'list',
-                    'source': options_str,
-                    'dropdown': True,
-                    'error_title': 'Valeur invalide',
-                    'error_message': f'Veuillez choisir une valeur dans la liste: {", ".join(options_str)}'
-                })
-        
-        # Ajouter des commentaires explicatifs sur les colonnes avec listes déroulantes
-        comment_format = workbook.add_format({'font_color': 'blue', 'italic': True})
-        
-        comments = {
-            "Sexe (M/F)": "Cliquez sur la flèche pour choisir: M (Masculin) ou F (Féminin)",
-            "Situation Familiale": "Cliquez sur la flèche pour choisir parmi les options disponibles",
-            "Nature du Contrat": "Cliquez sur la flèche pour choisir: CDI ou CDD",
-            "Type Regime (Agricole/Non Agricole)": "Cliquez sur la flèche pour choisir le type de régime",
-            "Mode de Paiement": "Cliquez sur la flèche pour choisir le mode de paiement",
-            "Groupe de Preavis (1-5)": "Cliquez sur la flèche pour choisir le groupe (1=minimum, 5=maximum)"
-        }
-        
-        for col_name, comment_text in comments.items():
-            if col_name in col_indices:
-                col_idx = col_indices[col_name]
-                # Ajouter un commentaire à la cellule d'en-tête
-                worksheet.write_comment(0, col_idx, comment_text, {'width': 300, 'height': 60})
-
-    output.seek(0)
-    
-    filename = "model_import_salaries.xlsx"
-    return StreamingResponse(
-        output,
-        media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        headers={'Content-Disposition': f'attachment; filename="{filename}"'}
+    df = _build_template_dataframe(db, user, prefilled=prefilled, employer_id=employer_id)
+    if export_format == "csv":
+        content = dataframe_to_csv_bytes(df)
+        filename = "modele_import_salaries.csv" if not prefilled else "salaries_existants.csv"
+        return Response(content=content, media_type="text/csv; charset=utf-8", headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+    content = _build_workers_template_xlsx(df)
+    filename = "modele_import_salaries.xlsx" if not prefilled else "salaries_existants.xlsx"
+    return Response(
+        content=content,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
-@router.post("")
-def import_workers(
-    file: UploadFile = File(...), 
+
+@router.post("/preview", response_model=schemas.TabularImportReport)
+def preview_workers_import(
+    file: UploadFile = File(...),
     update_existing: bool = Form(False),
     db: Session = Depends(get_db),
     user: models.AppUser = Depends(require_roles(*WRITE_RH_ROLES)),
 ):
-    """
-    Importe une liste de salariés depuis un fichier Excel.
-    """
-    if not file.filename.endswith('.xlsx'):
-        raise HTTPException(400, "Le fichier doit être au format Excel (.xlsx)")
-        
-    try:
-        content = file.file.read()
-        df = pd.read_excel(io.BytesIO(content))
-        
-        print(f"DataFrame shape: {df.shape}")
-        print(f"Columns: {list(df.columns)}")
-        print(f"First few rows:\n{df.head()}")
-        
-        # Basic validation of required columns
-        required_cols = ["Matricule", "Nom"]
-        for col in required_cols:
-            if col not in df.columns:
-                raise HTTPException(400, f"Colonne manquante: {col}")
-                
-        imported_count = 0
-        skipped_count = 0
-        updated_count = 0
-        errors = []
-        
-        # Pre-fetch regimes to map "Type Régime" text to ID
-        regimes = db.query(models.TypeRegime).all()
-        print(f"Available regimes: {[(r.id, r.code, r.label) for r in regimes]}")
-        
-        # Default fallback
-        default_regime = next((r for r in regimes if r.code == "non_agricole"), regimes[0]) if regimes else None
-        if not default_regime:
-            raise HTTPException(400, "Aucun régime configuré dans le système.")
-        
-        # Get all employers to map Name -> ID
-        all_employers = db.query(models.Employer).all()
-        print(f"Available employers: {[(e.id, e.raison_sociale) for e in all_employers]}")
-        
-        if not all_employers:
-             raise HTTPException(400, "Aucun employeur configuré dans le système.")
-             
-        # Normalize employer names for easier matching
-        employer_map = {e.raison_sociale.lower().strip(): e for e in all_employers}
-        default_employer = all_employers[0] # Fallback if not specified
-        
-        for index, row in df.iterrows():
-            try:
-                print(f"\n=== Processing row {index+1} ===")
-                print(f"Row data: {dict(row)}")
-                
-                # Skip example row if it looks exactly like the example
-                matricule_raw = row.get("Matricule")
-                nom_raw = row.get("Nom")
-                
-                if (str(matricule_raw).strip() == "M001" and 
-                    str(nom_raw).strip().upper() == "RAKOTO"):
-                    print(f"Skipping example row at index {index}")
-                    continue
-
-                matricule = str(matricule_raw).strip()
-                if not matricule or matricule.lower() == "nan" or pd.isna(matricule_raw):
-                    print(f"Skipping empty matricule at row {index+1}")
-                    continue
-                
-                print(f"Processing matricule: '{matricule}'")
-                    
-                # Check existence
-                existing = db.query(models.Worker).filter(models.Worker.matricule == matricule).first()
-                if existing:
-                    if not can_manage_worker(db, user, worker=existing):
-                        errors.append(f"Ligne {index+2}: droits insuffisants pour modifier {matricule}.")
-                        continue
-                    if not update_existing:
-                        skipped_count += 1
-                        errors.append(f"Ligne {index+2}: Matricule {matricule} existe déjà. (Ignoré)")
-                        print(f"Skipping existing worker: {matricule}")
-                        continue
-                    else:
-                        print(f"Will update existing worker: {matricule}")
-                
-                # Parse dates
-                date_embauche = None
-                raw_date_embauche = row.get("Date Embauche (JJ/MM/AAAA)")
-                if pd.notna(raw_date_embauche):
-                    if isinstance(raw_date_embauche, datetime):
-                        date_embauche = raw_date_embauche.date()
-                    else:
-                        try:
-                            date_embauche = datetime.strptime(str(raw_date_embauche), "%d/%m/%Y").date()
-                        except:
-                            try:
-                                # Try other formats
-                                date_embauche = pd.to_datetime(raw_date_embauche).date()
-                            except:
-                                errors.append(f"Ligne {index+2}: Format date embauche invalide pour {matricule}")
-                                continue
-
-                date_naissance = None
-                raw_date_naissance = row.get("Date de Naissance (JJ/MM/AAAA)")
-                if pd.notna(raw_date_naissance):
-                    if isinstance(raw_date_naissance, datetime):
-                        date_naissance = raw_date_naissance.date()
-                    else:
-                        try:
-                            date_naissance = datetime.strptime(str(raw_date_naissance), "%d/%m/%Y").date()
-                        except:
-                            try:
-                                date_naissance = pd.to_datetime(raw_date_naissance).date()
-                            except:
-                                print(f"Warning: Invalid birth date format for {matricule}")
-
-                # Parse date fin essai
-                date_fin_essai = None
-                raw_date_fin_essai = row.get("Date Fin Essai (JJ/MM/AAAA)")
-                if pd.notna(raw_date_fin_essai):
-                    if isinstance(raw_date_fin_essai, datetime):
-                        date_fin_essai = raw_date_fin_essai.date()
-                    else:
-                        try:
-                            date_fin_essai = datetime.strptime(str(raw_date_fin_essai), "%d/%m/%Y").date()
-                        except:
-                            try:
-                                date_fin_essai = pd.to_datetime(raw_date_fin_essai).date()
-                            except:
-                                print(f"Warning: Invalid date fin essai format for {matricule}")
-
-                # Parse date CIN delivré le
-                cin_delivre_le = None
-                raw_cin_delivre_le = row.get("CIN Delivre le (JJ/MM/AAAA)")
-                if pd.notna(raw_cin_delivre_le):
-                    if isinstance(raw_cin_delivre_le, datetime):
-                        cin_delivre_le = raw_cin_delivre_le.date()
-                    else:
-                        try:
-                            cin_delivre_le = datetime.strptime(str(raw_cin_delivre_le), "%d/%m/%Y").date()
-                        except:
-                            try:
-                                cin_delivre_le = pd.to_datetime(raw_cin_delivre_le).date()
-                            except:
-                                print(f"Warning: Invalid CIN delivery date format for {matricule}")
-                
-                # Basic info
-                nom = str(row.get("Nom", "")).strip().upper()
-                prenom = str(row.get("Prenom", "")).strip()
-                
-                if not nom:
-                    errors.append(f"Ligne {index+2}: Nom manquant pour matricule {matricule}")
-                    continue
-                
-                # Regime Logic
-                regime_text = str(row.get("Type Regime (Agricole/Non Agricole)", "")).lower()
-                regime_id = default_regime.id
-                vhm = default_regime.vhm
-                
-                if "agricole" in regime_text and "non" not in regime_text:
-                     agri = next((r for r in regimes if r.code == "agricole"), None)
-                     if agri:
-                         regime_id = agri.id
-                         vhm = agri.vhm
-                
-                # Employer Logic
-                employer_name = str(row.get("Raison Sociale", "")).strip()
-                target_employer = default_employer
-                
-                if employer_name and employer_name.lower() != "nan" and pd.notna(row.get("Raison Sociale")):
-                    found = employer_map.get(employer_name.lower())
-                    if found:
-                        target_employer = found
-                        print(f"Found employer: {target_employer.raison_sociale}")
-                    else:
-                        print(f"Employer '{employer_name}' not found, using default: {default_employer.raison_sociale}")
-                        errors.append(f"Ligne {index+2}: Employeur '{employer_name}' inconnu, utilisation de l'employeur par défaut.")
-                
-                if not can_manage_worker(db, user, employer_id=target_employer.id):
-                    errors.append(
-                        f"Ligne {index+2}: droits insuffisants pour l'employeur {target_employer.raison_sociale}."
-                    )
-                    continue
-
-                # Numeric fields with safe conversion
-                def safe_float(val, default=0.0):
-                    if pd.isna(val) or val == "":
-                        return default
-                    try:
-                        return float(val)
-                    except:
-                        return default
-                
-                def safe_int(val, default=0):
-                    if pd.isna(val) or val == "":
-                        return default
-                    try:
-                        return int(float(val))
-                    except:
-                        return default
-                
-                salaire_base = safe_float(row.get("Salaire Base", 0))
-                horaire_hebdo = safe_float(row.get("Horaire Hebdo", 40))
-                nombre_enfant = safe_int(row.get("Nombre Enfants", 0))
-                solde_conge_initial = safe_float(row.get("Solde Conge Initial", 0))
-                duree_essai_jours = safe_int(row.get("Duree Essai (jours)", 0))
-                groupe_preavis = safe_int(row.get("Groupe de Preavis (1-5)", 1))
-                
-                # Validation du groupe de préavis (doit être entre 1 et 5)
-                if groupe_preavis < 1 or groupe_preavis > 5:
-                    groupe_preavis = 1  # Valeur par défaut
-                
-                # String fields with safe conversion
-                def safe_str(val, default=""):
-                    if pd.isna(val):
-                        return default
-                    return str(val).strip()
-                
-                sexe = safe_str(row.get("Sexe (M/F)", "")).upper()
-                situation_familiale = safe_str(row.get("Situation Familiale", ""))
-                lieu_naissance = safe_str(row.get("Lieu de Naissance", ""))
-                adresse = safe_str(row.get("Adresse", ""))
-                telephone = safe_str(row.get("Telephone", ""))
-                email = safe_str(row.get("Email", "")).lower()
-                cin = safe_str(row.get("CIN", ""))
-                cin_lieu = safe_str(row.get("CIN Lieu de delivrance", ""))
-                cnaps_num = safe_str(row.get("Numero CNaPS", ""))
-                categorie_prof = safe_str(row.get("Categorie Professionnelle", ""))
-                poste = safe_str(row.get("Poste Actuel", ""))
-                nature_contrat = safe_str(row.get("Nature du Contrat", "CDI"))
-                mode_paiement = safe_str(row.get("Mode de Paiement", "Virement"))
-                
-                # Champs organisationnels
-                etablissement = safe_str(row.get("Etablissement", ""))
-                departement = safe_str(row.get("Departement", ""))
-                service = safe_str(row.get("Service", ""))
-                unite = safe_str(row.get("Unite", ""))
-                
-                # Bank details
-                banque = safe_str(row.get("Nom de la Banque", ""))
-                bic = safe_str(row.get("BIC / SWIFT", ""))
-                code_banque = safe_str(row.get("Code Banque", ""))
-                code_guichet = safe_str(row.get("Code Guichet", ""))
-                compte_num = safe_str(row.get("Numero de Compte", ""))
-                cle_rib = safe_str(row.get("Cle RIB", ""))
-                
-                print(f"About to create/update worker: {matricule}")
-                
-                # Create or Update Worker
-                if existing:
-                    print(f"Updating existing worker: {matricule}")
-                    # Update fields
-                    existing.nom = nom
-                    existing.prenom = prenom
-                    if date_embauche:
-                        existing.date_embauche = date_embauche
-                    existing.salaire_base = salaire_base
-                    existing.horaire_hebdo = horaire_hebdo
-                    existing.type_regime_id = regime_id
-                    existing.vhm = vhm
-                    existing.adresse = adresse
-                    existing.nombre_enfant = nombre_enfant
-                    existing.employer_id = target_employer.id
-                    existing.categorie_prof = categorie_prof
-                    existing.poste = poste
-                    existing.solde_conge_initial = solde_conge_initial
-                    existing.nature_contrat = nature_contrat
-                    existing.duree_essai_jours = duree_essai_jours
-                    existing.mode_paiement = mode_paiement
-                    existing.groupe_preavis = groupe_preavis
-                    
-                    # Dates
-                    if date_fin_essai:
-                        existing.date_fin_essai = date_fin_essai
-                    if cin_delivre_le:
-                        existing.cin_delivre_le = cin_delivre_le
-                    
-                    # Identity
-                    if sexe:
-                        existing.sexe = sexe
-                    if situation_familiale:
-                        existing.situation_familiale = situation_familiale
-                    if date_naissance:
-                        existing.date_naissance = date_naissance
-                    if lieu_naissance:
-                        existing.lieu_naissance = lieu_naissance
-                    if cin:
-                        existing.cin = cin
-                    if cin_lieu:
-                        existing.cin_lieu = cin_lieu
-                    if cnaps_num:
-                        existing.cnaps_num = cnaps_num
-                    
-                    # Contact
-                    if telephone:
-                        existing.telephone = telephone
-                    if email:
-                        existing.email = email
-                    
-                    # Bank
-                    if banque:
-                        existing.banque = banque
-                    if bic:
-                        existing.bic = bic
-                    if code_banque:
-                        existing.code_banque = code_banque
-                    if code_guichet:
-                        existing.code_guichet = code_guichet
-                    if compte_num:
-                        existing.compte_num = compte_num
-                    if cle_rib:
-                        existing.cle_rib = cle_rib
-                    
-                    # Champs organisationnels
-                    if etablissement:
-                        existing.etablissement = etablissement
-                    if departement:
-                        existing.departement = departement
-                    if service:
-                        existing.service = service
-                    if unite:
-                        existing.unite = unite
-                    
-                    worker = existing
-                    updated_count += 1
-                else:
-                    print(f"Creating new worker: {matricule}")
-                    worker = models.Worker(
-                        employer_id=target_employer.id,
-                        matricule=matricule,
-                        nom=nom,
-                        prenom=prenom,
-                        date_embauche=date_embauche,
-                        salaire_base=salaire_base,
-                        horaire_hebdo=horaire_hebdo,
-                        type_regime_id=regime_id,
-                        vhm=vhm,
-                        adresse=adresse,
-                        nombre_enfant=nombre_enfant,
-                        salaire_horaire=0,  # Will be calculated
-                        nature_contrat=nature_contrat,
-                        duree_essai_jours=duree_essai_jours,
-                        date_fin_essai=date_fin_essai,
-                        mode_paiement=mode_paiement,
-                        groupe_preavis=groupe_preavis,
-                        categorie_prof=categorie_prof,
-                        poste=poste,
-                        solde_conge_initial=solde_conge_initial,
-                        # Identity
-                        sexe=sexe,
-                        situation_familiale=situation_familiale,
-                        date_naissance=date_naissance,
-                        lieu_naissance=lieu_naissance,
-                        cin=cin,
-                        cin_delivre_le=cin_delivre_le,
-                        cin_lieu=cin_lieu,
-                        cnaps_num=cnaps_num,
-                        # Contact
-                        telephone=telephone,
-                        email=email,
-                        # Bank
-                        banque=banque,
-                        bic=bic,
-                        code_banque=code_banque,
-                        code_guichet=code_guichet,
-                        compte_num=compte_num,
-                        cle_rib=cle_rib,
-                        # Champs organisationnels
-                        etablissement=etablissement,
-                        departement=departement,
-                        service=service,
-                        unite=unite
-                    )
-                    db.add(worker)
-                    imported_count += 1
-                    print(f"Added new worker to session: {matricule}")
-
-                # Calculate hourly rate
-                if worker.vhm and worker.vhm > 0:
-                    worker.salaire_horaire = worker.salaire_base / worker.vhm
-                    
-                db.flush()  # To get ID
-                print(f"Worker ID after flush: {worker.id}")
-                
-                # Add Initial Position History (only for new workers or if position changed)
-                if poste and not existing:  # Only for new workers
-                    try:
-                        history = models.WorkerPositionHistory(
-                            worker_id=worker.id,
-                            poste=poste,
-                            categorie_prof=categorie_prof,
-                            start_date=date_embauche or datetime.now().date()
-                        )
-                        db.add(history)
-                        print(f"Added position history for worker: {matricule}")
-                    except Exception as e:
-                        print(f"Warning: Could not add position history for {matricule}: {e}")
-                
-            except Exception as e:
-                print(f"Error processing row {index+1}: {str(e)}")
-                errors.append(f"Ligne {index+2}: Erreur inattendue - {str(e)}")
-                
-        print(f"Final counts - Imported: {imported_count}, Updated: {updated_count}, Skipped: {skipped_count}")
-        
-        if imported_count > 0 or updated_count > 0:
-            record_audit(
-                db,
-                actor=user,
-                action="workers.import",
-                entity_type="worker_import",
-                entity_id=f"{imported_count}:{updated_count}:{skipped_count}",
-                route="/workers/import",
-                after={
-                    "imported": imported_count,
-                    "updated": updated_count,
-                    "skipped": skipped_count,
-                    "errors_count": len(errors),
-                },
-            )
-            db.commit()
-            print("Changes committed to database")
-        else:
-            print("No changes to commit")
-            
-        return {
-            "imported": imported_count,
-            "updated": updated_count,
-            "skipped": skipped_count,
-            "errors": errors
-        }
-
-    except Exception as e:
-        print(f"General error: {str(e)}")
-        raise HTTPException(500, f"Erreur lors du traitement du fichier: {str(e)}")
+    logger.info(
+        "workers.import.preview filename=%s update_existing=%s user_id=%s",
+        file.filename,
+        update_existing,
+        getattr(user, "id", None),
+    )
+    content = file.file.read()
+    df = read_tabular_bytes(content, file.filename)
+    report, _, _, _ = _import_workers_dataframe(df=df, update_existing=update_existing, db=db, user=user, dry_run=True)
+    logger.info(
+        "workers.import.preview.completed filename=%s total_rows=%s created=%s updated=%s failed=%s skipped=%s",
+        file.filename,
+        report.total_rows,
+        report.created,
+        report.updated,
+        report.failed,
+        report.skipped,
+    )
+    return report
 
 
+@router.post("")
+def import_workers(
+    file: UploadFile = File(...),
+    update_existing: bool = Form(False),
+    db: Session = Depends(get_db),
+    user: models.AppUser = Depends(require_roles(*WRITE_RH_ROLES)),
+):
+    logger.info(
+        "workers.import.start filename=%s update_existing=%s user_id=%s",
+        file.filename,
+        update_existing,
+        getattr(user, "id", None),
+    )
+    content = file.file.read()
+    df = read_tabular_bytes(content, file.filename)
+    report, created, updated, skipped = _import_workers_dataframe(df=df, update_existing=update_existing, db=db, user=user, dry_run=False)
+    if created > 0 or updated > 0:
+        record_audit(
+            db,
+            actor=user,
+            action="workers.import",
+            entity_type="worker_import",
+            entity_id=f"{created}:{updated}:{skipped}",
+            route="/workers/import",
+            after=report.model_dump(mode="json"),
+        )
+        db.commit()
+    else:
+        db.rollback()
+    logger.info(
+        "workers.import.completed filename=%s total_rows=%s created=%s updated=%s failed=%s skipped=%s",
+        file.filename,
+        report.total_rows,
+        report.created,
+        report.updated,
+        report.failed,
+        report.skipped,
+    )
+    return _response_from_report(report)

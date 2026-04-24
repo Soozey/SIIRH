@@ -1,5 +1,5 @@
-from typing import Optional, List, Literal, Dict, Any
-from pydantic import BaseModel, Field, field_validator, model_validator
+﻿from typing import Optional, List, Literal, Dict, Any
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from datetime import datetime, date, time
 import re
 
@@ -14,37 +14,35 @@ def _validate_period(value: str) -> str:
 
 
 # ==========================
-#  TYPE RÉGIME
+#  TYPE RÃ‰GIME
 # ==========================
 class TypeRegimeIn(BaseModel):
     code: str            # "agricole" | "non_agricole"
-    label: str           # ex: "Régime Agricole"
+    label: str           # ex: "RÃ©gime Agricole"
     vhm: float           # Valeur Horaire Mensuelle moyenne (ex: 200.0 ou 173.33)
 
 
 class TypeRegimeOut(TypeRegimeIn):
     id: int
 
-    class Config:
-        from_attributes = True
-
+    model_config = ConfigDict(from_attributes=True)
 
 # ==========================
-#  STRUCTURE ORGANISATIONNELLE HIÉRARCHIQUE EN CASCADE
+#  STRUCTURE ORGANISATIONNELLE HIÃ‰RARCHIQUE EN CASCADE
 # ==========================
 
 class OrganizationalNodeCreate(BaseModel):
-    """Schéma pour créer un nouveau nœud organisationnel"""
+    """SchÃ©ma pour crÃ©er un nouveau nÅ“ud organisationnel"""
     parent_id: Optional[int] = None
-    level: Literal['etablissement', 'departement', 'service', 'unite'] = Field(..., description="Niveau hiérarchique")
-    name: str = Field(..., min_length=1, max_length=255, description="Nom du nœud organisationnel")
-    code: Optional[str] = Field(None, max_length=50, description="Code optionnel du nœud")
+    level: Literal['etablissement', 'departement', 'service', 'unite'] = Field(..., description="Niveau hiÃ©rarchique")
+    name: str = Field(..., min_length=1, max_length=255, description="Nom du nÅ“ud organisationnel")
+    code: Optional[str] = Field(None, max_length=50, description="Code optionnel du nÅ“ud")
     description: Optional[str] = None
     sort_order: int = Field(0, description="Ordre de tri")
 
 
 class OrganizationalNodeUpdate(BaseModel):
-    """Schéma pour mettre à jour un nœud organisationnel"""
+    """SchÃ©ma pour mettre Ã  jour un nÅ“ud organisationnel"""
     name: Optional[str] = Field(None, min_length=1, max_length=255)
     code: Optional[str] = Field(None, max_length=50)
     description: Optional[str] = None
@@ -53,7 +51,7 @@ class OrganizationalNodeUpdate(BaseModel):
 
 
 class OrganizationalNodeOut(BaseModel):
-    """Schéma de sortie pour un nœud organisationnel"""
+    """SchÃ©ma de sortie pour un nÅ“ud organisationnel"""
     id: int
     employer_id: int
     parent_id: Optional[int]
@@ -68,18 +66,16 @@ class OrganizationalNodeOut(BaseModel):
     updated_at: Optional[datetime]
     children: Optional[List['OrganizationalNodeOut']] = []
 
-    class Config:
-        from_attributes = True
-
+    model_config = ConfigDict(from_attributes=True)
 
 class OrganizationalTreeOut(BaseModel):
-    """Schéma pour l'arbre hiérarchique complet"""
+    """SchÃ©ma pour l'arbre hiÃ©rarchique complet"""
     nodes: List[OrganizationalNodeOut]
     total_count: int
 
 
 class CascadingOptionsOut(BaseModel):
-    """Schéma pour les options de filtrage en cascade"""
+    """SchÃ©ma pour les options de filtrage en cascade"""
     id: int
     name: str
     code: Optional[str]
@@ -89,7 +85,7 @@ class CascadingOptionsOut(BaseModel):
 
 
 class OrganizationalPathValidation(BaseModel):
-    """Schéma pour valider un chemin organisationnel"""
+    """SchÃ©ma pour valider un chemin organisationnel"""
     etablissement_id: Optional[int] = None
     departement_id: Optional[int] = None
     service_id: Optional[int] = None
@@ -97,18 +93,18 @@ class OrganizationalPathValidation(BaseModel):
 
 
 class OrganizationalPathValidationResult(BaseModel):
-    """Résultat de validation d'un chemin organisationnel"""
+    """RÃ©sultat de validation d'un chemin organisationnel"""
     is_valid: bool
     errors: List[str] = []
 
 
 class OrganizationalMoveRequest(BaseModel):
-    """Schéma pour déplacer un nœud"""
+    """SchÃ©ma pour dÃ©placer un nÅ“ud"""
     new_parent_id: Optional[int] = None
 
 
 class OrganizationalTreeNode(BaseModel):
-    """Nœud d'arbre hiérarchique avec enfants"""
+    """NÅ“ud d'arbre hiÃ©rarchique avec enfants"""
     id: int
     parent_id: Optional[int]
     level: int
@@ -122,21 +118,21 @@ class OrganizationalTreeNode(BaseModel):
 
 
 class CascadingOptionsResponse(BaseModel):
-    """Réponse pour les options de filtrage en cascade"""
+    """RÃ©ponse pour les options de filtrage en cascade"""
     level: int
     parent_id: Optional[int]
     options: List[Dict[str, Any]]
 
 
 class HierarchicalValidationResult(BaseModel):
-    """Résultat de validation hiérarchique"""
+    """RÃ©sultat de validation hiÃ©rarchique"""
     is_valid: bool
     errors: List[str] = []
     warnings: List[str] = []
 
 
 class OrganizationalMigrationAnalysis(BaseModel):
-    """Résultat d'analyse de migration organisationnelle"""
+    """RÃ©sultat d'analyse de migration organisationnelle"""
     total_combinations: int
     total_workers_affected: int
     combinations: List[Dict[str, Any]]
@@ -147,7 +143,7 @@ class OrganizationalMigrationAnalysis(BaseModel):
 
 
 class OrganizationalMigrationResult(BaseModel):
-    """Résultat d'exécution de migration"""
+    """RÃ©sultat d'exÃ©cution de migration"""
     etablissements_created: int
     departements_created: int
     services_created: int
@@ -157,7 +153,7 @@ class OrganizationalMigrationResult(BaseModel):
 
 
 # ==========================
-#  STRUCTURE ORGANISATIONNELLE (ANCIEN SYSTÈME)
+#  STRUCTURE ORGANISATIONNELLE (ANCIEN SYSTÃˆME)
 # ==========================
 class OrganizationalUnitCreate(BaseModel):
     level: Literal['etablissement', 'departement', 'service', 'unite']
@@ -180,6 +176,7 @@ class CreateOrganizationalUnitRequest(BaseModel):
 class OrganizationalUnitUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=255)
     code: Optional[str] = Field(None, min_length=1, max_length=50)
+    parent_id: Optional[int] = None
     description: Optional[str] = None
     is_active: Optional[bool] = None
 
@@ -205,9 +202,7 @@ class OrganizationalUnitOut(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
-
+    model_config = ConfigDict(from_attributes=True)
 
 class ValidationResult(BaseModel):
     """Result of validation operations"""
@@ -276,7 +271,7 @@ class EmployerIn(BaseModel):
     lieu_fiscal: Optional[str] = None
     cnaps_num: Optional[str] = None
 
-    # Représentant avancé
+    # ReprÃ©sentant avancÃ©
     rep_date_naissance: Optional[date] = None
     rep_cin_num: Optional[str] = None
     rep_cin_date: Optional[date] = None
@@ -284,7 +279,7 @@ class EmployerIn(BaseModel):
     rep_adresse: Optional[str] = None
     rep_fonction: Optional[str] = None
 
-    # Champs supplémentaires alignés avec models.Employer
+    # Champs supplÃ©mentaires alignÃ©s avec models.Employer
     rcs: Optional[str] = None
     ostie_num: Optional[str] = None
     smie_num: Optional[str] = None
@@ -296,16 +291,16 @@ class EmployerIn(BaseModel):
     taux_pat_cnaps: float = 13.0            # auto 13% si "general", 8% si "scolaire"
     taux_pat_smie: float = 0.0
 
-    # Lien vers le type de régime (FK)
+    # Lien vers le type de rÃ©gime (FK)
     type_regime_id: Optional[int] = None
 
-    # Paramètres de contributions
-    taux_sal_cnaps: float = 1.0             # part salarié CNaPS (%)
+    # ParamÃ¨tres de contributions
+    taux_sal_cnaps: float = 1.0             # part salariÃ© CNaPS (%)
     plafond_cnaps_base: float = 0.0         # 0 = pas de plafond
     taux_pat_fmfp: float = 1.0              # part employeur FMFP (%)
 
-    taux_sal_smie: float = 0.0              # part salarié SMIE (%)
-    smie_forfait_sal: float = 0.0           # forfait salarié SMIE (montant)
+    taux_sal_smie: float = 0.0              # part salariÃ© SMIE (%)
+    smie_forfait_sal: float = 0.0           # forfait salariÃ© SMIE (montant)
     smie_forfait_pat: float = 0.0           # forfait employeur SMIE (montant)
     plafond_smie: float = 0.0               # Plafond manuel pour le SMIE
     logo_path: Optional[str] = None         # Chemin vers le logo
@@ -317,7 +312,7 @@ class EmployerIn(BaseModel):
     label_prime4: Optional[str] = "Prime 4"
     label_prime5: Optional[str] = "Prime 5"
     
-    # 🔹 NOUVELLES LISTES ORGANISATIONNELLES
+    # ðŸ”¹ NOUVELLES LISTES ORGANISATIONNELLES
     etablissements: Optional[List[str]] = Field(default_factory=list)
     departements: Optional[List[str]] = Field(default_factory=list)
     services: Optional[List[str]] = Field(default_factory=list)
@@ -347,21 +342,17 @@ class WorkerPrimeOut(WorkerPrimeIn):
     id: int
     worker_id: int
 
-    class Config:
-        from_attributes = True
-
+    model_config = ConfigDict(from_attributes=True)
 
 class EmployerOut(EmployerIn):
     id: int
     type_regime: Optional[TypeRegimeOut] = None
     # primes removed
 
-    class Config:
-        from_attributes = True
-
+    model_config = ConfigDict(from_attributes=True)
 
 # ==========================
-#  SALARIÉ
+#  SALARIÃ‰
 # ==========================
 class WorkerIn(BaseModel):
     employer_id: int
@@ -371,7 +362,7 @@ class WorkerIn(BaseModel):
     sexe: Optional[str] = None
     situation_familiale: Optional[str] = None
     date_naissance: Optional[date] = None
-    adresse: Optional[str] = None  # Changé de str à Optional[str]
+    adresse: Optional[str] = None  # ChangÃ© de str Ã  Optional[str]
     telephone: Optional[str] = None
     email: Optional[str] = None
     cin: Optional[str] = None
@@ -380,7 +371,7 @@ class WorkerIn(BaseModel):
     cnaps_num: Optional[str] = None
     nombre_enfant: Optional[int] = 0
     date_embauche: Optional[date] = None
-    type_regime_id: Optional[int] = None  # Changé de int à Optional[int]                               # "agricole" | "non_agricole"
+    type_regime_id: Optional[int] = None  # ChangÃ© de int Ã  Optional[int]                               # "agricole" | "non_agricole"
     salaire_base: float
     salaire_horaire: float
     vhm: float
@@ -408,7 +399,7 @@ class WorkerIn(BaseModel):
     poste: Optional[str] = None
     solde_conge_initial: Optional[float] = 0.0
     
-    # Débauche / Rupture
+    # DÃ©bauche / Rupture
     date_debauche: Optional[date] = None
     type_sortie: Optional[str] = None      # "L" | "D"
     groupe_preavis: Optional[int] = None   # 1..5
@@ -472,21 +463,44 @@ class WorkerPositionHistoryOut(WorkerPositionHistoryBase):
     id: int
     worker_id: int
 
-    class Config:
-        from_attributes = True
-
+    model_config = ConfigDict(from_attributes=True)
 
 class WorkerOut(WorkerIn):
     id: int
+    is_active: bool = True
+    deleted_at: Optional[datetime] = None
     primes: List[WorkerPrimeOut] = []
     position_history: List[WorkerPositionHistoryOut] = []
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
+
+class OrgUnitEventOut(BaseModel):
+    id: int
+    employer_id: int
+    org_unit_id: Optional[int] = None
+    event_type: str
+    payload_json: Dict[str, Any] = Field(default_factory=dict)
+    triggered_by_user_id: Optional[int] = None
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
 
 class WorkerListDelete(BaseModel):
     ids: List[int]
+
+
+class WorkerResetRequest(BaseModel):
+    employer_id: Optional[int] = None
+    mode: Literal["soft", "hard"] = "soft"
+    confirmation_text: Optional[str] = None
+
+
+class WorkerResetResult(BaseModel):
+    ok: bool = True
+    mode: str
+    count: int
+    message: str
 
 
 # ==========================
@@ -496,27 +510,27 @@ class PayVarBase(BaseModel):
     worker_id: int
     period: str  # format "YYYY-MM"
 
-    # === HEURES SUPPLÉMENTAIRES (totaux mois) ===
+    # === HEURES SUPPLÃ‰MENTAIRES (totaux mois) ===
     hsni_130: float = 0.0   # HS non imposables 130%
     hsi_130: float = 0.0    # HS imposables 130%
     hsni_150: float = 0.0   # HS non imposables 150%
     hsi_150: float = 0.0    # HS imposables 150%
-    hmn_30: float = 0.0     # Heures majorées nuit 30%
+    hmn_30: float = 0.0     # Heures majorÃ©es nuit 30%
 
-    # === ANCIEN CHAMP RÉSUMÉ (compatibilité) ===
+    # === ANCIEN CHAMP RÃ‰SUMÃ‰ (compatibilitÃ©) ===
     absences_non_remu: float = 0.0
 
-    # === ABSENCES DÉTAILLÉES ===
-    abs_non_remu_j: float = 0.0   # Absences non rémunérées (jours)
+    # === ABSENCES DÃ‰TAILLÃ‰ES ===
+    abs_non_remu_j: float = 0.0   # Absences non rÃ©munÃ©rÃ©es (jours)
     abs_maladie_j: float = 0.0    # Absence maladie (jours)
-    mise_a_pied_j: float = 0.0    # Mise à pied (jours)
-    abs_non_remu_h: float = 0.0   # Absences non rémunérées (heures)
+    mise_a_pied_j: float = 0.0    # Mise Ã  pied (jours)
+    abs_non_remu_h: float = 0.0   # Absences non rÃ©munÃ©rÃ©es (heures)
 
     # === PRIMES SIMPLES ===
     prime_fixe: float = 0.0
     prime_variable: float = 0.0
 
-    # === PRIMES DÉTAILLÉES 1..10 ===
+    # === PRIMES DÃ‰TAILLÃ‰ES 1..10 ===
     prime1: float = 0.0
     prime2: float = 0.0
     prime3: float = 0.0
@@ -527,7 +541,7 @@ class PayVarBase(BaseModel):
     prime8: float = 0.0
     prime9: float = 0.0
     prime10: float = 0.0
-    prime_13: float = 0.0  # 13ème Mois
+    prime_13: float = 0.0  # 13Ã¨me Mois
 
     # === AVANTAGES EN NATURE ===
     avantage_vehicule: float = 0.0
@@ -538,7 +552,7 @@ class PayVarBase(BaseModel):
     # === ALLOCATION FAMILIALE ===
     alloc_familiale: float = 0.0
 
-    # === AVANCES & DÉDUCTIONS ===
+    # === AVANCES & DÃ‰DUCTIONS ===
     avance_salaire: float = 0.0
     avance_quinzaine: float = 0.0
     avance_speciale_rembfixe: float = 0.0
@@ -553,28 +567,26 @@ class PayVarBase(BaseModel):
 
 
 class PayVarIn(PayVarBase):
-    """Données reçues depuis le front pour créer / mettre à jour les variables de paie."""
+    """DonnÃ©es reÃ§ues depuis le front pour crÃ©er / mettre Ã  jour les variables de paie."""
     pass
 
 
 class PayVarOut(PayVarBase):
     id: int
 
-    class Config:
-        from_attributes = True
-
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ==========================
-#   SCHEMAS HS (Heures Supplémentaires)
+#   SCHEMAS HS (Heures SupplÃ©mentaires)
 #   Suffixe HS pour tout ce qui concerne ce module
 # ==========================
 
 
 class HSJourBaseHS(BaseModel):
     """
-    Données d'une journée HS (côté API / lecture).
-    Correspond à une ligne de la table hs_jours_HS.
+    DonnÃ©es d'une journÃ©e HS (cÃ´tÃ© API / lecture).
+    Correspond Ã  une ligne de la table hs_jours_HS.
     """
 
     date_HS: date
@@ -583,7 +595,7 @@ class HSJourBaseHS(BaseModel):
     sortie_HS: time
     type_nuit_HS: Optional[str] = None  # None, 'H' ou 'O'
 
-    # Champs calculés (en heures décimales)
+    # Champs calculÃ©s (en heures dÃ©cimales)
     duree_travail_totale_heures_HS: Optional[float] = None
     duree_base_heures_HS: Optional[float] = None
     hmnh_30_heures_HS: Optional[float] = None
@@ -591,7 +603,7 @@ class HSJourBaseHS(BaseModel):
     hmd_40_heures_HS: Optional[float] = None
     hmjf_50_heures_HS: Optional[float] = None
 
-    # Semaine ISO (pour recontrôle)
+    # Semaine ISO (pour recontrÃ´le)
     iso_year_HS: Optional[int] = None
     iso_week_HS: Optional[int] = None
 
@@ -600,9 +612,9 @@ class HSJourBaseHS(BaseModel):
 
 class HSJourCreateHS(HSJourBaseHS):
     """
-    Schéma utilisé si un jour HS est créé côté API.
-    En pratique, on créera surtout ces lignes en backend
-    à partir de la requête de calcul HS.
+    SchÃ©ma utilisÃ© si un jour HS est crÃ©Ã© cÃ´tÃ© API.
+    En pratique, on crÃ©era surtout ces lignes en backend
+    Ã  partir de la requÃªte de calcul HS.
     """
 
     calculation_id_HS: int
@@ -615,26 +627,22 @@ class PayrollRunOut(BaseModel):
     generated_at: Optional[date]
     employer_name: Optional[str] = None
 
-    class Config:
-        from_attributes = True
-
+    model_config = ConfigDict(from_attributes=True)
 
 class HSJourReadHS(HSJourBaseHS):
     """
-    Schéma de lecture d'une ligne hs_jours_HS.
+    SchÃ©ma de lecture d'une ligne hs_jours_HS.
     """
 
     id_HS: int
     calculation_id_HS: int
 
-    class Config:
-        from_attributes = True
-
+    model_config = ConfigDict(from_attributes=True)
 
 class HSCalculationBaseHS(BaseModel):
     """
     Champs communs pour un calcul HS mensuel.
-    Correspond à la table hs_calculations_HS.
+    Correspond Ã  la table hs_calculations_HS.
     """
 
     worker_id_HS: int
@@ -654,8 +662,8 @@ class HSCalculationBaseHS(BaseModel):
 
 class HSCalculationCreateHS(HSCalculationBaseHS):
     """
-    Schéma pour créer un calcul HS en BDD.
-    On peut éventuellement l'enrichir avec des paramètres supplémentaires.
+    SchÃ©ma pour crÃ©er un calcul HS en BDD.
+    On peut Ã©ventuellement l'enrichir avec des paramÃ¨tres supplÃ©mentaires.
     """
 
     payroll_run_id_HS: Optional[int] = None
@@ -663,36 +671,38 @@ class HSCalculationCreateHS(HSCalculationBaseHS):
 
 class HSCalculationReadHS(HSCalculationBaseHS):
     """
-    Schéma de lecture d'un calcul HS (résumé mensuel),
-    avec éventuellement les jours HS associés.
+    SchÃ©ma de lecture d'un calcul HS (rÃ©sumÃ© mensuel),
+    avec Ã©ventuellement les jours HS associÃ©s.
     """
 
     id_HS: int
     payroll_run_id_HS: Optional[int] = None
+    worker_matricule_HS: Optional[str] = None
+    worker_nom_HS: Optional[str] = None
+    worker_prenom_HS: Optional[str] = None
+    worker_display_name_HS: Optional[str] = None
 
     created_at_HS: datetime
     updated_at_HS: datetime
 
-    # Liste des jours HS rattachés à ce calcul
+    # Liste des jours HS rattachÃ©s Ã  ce calcul
     jours_HS: List[HSJourReadHS] = []
 
-    class Config:
-        from_attributes = True
-
+    model_config = ConfigDict(from_attributes=True)
 
 class AbsenceInput(BaseModel):
     worker_id: int | None = Field(
         default=None,
-        description="ID du salarié (worker) concerné par ces absences"
+        description="ID du salariÃ© (worker) concernÃ© par ces absences"
     )
     salaire_base: float = Field(..., description="Salaire de base mensuel")
-    salaire_horaire: float = Field(..., description="Salaire horaire de référence")
+    salaire_horaire: float = Field(..., description="Salaire horaire de rÃ©fÃ©rence")
 
     ABSM_J: float = 0.0   # Absence maladie en jours (informatif)
     ABSM_H: float = 0.0   # Absence maladie en heures (informatif)
-    ABSNR_J: float = 0.0  # Absence non rémunérée en jours
-    ABSNR_H: float = 0.0  # Absence non rémunérée en heures
-    ABSMP: float = 0.0    # Mise à pied (jours)
+    ABSNR_J: float = 0.0  # Absence non rÃ©munÃ©rÃ©e en jours
+    ABSNR_H: float = 0.0  # Absence non rÃ©munÃ©rÃ©e en heures
+    ABSMP: float = 0.0    # Mise Ã  pied (jours)
     ABS1_J: float = 0.0   # Autre absence 1 (jours)
     ABS1_H: float = 0.0   # Autre absence 1 (heures)
     ABS2_J: float = 0.0   # Autre absence 2 (jours)
@@ -733,9 +743,9 @@ class PayrollHsHmBase(BaseModel):
     # === ABSENCES ===
     ABSM_J: float = Field(0.0, ge=0, description="Absence Maladie (jours)")
     ABSM_H: float = Field(0.0, ge=0, description="Absence Maladie (heures)")
-    ABSNR_J: float = Field(0.0, ge=0, description="Absence Non Rémunérée (jours)")
-    ABSNR_H: float = Field(0.0, ge=0, description="Absence Non Rémunérée (heures)")
-    ABSMP: float = Field(0.0, ge=0, description="Mise à pied (jours)")
+    ABSNR_J: float = Field(0.0, ge=0, description="Absence Non RÃ©munÃ©rÃ©e (jours)")
+    ABSNR_H: float = Field(0.0, ge=0, description="Absence Non RÃ©munÃ©rÃ©e (heures)")
+    ABSMP: float = Field(0.0, ge=0, description="Mise Ã  pied (jours)")
     ABS1_J: float = Field(0.0, ge=0, description="Autre Absence 1 (jours)")
     ABS1_H: float = Field(0.0, ge=0, description="Autre Absence 1 (heures)")
     ABS2_J: float = Field(0.0, ge=0, description="Autre Absence 2 (jours)")
@@ -744,16 +754,16 @@ class PayrollHsHmBase(BaseModel):
     # === AVANCE ===
     avance: float = Field(0.0, description="Avance (Montant)")
 
-    # === AUTRES DÉDUCTIONS (PayVar) ===
-    autre_ded1: float = Field(0.0, description="Autre Déduction 1")
-    autre_ded2: float = Field(0.0, description="Autre Déduction 2")
-    autre_ded3: float = Field(0.0, description="Autre Déduction 3")
-    autre_ded4: float = Field(0.0, description="Autre Déduction 4")
+    # === AUTRES DÃ‰DUCTIONS (PayVar) ===
+    autre_ded1: float = Field(0.0, description="Autre DÃ©duction 1")
+    autre_ded2: float = Field(0.0, description="Autre DÃ©duction 2")
+    autre_ded3: float = Field(0.0, description="Autre DÃ©duction 3")
+    autre_ded4: float = Field(0.0, description="Autre DÃ©duction 4")
 
     # === AVANTAGES EN NATURE (PayVar Override) ===
-    avantage_vehicule: float = Field(0.0, description="Avantage Véhicule")
+    avantage_vehicule: float = Field(0.0, description="Avantage VÃ©hicule")
     avantage_logement: float = Field(0.0, description="Avantage Logement")
-    avantage_telephone: float = Field(0.0, description="Avantage Téléphone")
+    avantage_telephone: float = Field(0.0, description="Avantage TÃ©lÃ©phone")
     avantage_autres: float = Field(0.0, description="Avantage Autres")
 
     # Primes & 13th Month removed from this view
@@ -778,7 +788,7 @@ class PayrollHsHmOut(PayrollHsHmBase):
     hs_calculation_id: Optional[int]
     import_file_name: Optional[str]
     
-    # Montants calculés (en Ariary)
+    # Montants calculÃ©s (en Ariary)
     hsni_130_montant: float
     hsi_130_montant: float
     hsni_150_montant: float
@@ -791,9 +801,7 @@ class PayrollHsHmOut(PayrollHsHmBase):
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     
-    class Config:
-        from_attributes = True
-
+    model_config = ConfigDict(from_attributes=True)
 
 class LinkHsCalculationRequest(BaseModel):
     """Request to link a manual HS calculation to payroll"""
@@ -819,6 +827,144 @@ class ExcelImportSummary(BaseModel):
     successful: int
     failed: int
     errors: List[str] = []
+
+
+class ImportIssue(BaseModel):
+    row_number: int
+    code: str
+    message: str
+    column: Optional[str] = None
+    value: Optional[str] = None
+
+
+class TabularImportReport(BaseModel):
+    mode: Literal["create", "update", "mixed"] = "mixed"
+    total_rows: int = 0
+    processed_rows: int = 0
+    created: int = 0
+    updated: int = 0
+    skipped: int = 0
+    failed: int = 0
+    unknown_columns: List[str] = Field(default_factory=list)
+    missing_columns: List[str] = Field(default_factory=list)
+    issues: List[ImportIssue] = Field(default_factory=list)
+    error_report_csv: Optional[str] = None
+
+
+class SystemImportOptions(BaseModel):
+    update_existing: bool = True
+    skip_exact_duplicates: bool = True
+    continue_on_error: bool = True
+    strict_mode: bool = False
+    selected_modules: List[str] = Field(default_factory=list)
+
+
+class SystemImportManifestSummary(BaseModel):
+    source_system: Optional[str] = None
+    package_version: Optional[str] = None
+    export_version: Optional[str] = None
+    modules_detected: List[str] = Field(default_factory=list)
+    modules_requested: List[str] = Field(default_factory=list)
+    expected_records: Dict[str, int] = Field(default_factory=dict)
+    detected_records: Dict[str, int] = Field(default_factory=dict)
+    compatibility_warnings: List[str] = Field(default_factory=list)
+
+
+class SystemImportModuleReport(BaseModel):
+    module: str
+    expected_records: Optional[int] = None
+    detected_records: int = 0
+    processed_rows: int = 0
+    created: int = 0
+    updated: int = 0
+    skipped: int = 0
+    failed: int = 0
+    conflicts: int = 0
+    unmapped_fields: List[str] = Field(default_factory=list)
+    issues: List[ImportIssue] = Field(default_factory=list)
+
+
+class SystemDataImportReport(BaseModel):
+    dry_run: bool = False
+    started_at: datetime
+    finished_at: Optional[datetime] = None
+    options: SystemImportOptions = Field(default_factory=SystemImportOptions)
+    manifest: SystemImportManifestSummary = Field(default_factory=SystemImportManifestSummary)
+    modules: List[SystemImportModuleReport] = Field(default_factory=list)
+    total_processed_rows: int = 0
+    total_created: int = 0
+    total_updated: int = 0
+    total_skipped: int = 0
+    total_failed: int = 0
+    total_conflicts: int = 0
+    warnings: List[str] = Field(default_factory=list)
+    errors: List[str] = Field(default_factory=list)
+
+
+class SystemDataImportExecuteResponse(BaseModel):
+    imported: int = 0
+    updated: int = 0
+    skipped: int = 0
+    failed: int = 0
+    conflicts: int = 0
+    report: SystemDataImportReport
+
+
+class SystemExportOptions(BaseModel):
+    selected_modules: List[str] = Field(default_factory=list)
+    employer_id: Optional[int] = None
+    include_inactive: bool = True
+    include_document_content: bool = False
+
+
+class SystemExportManifestSummary(BaseModel):
+    source_system: Optional[str] = None
+    package_version: Optional[str] = None
+    export_version: Optional[str] = None
+    modules_requested: List[str] = Field(default_factory=list)
+    modules_exported: List[str] = Field(default_factory=list)
+    detected_records: Dict[str, int] = Field(default_factory=dict)
+    compatibility_warnings: List[str] = Field(default_factory=list)
+
+
+class SystemDataExportPreview(BaseModel):
+    generated_at: datetime
+    options: SystemExportOptions = Field(default_factory=SystemExportOptions)
+    manifest: SystemExportManifestSummary = Field(default_factory=SystemExportManifestSummary)
+    total_records: int = 0
+    warnings: List[str] = Field(default_factory=list)
+
+
+class SystemUpdateTarget(BaseModel):
+    source: str
+    destination: str
+
+
+class SystemUpdateManifest(BaseModel):
+    version: str
+    package_sha256: str
+    payload_root: str = "payload"
+    targets: List[SystemUpdateTarget] = Field(default_factory=list)
+    requires_migration: bool = True
+    migration_command: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class SystemUpdateJobStatus(BaseModel):
+    job_id: str
+    status: str
+    stage: str
+    progress: int = 0
+    environment_mode: str = "unknown"
+    package_filename: str
+    package_sha256: Optional[str] = None
+    package_version: Optional[str] = None
+    started_at: datetime
+    finished_at: Optional[datetime] = None
+    backup_path: Optional[str] = None
+    rollback_performed: bool = False
+    logs: List[str] = Field(default_factory=list)
+    error: Optional[str] = None
 
 
 # ============================================================
@@ -855,9 +1001,7 @@ class LeaveOut(LeaveBase):
     id: int
     created_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
-
+    model_config = ConfigDict(from_attributes=True)
 
 class PermissionBase(BaseModel):
     worker_id: int
@@ -889,9 +1033,7 @@ class PermissionOut(PermissionBase):
     id: int
     created_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
-
+    model_config = ConfigDict(from_attributes=True)
 
 # ==========================
 #  REPORTING
@@ -899,8 +1041,8 @@ class PermissionOut(PermissionBase):
 
 class ReportField(BaseModel):
     id: str           # ex: "matricule", "brut"
-    label: str        # Libellé lisible
-    category: str     # Catégorie (Identité, Base, Gains, Retenues, Résultats, etc.)
+    label: str        # LibellÃ© lisible
+    category: str     # CatÃ©gorie (IdentitÃ©, Base, Gains, Retenues, RÃ©sultats, etc.)
 
 class ReportMetadataOut(BaseModel):
     fields: List[ReportField]
@@ -909,11 +1051,11 @@ class ReportRequest(BaseModel):
     employer_id: int
     start_period: str # "YYYY-MM"
     end_period: str   # "YYYY-MM"
-    columns: List[str] # Liste des IDs des colonnes souhaitées
-    etablissement: Optional[int] = None  # Changé de str à int
-    departement: Optional[int] = None    # Changé de str à int
-    service: Optional[int] = None        # Changé de str à int
-    unite: Optional[int] = None          # Changé de str à int
+    columns: List[str] # Liste des IDs des colonnes souhaitÃ©es
+    etablissement: Optional[int] = None  # ChangÃ© de str Ã  int
+    departement: Optional[int] = None    # ChangÃ© de str Ã  int
+    service: Optional[int] = None        # ChangÃ© de str Ã  int
+    unite: Optional[int] = None          # ChangÃ© de str Ã  int
 
     @field_validator("start_period", "end_period")
     @classmethod
@@ -928,7 +1070,7 @@ class ReportRequest(BaseModel):
 
 
 # ==========================
-#  CONTRATS PERSONNALISÉS
+#  CONTRATS PERSONNALISÃ‰S
 # ==========================
 
 class CustomContractIn(BaseModel):
@@ -938,21 +1080,28 @@ class CustomContractIn(BaseModel):
     content: str
     template_type: str = "employment_contract"
     is_default: bool = False
+    validation_status: str = "active_non_validated"
+    inspection_status: str = "pending_review"
+    inspection_comment: Optional[str] = None
 
 
 class CustomContractOut(CustomContractIn):
     id: int
+    active_version_number: int = 1
+    last_published_at: Optional[datetime] = None
+    last_reviewed_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
-
+    model_config = ConfigDict(from_attributes=True)
 
 class CustomContractUpdate(BaseModel):
     title: Optional[str] = None
     content: Optional[str] = None
     is_default: Optional[bool] = None
+    validation_status: Optional[str] = None
+    inspection_status: Optional[str] = None
+    inspection_comment: Optional[str] = None
 
 
 # ==========================
@@ -974,9 +1123,7 @@ class DocumentTemplateOut(DocumentTemplateIn):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
-
+    model_config = ConfigDict(from_attributes=True)
 
 class DocumentTemplateUpdate(BaseModel):
     name: Optional[str] = None
@@ -990,6 +1137,61 @@ class UserLoginIn(BaseModel):
     password: str
 
 
+class PublicRegistrationRoleOut(BaseModel):
+    code: str
+    label: str
+    scope: str
+
+
+class PublicRegistrationConfigOut(BaseModel):
+    enabled: bool = True
+    password_policy: str
+    allowed_roles: List[PublicRegistrationRoleOut] = Field(default_factory=list)
+
+
+class PublicRegisterIn(BaseModel):
+    username: str
+    password: str
+    full_name: Optional[str] = None
+    role_code: str = "salarie_agent"
+    worker_matricule: str
+
+
+class PublicRegisterOut(BaseModel):
+    user_id: int
+    username: str
+    full_name: Optional[str] = None
+    role_code: str
+    employer_id: Optional[int] = None
+    worker_id: int
+    created_at: datetime
+
+
+class PublicDemoAccountOut(BaseModel):
+    label: str
+    role_code: str
+    username: str
+
+
+class LabourLegalAlertOut(BaseModel):
+    code: str
+    severity: str
+    title: str
+    message: str
+    due_at: Optional[datetime] = None
+
+
+class LabourCaseLegalSummaryOut(BaseModel):
+    requires_inspection_before_court: bool = False
+    employment_relationship_active: bool = False
+    convocation_count: int = 0
+    no_show_convocation_count: int = 0
+    pv_due_at: Optional[datetime] = None
+    last_pv_delivered_at: Optional[datetime] = None
+    eligible_pv_types: List[str] = Field(default_factory=list)
+    alerts: List[LabourLegalAlertOut] = Field(default_factory=list)
+
+
 class UserSessionOut(BaseModel):
     token: str
     user_id: int
@@ -998,6 +1200,20 @@ class UserSessionOut(BaseModel):
     role_code: str
     employer_id: Optional[int] = None
     worker_id: Optional[int] = None
+    effective_role_code: Optional[str] = None
+    role_label: Optional[str] = None
+    role_scope: Optional[str] = None
+    module_permissions: Dict[str, List[str]] = Field(default_factory=dict)
+    assigned_role_codes: List[str] = Field(default_factory=list)
+
+
+class UserAccessProfileOut(BaseModel):
+    role_code: str
+    effective_role_code: str
+    role_label: str
+    role_scope: str
+    module_permissions: Dict[str, List[str]] = Field(default_factory=dict)
+    assigned_role_codes: List[str] = Field(default_factory=list)
 
 
 class AppUserLightOut(BaseModel):
@@ -1009,15 +1225,93 @@ class AppUserLightOut(BaseModel):
     worker_id: Optional[int] = None
     is_active: bool = True
 
-    class Config:
-        from_attributes = True
-
+    model_config = ConfigDict(from_attributes=True)
 
 class RoleCatalogItemOut(BaseModel):
     code: str
     label: str
     scope: str
+    base_role_code: Optional[str] = None
     modules: Dict[str, List[str]]
+    is_active: bool = True
+
+
+class RoleCatalogPublicItemOut(BaseModel):
+    code: str
+    label: str
+    scope: str
+    base_role_code: Optional[str] = None
+    is_active: bool = True
+
+
+class IamPermissionCatalogItemOut(BaseModel):
+    code: str
+    module: str
+    action: str
+    label: str
+    sensitivity: str = "base"
+
+
+class IamRoleActivationOut(BaseModel):
+    role_code: str
+    is_enabled: bool
+
+
+class IamRoleActivationUpdateIn(BaseModel):
+    is_enabled: bool
+
+
+class IamRolePermissionsUpdateIn(BaseModel):
+    modules: Dict[str, List[str]] = Field(default_factory=dict)
+
+
+class IamRolePermissionsOut(BaseModel):
+    role_code: str
+    modules: Dict[str, List[str]] = Field(default_factory=dict)
+
+
+class IamUserRoleAssignmentIn(BaseModel):
+    role_code: str
+    employer_id: Optional[int] = None
+    worker_id: Optional[int] = None
+    is_active: bool = True
+    valid_from: Optional[datetime] = None
+    valid_until: Optional[datetime] = None
+
+
+class IamUserRoleAssignmentOut(IamUserRoleAssignmentIn):
+    id: int
+    user_id: int
+    delegated_by_user_id: Optional[int] = None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class IamUserRoleAssignmentSetIn(BaseModel):
+    assignments: List[IamUserRoleAssignmentIn] = Field(default_factory=list)
+
+
+class IamUserPermissionOverrideIn(BaseModel):
+    permission_code: str
+    is_allowed: bool
+    reason: Optional[str] = None
+    expires_at: Optional[datetime] = None
+
+
+class IamUserPermissionOverrideOut(IamUserPermissionOverrideIn):
+    id: int
+    user_id: int
+    updated_by_user_id: Optional[int] = None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class IamUserPermissionOverrideSetIn(BaseModel):
+    overrides: List[IamUserPermissionOverrideIn] = Field(default_factory=list)
 
 
 class AppUserCreateIn(BaseModel):
@@ -1039,13 +1333,32 @@ class AppUserUpdateIn(BaseModel):
     is_active: Optional[bool] = None
 
 
+class AppUserDeleteIn(BaseModel):
+    current_password: str
+
+
 class AppUserOut(AppUserLightOut):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
+
+class AuditLogOut(BaseModel):
+    id: int
+    actor_user_id: Optional[int] = None
+    actor_role: Optional[str] = None
+    actor_username: Optional[str] = None
+    actor_full_name: Optional[str] = None
+    action: str
+    entity_type: str
+    entity_id: str
+    route: Optional[str] = None
+    employer_id: Optional[int] = None
+    worker_id: Optional[int] = None
+    before: Dict[str, Any] = Field(default_factory=dict)
+    after: Dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime
 
 class ReviewWorkflowIn(BaseModel):
     approved: bool
@@ -1066,9 +1379,252 @@ class RequestWorkflowOut(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
+
+class LeaveTypeRuleIn(BaseModel):
+    employer_id: Optional[int] = None
+    code: str
+    label: str
+    category: str = "leave"
+    description: Optional[str] = None
+    deduct_from_annual_balance: bool = False
+    validation_required: bool = True
+    justification_required: bool = False
+    payroll_impact: str = "none"
+    attendance_impact: str = "absence"
+    payroll_code: Optional[str] = None
+    visibility_scope: str = "all"
+    allow_requalification: bool = True
+    supports_hour_range: bool = False
+    max_days_per_request: Optional[float] = None
+    active: bool = True
+
+
+class LeaveTypeRuleOut(LeaveTypeRuleIn):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class LeaveApprovalRuleStepIn(BaseModel):
+    step_order: int = 1
+    parallel_group: int = 1
+    approver_kind: str = "manager"
+    approver_role_code: Optional[str] = None
+    approver_user_id: Optional[int] = None
+    is_required: bool = True
+    label: Optional[str] = None
+
+
+class LeaveApprovalRuleStepOut(LeaveApprovalRuleStepIn):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class LeaveApprovalRuleIn(BaseModel):
+    employer_id: Optional[int] = None
+    leave_type_code: str
+    worker_category: Optional[str] = None
+    organizational_unit_id: Optional[int] = None
+    approval_mode: str = "sequential"
+    fallback_on_reject: str = "reject"
+    active: bool = True
+    steps: List[LeaveApprovalRuleStepIn] = Field(default_factory=list)
+
+
+class LeaveApprovalRuleOut(LeaveApprovalRuleIn):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+    steps: List[LeaveApprovalRuleStepOut] = Field(default_factory=list)
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class LeaveRequestCreate(BaseModel):
+    worker_id: int
+    leave_type_code: str
+    start_date: date
+    end_date: date
+    duration_days: Optional[float] = None
+    duration_hours: float = 0.0
+    partial_day_mode: Optional[str] = None
+    subject: str
+    reason: Optional[str] = None
+    comment: Optional[str] = None
+    attachments: List[Dict[str, Any]] = Field(default_factory=list)
+    submit_now: bool = True
+
+    @model_validator(mode="after")
+    def validate_dates(self):
+        if self.end_date < self.start_date:
+            raise ValueError("end_date cannot be before start_date")
+        return self
+
+
+class LeaveRequestDecisionIn(BaseModel):
+    action: str
+    comment: Optional[str] = None
+
+
+class LeaveRequestRequalifyIn(BaseModel):
+    new_leave_type_code: str
+    comment: str
+
+
+class LeavePlanningCycleIn(BaseModel):
+    employer_id: int
+    title: str
+    planning_year: int
+    start_date: date
+    end_date: date
+    status: str = "draft"
+    max_absent_per_unit: int = 1
+    blackout_periods: List[Dict[str, Any]] = Field(default_factory=list)
+    family_priority_enabled: bool = True
+    notes: Optional[str] = None
+
+
+class LeavePlanningCycleOut(LeavePlanningCycleIn):
+    id: int
+    created_by_user_id: Optional[int] = None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class LeavePlanningProposalOut(BaseModel):
+    id: int
+    cycle_id: int
+    worker_id: int
+    worker_name: str
+    leave_type_code: str
+    start_date: date
+    end_date: date
+    score: float
+    rationale: List[Dict[str, Any]] = Field(default_factory=list)
+    status: str
+
+
+class LeaveRequestApprovalOut(BaseModel):
+    id: int
+    step_order: int
+    parallel_group: int
+    approver_kind: str
+    approver_user_id: Optional[int] = None
+    approver_role_code: Optional[str] = None
+    approver_label: Optional[str] = None
+    label: Optional[str] = None
+    is_required: bool = True
+    status: str
+    acted_at: Optional[datetime] = None
+    comment: Optional[str] = None
+
+
+class LeaveRequestHistoryOut(BaseModel):
+    id: int
+    action: str
+    from_status: Optional[str] = None
+    to_status: Optional[str] = None
+    actor_user_id: Optional[int] = None
+    actor_name: Optional[str] = None
+    comment: Optional[str] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime
+
+
+class LeaveRequestOut(BaseModel):
+    id: int
+    employer_id: int
+    worker_id: int
+    request_ref: str
+    leave_type_code: str
+    initial_leave_type_code: str
+    final_leave_type_code: str
+    status: str
+    approval_mode: str
+    fallback_on_reject: str
+    current_step_order: Optional[int] = None
+    period: str
+    start_date: date
+    end_date: date
+    duration_days: float
+    duration_hours: float
+    partial_day_mode: Optional[str] = None
+    subject: str
+    reason: Optional[str] = None
+    comment: Optional[str] = None
+    attachment_required: bool = False
+    attachment_count: int = 0
+    attachments: List[Dict[str, Any]] = Field(default_factory=list)
+    estimated_balance_delta: float = 0.0
+    estimated_payroll_impact: str = "none"
+    estimated_attendance_impact: str = "absence"
+    legacy_request_type: Optional[str] = None
+    legacy_request_id: Optional[int] = None
+    requested_by_user_id: Optional[int] = None
+    requested_by_name: Optional[str] = None
+    approved_at: Optional[datetime] = None
+    rejected_at: Optional[datetime] = None
+    submitted_at: Optional[datetime] = None
+    cancelled_at: Optional[datetime] = None
+    integrated_at: Optional[datetime] = None
+    requalified_at: Optional[datetime] = None
+    validations_remaining: List[str] = Field(default_factory=list)
+    alerts: List[Dict[str, Any]] = Field(default_factory=list)
+    approvals: List[LeaveRequestApprovalOut] = Field(default_factory=list)
+    history: List[LeaveRequestHistoryOut] = Field(default_factory=list)
+    created_at: datetime
+    updated_at: datetime
+
+
+class LeaveDashboardOut(BaseModel):
+    worker_id: int
+    employer_id: int
+    period: str
+    balances: Dict[str, float] = Field(default_factory=dict)
+    requests: List[LeaveRequestOut] = Field(default_factory=list)
+    alerts: List[Dict[str, Any]] = Field(default_factory=list)
+    notifications: List[Dict[str, Any]] = Field(default_factory=list)
+    calendar: List[Dict[str, Any]] = Field(default_factory=list)
+
+
+class LeaveValidatorDashboardOut(BaseModel):
+    metrics: Dict[str, int] = Field(default_factory=dict)
+    pending_requests: List[LeaveRequestOut] = Field(default_factory=list)
+    urgent_requests: List[LeaveRequestOut] = Field(default_factory=list)
+    conflicts: List[LeaveRequestOut] = Field(default_factory=list)
+    alerts: List[Dict[str, Any]] = Field(default_factory=list)
+
+
+class AttendanceLeaveReconciliationOut(BaseModel):
+    id: int
+    leave_request_id: int
+    employer_id: int
+    worker_id: int
+    worker_name: Optional[str] = None
+    request_ref: Optional[str] = None
+    leave_type_code: Optional[str] = None
+    subject: Optional[str] = None
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
+    period: str
+    status: str
+    discrepancy_level: str
+    attendance_payload: Dict[str, Any] = Field(default_factory=dict)
+    leave_payload: Dict[str, Any] = Field(default_factory=dict)
+    notes: Optional[str] = None
+    resolved_by_user_id: Optional[int] = None
+    resolved_at: Optional[datetime] = None
+    created_at: datetime
+    updated_at: datetime
 
 class PaginatedWorkersOut(BaseModel):
     items: List[WorkerOut]
@@ -1141,6 +1697,9 @@ class RecruitmentJobPostingBase(BaseModel):
     salary_range: Optional[str] = None
     description: Optional[str] = None
     skills_required: Optional[str] = None
+    publish_channels: List[str] = Field(default_factory=list)
+    publish_status: str = "draft"
+    publish_logs: List[Dict[str, Any]] = Field(default_factory=list)
 
 
 class RecruitmentJobPostingCreate(RecruitmentJobPostingBase):
@@ -1156,6 +1715,9 @@ class RecruitmentJobPostingUpdate(BaseModel):
     salary_range: Optional[str] = None
     description: Optional[str] = None
     skills_required: Optional[str] = None
+    publish_channels: Optional[List[str]] = None
+    publish_status: Optional[str] = None
+    publish_logs: Optional[List[Dict[str, Any]]] = None
 
 
 class RecruitmentJobPostingOut(RecruitmentJobPostingBase):
@@ -1163,9 +1725,7 @@ class RecruitmentJobPostingOut(RecruitmentJobPostingBase):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
-
+    model_config = ConfigDict(from_attributes=True)
 
 class RecruitmentCandidateBase(BaseModel):
     employer_id: int
@@ -1203,9 +1763,7 @@ class RecruitmentCandidateOut(RecruitmentCandidateBase):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
-
+    model_config = ConfigDict(from_attributes=True)
 
 class RecruitmentApplicationBase(BaseModel):
     job_posting_id: int
@@ -1230,9 +1788,7 @@ class RecruitmentApplicationOut(RecruitmentApplicationBase):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
-
+    model_config = ConfigDict(from_attributes=True)
 
 class RecruitmentLibraryItemBase(BaseModel):
     employer_id: Optional[int] = None
@@ -1261,20 +1817,32 @@ class RecruitmentLibraryItemOut(RecruitmentLibraryItemBase):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
-
+    model_config = ConfigDict(from_attributes=True)
 
 class RecruitmentJobAssistantRequest(BaseModel):
     employer_id: Optional[int] = None
     title: str = ""
     department: str = ""
     description: str = ""
+    contract_type: str = ""
+    sector: str = ""
+    mode: str = "generate"
+    version: str = "long"
+    focus_block: Optional[str] = None
+
+
+class RecruitmentContractTypeSuggestionOut(BaseModel):
+    code: str
+    label: str
+    description: str
+    recommended: bool = False
 
 
 class RecruitmentJobAssistantOut(BaseModel):
     probable_title: str
     probable_department: str
+    detected_job_family: str = "autre"
+    generated_context: str = ""
     mission_summary: str
     main_activities: List[str] = Field(default_factory=list)
     technical_skills: List[str] = Field(default_factory=list)
@@ -1286,6 +1854,8 @@ class RecruitmentJobAssistantOut(BaseModel):
     certifications: List[str] = Field(default_factory=list)
     interview_criteria: List[str] = Field(default_factory=list)
     suggestion_sources: List[str] = Field(default_factory=list)
+    classification: str = ""
+    contract_type_suggestions: List[RecruitmentContractTypeSuggestionOut] = Field(default_factory=list)
 
 
 class RecruitmentJobProfileBase(BaseModel):
@@ -1302,6 +1872,7 @@ class RecruitmentJobProfileBase(BaseModel):
     salary_min: Optional[float] = None
     salary_max: Optional[float] = None
     working_hours: Optional[str] = None
+    working_days: List[str] = Field(default_factory=list)
     benefits: List[str] = Field(default_factory=list)
     desired_start_date: Optional[date] = None
     application_deadline: Optional[date] = None
@@ -1315,6 +1886,13 @@ class RecruitmentJobProfileBase(BaseModel):
     announcement_body: Optional[str] = None
     announcement_status: str = "draft"
     announcement_share_pack: Dict[str, Any] = Field(default_factory=dict)
+    submission_attachments: List[Dict[str, Any]] = Field(default_factory=list)
+    workforce_job_profile_id: Optional[int] = None
+    contract_guidance: Dict[str, Any] = Field(default_factory=dict)
+    publication_mode: Optional[str] = None
+    publication_url: Optional[str] = None
+    submitted_to_inspection_at: Optional[datetime] = None
+    last_reviewed_at: Optional[datetime] = None
 
 
 class RecruitmentJobProfileUpsert(RecruitmentJobProfileBase):
@@ -1330,13 +1908,18 @@ class RecruitmentJobProfileOut(RecruitmentJobProfileBase):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
-
+    model_config = ConfigDict(from_attributes=True)
 
 class RecruitmentValidationIn(BaseModel):
     approved: bool
     comment: Optional[str] = None
+
+
+class RecruitmentInspectorDecisionIn(BaseModel):
+    action: str
+    comment: Optional[str] = None
+    publication_mode: Optional[str] = None
+    publication_url: Optional[str] = None
 
 
 class RecruitmentAnnouncementOut(BaseModel):
@@ -1352,6 +1935,80 @@ class RecruitmentAnnouncementOut(BaseModel):
     copy_text: str
 
 
+class RecruitmentPublicationChannelConfigUpdate(BaseModel):
+    access_token: Optional[str] = None
+    api_key: Optional[str] = None
+    api_secret: Optional[str] = None
+    page_id: Optional[str] = None
+    page_name: Optional[str] = None
+    organization_id: Optional[str] = None
+    sender_email: Optional[str] = None
+    audience_emails: List[str] = Field(default_factory=list)
+    webhook_url: Optional[str] = None
+    publish_url: Optional[str] = None
+    endpoint_path: Optional[str] = None
+    notes: Optional[str] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class RecruitmentPublicationChannelBase(BaseModel):
+    company_id: int
+    channel_type: str
+    is_active: bool = False
+    default_publish: bool = False
+
+
+class RecruitmentPublicationChannelUpsert(RecruitmentPublicationChannelBase):
+    config: RecruitmentPublicationChannelConfigUpdate = Field(default_factory=RecruitmentPublicationChannelConfigUpdate)
+
+
+class RecruitmentPublicationChannelOut(RecruitmentPublicationChannelBase):
+    id: int
+    config: Dict[str, Any] = Field(default_factory=dict)
+    secret_fields_configured: List[str] = Field(default_factory=list)
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class RecruitmentPublicationLogOut(BaseModel):
+    id: int
+    job_id: int
+    channel: str
+    status: str
+    message: Optional[str] = None
+    details: Dict[str, Any] = Field(default_factory=dict)
+    triggered_by_user_id: Optional[int] = None
+    timestamp: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class RecruitmentPublishRequest(BaseModel):
+    channels: List[str] = Field(default_factory=list)
+
+
+class RecruitmentPublishRetryRequest(BaseModel):
+    channel: str
+
+
+class RecruitmentPublishResultOut(BaseModel):
+    job: RecruitmentJobPostingOut
+    profile: RecruitmentJobProfileOut
+    channel_results: List[RecruitmentPublicationLogOut] = Field(default_factory=list)
+
+
+class RecruitmentContractGuidanceOut(BaseModel):
+    suggested_primary_type: str
+    available_types: List[str] = Field(default_factory=list)
+    language_options: List[str] = Field(default_factory=list)
+    required_fields: List[str] = Field(default_factory=list)
+    alerts: List[Dict[str, Any]] = Field(default_factory=list)
+    recommendations: List[str] = Field(default_factory=list)
+    suggested_defaults: Dict[str, Any] = Field(default_factory=dict)
+
+
 class RecruitmentCandidateAssetOut(BaseModel):
     id: int
     candidate_id: int
@@ -1364,9 +2021,7 @@ class RecruitmentCandidateAssetOut(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
-
+    model_config = ConfigDict(from_attributes=True)
 
 class RecruitmentCandidateUploadOut(BaseModel):
     candidate: RecruitmentCandidateOut
@@ -1412,9 +2067,7 @@ class RecruitmentInterviewOut(RecruitmentInterviewBase):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
-
+    model_config = ConfigDict(from_attributes=True)
 
 class RecruitmentDecisionIn(BaseModel):
     shortlist_rank: Optional[int] = None
@@ -1432,9 +2085,7 @@ class RecruitmentDecisionOut(RecruitmentDecisionIn):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
-
+    model_config = ConfigDict(from_attributes=True)
 
 class RecruitmentActivityOut(BaseModel):
     id: int
@@ -1450,9 +2101,7 @@ class RecruitmentActivityOut(BaseModel):
     payload: Dict[str, Any] = Field(default_factory=dict)
     created_at: datetime
 
-    class Config:
-        from_attributes = True
-
+    model_config = ConfigDict(from_attributes=True)
 
 class RecruitmentConversionOut(BaseModel):
     worker_id: int
@@ -1484,9 +2133,7 @@ class ContractVersionOut(BaseModel):
     created_by_user_id: Optional[int] = None
     created_at: datetime
 
-    class Config:
-        from_attributes = True
-
+    model_config = ConfigDict(from_attributes=True)
 
 class ComplianceReviewCreate(BaseModel):
     contract_id: Optional[int] = None
@@ -1605,6 +2252,8 @@ class EmployeeFlowOut(BaseModel):
     worker: Dict[str, Any]
     candidate: Dict[str, Any] = Field(default_factory=dict)
     job_posting: Dict[str, Any] = Field(default_factory=dict)
+    job_profile: Dict[str, Any] = Field(default_factory=dict)
+    workforce_job_profile: Dict[str, Any] = Field(default_factory=dict)
     decision: Dict[str, Any] = Field(default_factory=dict)
     contract: Dict[str, Any] = Field(default_factory=dict)
     contract_versions: List[Dict[str, Any]] = Field(default_factory=list)
@@ -1630,6 +2279,126 @@ class MasterDataWorkerViewOut(BaseModel):
     contract_versions: List[Dict[str, Any]] = Field(default_factory=list)
     declarations: List[Dict[str, Any]] = Field(default_factory=list)
     integrity_issues: List[IntegrityIssueOut] = Field(default_factory=list)
+
+
+class HrDossierDocumentVersionOut(BaseModel):
+    id: str
+    version_number: int
+    original_name: Optional[str] = None
+    mime_type: Optional[str] = None
+    file_size: Optional[int] = None
+    created_at: Optional[datetime] = None
+    created_by_user_id: Optional[int] = None
+
+
+class HrDossierDocumentOut(BaseModel):
+    id: str
+    title: str
+    section_code: str
+    document_type: str
+    status: str
+    source_module: str
+    source_record_type: Optional[str] = None
+    source_record_id: Optional[int] = None
+    document_date: Optional[str] = None
+    expiration_date: Optional[str] = None
+    is_expired: bool = False
+    comment: Optional[str] = None
+    visibility_scope: str = "hr_only"
+    can_preview: bool = False
+    download_url: Optional[str] = None
+    preview_url: Optional[str] = None
+    current_version_number: int = 1
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    versions: List[HrDossierDocumentVersionOut] = Field(default_factory=list)
+
+
+class HrDossierTimelineEventOut(BaseModel):
+    id: str
+    section_code: str
+    event_type: str
+    title: str
+    description: Optional[str] = None
+    status: Optional[str] = None
+    event_date: Optional[str] = None
+    source_module: Optional[str] = None
+    source_record_type: Optional[str] = None
+    source_record_id: Optional[int] = None
+    payload: Dict[str, Any] = Field(default_factory=dict)
+
+
+class HrDossierAlertOut(BaseModel):
+    code: str
+    severity: str
+    message: str
+    details: Dict[str, Any] = Field(default_factory=dict)
+
+
+class HrDossierCompletenessOut(BaseModel):
+    score: int = 0
+    completed_items: int = 0
+    total_items: int = 0
+    missing_items: List[str] = Field(default_factory=list)
+
+
+class HrDossierSectionOut(BaseModel):
+    key: str
+    title: str
+    source: str
+    data: Dict[str, Any] = Field(default_factory=dict)
+
+
+class HrDossierViewOut(BaseModel):
+    worker: Dict[str, Any] = Field(default_factory=dict)
+    access_scope: str
+    summary: Dict[str, Any] = Field(default_factory=dict)
+    completeness: HrDossierCompletenessOut
+    alerts: List[HrDossierAlertOut] = Field(default_factory=list)
+    sections: Dict[str, HrDossierSectionOut] = Field(default_factory=dict)
+    documents: List[HrDossierDocumentOut] = Field(default_factory=list)
+    timeline: List[HrDossierTimelineEventOut] = Field(default_factory=list)
+
+
+class HrDossierSectionUpdateIn(BaseModel):
+    section_key: str
+    data: Dict[str, Any] = Field(default_factory=dict)
+
+
+class HrDossierDocumentUploadMetaIn(BaseModel):
+    title: Optional[str] = None
+    section_code: str = "documents"
+    document_type: str = "other"
+    document_date: Optional[date] = None
+    expiration_date: Optional[date] = None
+    comment: Optional[str] = None
+    visibility_scope: str = "hr_only"
+    visible_to_employee: bool = False
+    visible_to_manager: bool = False
+    visible_to_payroll: bool = False
+
+
+class HrDossierReportRowOut(BaseModel):
+    worker_id: int
+    employer_id: int
+    matricule: Optional[str] = None
+    full_name: str
+    completeness_score: int
+    missing_contract_document: bool = False
+    missing_medical_visit: bool = False
+    missing_cnaps_number: bool = False
+    expired_document_count: int = 0
+    missing_items: List[str] = Field(default_factory=list)
+
+
+class HrDossierReportOut(BaseModel):
+    employer_id: int
+    total_workers: int
+    incomplete_workers: int
+    missing_contract_document_workers: int
+    missing_medical_visit_workers: int
+    missing_cnaps_number_workers: int
+    workers_with_expired_documents: int
+    rows: List[HrDossierReportRowOut] = Field(default_factory=list)
 
 
 class ComplianceDashboardOut(BaseModel):
@@ -1747,9 +2516,7 @@ class TalentSkillOut(TalentSkillBase):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
-
+    model_config = ConfigDict(from_attributes=True)
 
 class TalentEmployeeSkillBase(BaseModel):
     worker_id: int
@@ -1771,9 +2538,7 @@ class TalentEmployeeSkillOut(TalentEmployeeSkillBase):
     id: int
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
-
+    model_config = ConfigDict(from_attributes=True)
 
 class TalentTrainingBase(BaseModel):
     employer_id: int
@@ -1805,9 +2570,7 @@ class TalentTrainingOut(TalentTrainingBase):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
-
+    model_config = ConfigDict(from_attributes=True)
 
 class TalentTrainingSessionBase(BaseModel):
     training_id: int
@@ -1837,9 +2600,7 @@ class TalentTrainingSessionOut(TalentTrainingSessionBase):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
-
+    model_config = ConfigDict(from_attributes=True)
 
 class SstIncidentBase(BaseModel):
     employer_id: int
@@ -1875,9 +2636,7 @@ class SstIncidentOut(SstIncidentBase):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
-
+    model_config = ConfigDict(from_attributes=True)
 
 class EmployeePortalRequestBase(BaseModel):
     employer_id: int
@@ -1910,9 +2669,7 @@ class EmployeePortalRequestOut(EmployeePortalRequestBase):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
-
+    model_config = ConfigDict(from_attributes=True)
 
 class InspectorCaseBase(BaseModel):
     employer_id: int
@@ -1920,12 +2677,21 @@ class InspectorCaseBase(BaseModel):
     contract_id: Optional[int] = None
     portal_request_id: Optional[int] = None
     case_type: str = "general_claim"
+    sub_type: Optional[str] = None
     source_party: str = "employee"
     subject: str
     description: str
+    category: Optional[str] = None
+    district: Optional[str] = None
+    urgency: str = "normal"
     confidentiality: str = "standard"
     amicable_attempt_status: str = "not_started"
     current_stage: str = "filing"
+    outcome_summary: Optional[str] = None
+    resolution_type: Optional[str] = None
+    due_at: Optional[datetime] = None
+    received_at: Optional[datetime] = None
+    is_sensitive: bool = False
     attachments: List[Dict[str, Any]] = Field(default_factory=list)
     tags: List[str] = Field(default_factory=list)
 
@@ -1938,6 +2704,8 @@ class InspectorCaseStatusUpdate(BaseModel):
     status: str
     current_stage: Optional[str] = None
     note: Optional[str] = None
+    outcome_summary: Optional[str] = None
+    resolution_type: Optional[str] = None
 
 
 class InspectorCaseOut(InspectorCaseBase):
@@ -1952,8 +2720,7 @@ class InspectorCaseOut(InspectorCaseBase):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class InspectorMessageCreate(BaseModel):
@@ -1979,9 +2746,7 @@ class InspectorMessageOut(BaseModel):
     status: str
     created_at: datetime
 
-    class Config:
-        from_attributes = True
-
+    model_config = ConfigDict(from_attributes=True)
 
 class InspectorCaseAssignmentCreate(BaseModel):
     inspector_user_id: int
@@ -2006,9 +2771,7 @@ class InspectorCaseAssignmentOut(BaseModel):
     revoked_at: Optional[datetime] = None
     inspector: Optional[AppUserLightOut] = None
 
-    class Config:
-        from_attributes = True
-
+    model_config = ConfigDict(from_attributes=True)
 
 class InspectionDocumentVersionOut(BaseModel):
     id: int
@@ -2027,9 +2790,7 @@ class InspectionDocumentVersionOut(BaseModel):
     uploaded_by_user_id: Optional[int] = None
     created_at: datetime
 
-    class Config:
-        from_attributes = True
-
+    model_config = ConfigDict(from_attributes=True)
 
 class InspectionDocumentOut(BaseModel):
     id: int
@@ -2048,9 +2809,7 @@ class InspectionDocumentOut(BaseModel):
     updated_at: datetime
     versions: List[InspectionDocumentVersionOut] = Field(default_factory=list)
 
-    class Config:
-        from_attributes = True
-
+    model_config = ConfigDict(from_attributes=True)
 
 class InspectionDocumentAccessLogOut(BaseModel):
     id: int
@@ -2062,9 +2821,114 @@ class InspectionDocumentAccessLogOut(BaseModel):
     metadata: Dict[str, Any] = Field(default_factory=dict)
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
+
+class LabourCaseClaimCreate(BaseModel):
+    claim_type: str
+    claimant_party: str = "employee"
+    factual_basis: str
+    amount_requested: Optional[float] = None
+    status: str = "submitted"
+    conciliation_outcome: Optional[str] = None
+    inspector_observations: Optional[str] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class LabourCaseClaimOut(LabourCaseClaimCreate):
+    id: int
+    case_id: int
+    employer_id: int
+    created_by_user_id: Optional[int] = None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class LabourCaseEventCreate(BaseModel):
+    event_type: str
+    title: str
+    description: Optional[str] = None
+    status: str = "planned"
+    scheduled_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    participants: List[Dict[str, Any]] = Field(default_factory=list)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class LabourCaseEventOut(LabourCaseEventCreate):
+    id: int
+    case_id: int
+    employer_id: int
+    created_by_user_id: Optional[int] = None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class LabourPVCreate(BaseModel):
+    pv_type: str
+    title: Optional[str] = None
+    content: Optional[str] = None
+    status: str = "draft"
+    measures_to_execute: Optional[str] = None
+    execution_deadline: Optional[datetime] = None
+    delivered_to_parties_at: Optional[datetime] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class LabourPVOut(BaseModel):
+    id: int
+    case_id: int
+    employer_id: int
+    generated_by_user_id: Optional[int] = None
+    pv_number: str
+    pv_type: str
+    title: str
+    content: str
+    status: str
+    version_number: int
+    measures_to_execute: Optional[str] = None
+    execution_deadline: Optional[datetime] = None
+    delivered_to_parties_at: Optional[datetime] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class LabourChatbotRequest(BaseModel):
+    role_context: str = "inspecteur"
+    intent: str = "general"
+    prompt: str
+    include_case_summary: bool = True
+
+
+class LabourChatbotOut(BaseModel):
+    id: int
+    case_id: Optional[int] = None
+    employer_id: Optional[int] = None
+    role_context: str
+    intent: str
+    response: Dict[str, Any] = Field(default_factory=dict)
+    fallback_used: bool = True
+    created_at: datetime
+
+
+class LabourCaseWorkspaceOut(BaseModel):
+    case: InspectorCaseOut
+    claims: List[LabourCaseClaimOut] = Field(default_factory=list)
+    events: List[LabourCaseEventOut] = Field(default_factory=list)
+    pv_records: List[LabourPVOut] = Field(default_factory=list)
+    messages: List[InspectorMessageOut] = Field(default_factory=list)
+    documents: List[InspectionDocumentOut] = Field(default_factory=list)
+    document_access_logs: List[InspectionDocumentAccessLogOut] = Field(default_factory=list)
+    related: Dict[str, Any] = Field(default_factory=dict)
+    help_topics: List[Dict[str, Any]] = Field(default_factory=list)
+    legal_summary: LabourCaseLegalSummaryOut = Field(default_factory=LabourCaseLegalSummaryOut)
 
 class EmployeePortalDashboardOut(BaseModel):
     worker: Dict[str, Any] = Field(default_factory=dict)
@@ -2101,9 +2965,7 @@ class InternalMessageChannelMemberOut(BaseModel):
     joined_at: datetime
     user: Optional[AppUserLightOut] = None
 
-    class Config:
-        from_attributes = True
-
+    model_config = ConfigDict(from_attributes=True)
 
 class InternalMessageCreate(BaseModel):
     message_type: str = "message"
@@ -2125,9 +2987,7 @@ class InternalMessageOut(BaseModel):
     author: Optional[AppUserLightOut] = None
     receipt_status: Optional[str] = None
 
-    class Config:
-        from_attributes = True
-
+    model_config = ConfigDict(from_attributes=True)
 
 class InternalMessageChannelOut(BaseModel):
     id: int
@@ -2145,9 +3005,7 @@ class InternalMessageChannelOut(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
-
+    model_config = ConfigDict(from_attributes=True)
 
 class InternalNoticeCreate(BaseModel):
     employer_id: int
@@ -2177,9 +3035,7 @@ class InternalNoticeOut(BaseModel):
     updated_at: datetime
     acknowledged_by_current_user: bool = False
 
-    class Config:
-        from_attributes = True
-
+    model_config = ConfigDict(from_attributes=True)
 
 class InternalMessagesDashboardOut(BaseModel):
     online_users: int = 0
@@ -2188,6 +3044,146 @@ class InternalMessagesDashboardOut(BaseModel):
     pending_acknowledgements: int = 0
     notices: List[InternalNoticeOut] = Field(default_factory=list)
     channels: List[InternalMessageChannelOut] = Field(default_factory=list)
+
+
+class LabourInspectorAssignmentCreate(BaseModel):
+    employer_id: int
+    inspector_user_id: int
+    assignment_scope: str = "portfolio"
+    circonscription: Optional[str] = None
+    sector_filter: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class LabourInspectorAssignmentOut(BaseModel):
+    id: int
+    employer_id: int
+    inspector_user_id: int
+    assigned_by_user_id: Optional[int] = None
+    assignment_scope: str
+    circonscription: Optional[str] = None
+    sector_filter: Optional[str] = None
+    status: str
+    notes: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+    inspector: Optional[AppUserLightOut] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class LabourFormalMessageRecipientIn(BaseModel):
+    employer_id: Optional[int] = None
+    user_id: Optional[int] = None
+    recipient_type: str = "employer"
+
+    @model_validator(mode="after")
+    def validate_target(self):
+        if self.employer_id is None and self.user_id is None:
+            raise ValueError("A recipient employer_id or user_id is required")
+        return self
+
+
+class LabourFormalMessageCreate(BaseModel):
+    subject: str
+    body: str
+    message_scope: str = "individual"
+    related_entity_type: Optional[str] = None
+    related_entity_id: Optional[str] = None
+    attachments: List[Dict[str, Any]] = Field(default_factory=list)
+    recipients: List[LabourFormalMessageRecipientIn] = Field(default_factory=list)
+    send_now: bool = False
+
+    @field_validator("subject")
+    @classmethod
+    def validate_subject(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("subject is required")
+        return normalized
+
+    @model_validator(mode="after")
+    def validate_recipients(self):
+        if not self.recipients:
+            raise ValueError("At least one recipient is required")
+        return self
+
+
+class LabourFormalMessageRecipientOut(BaseModel):
+    id: int
+    employer_id: Optional[int] = None
+    user_id: Optional[int] = None
+    recipient_type: str
+    status: str
+    read_at: Optional[datetime] = None
+    acknowledged_at: Optional[datetime] = None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class LabourFormalMessageOut(BaseModel):
+    id: int
+    reference_number: str
+    thread_key: Optional[str] = None
+    sender_user_id: Optional[int] = None
+    sender_employer_id: Optional[int] = None
+    sender_role: Optional[str] = None
+    subject: str
+    body: str
+    message_scope: str
+    status: str
+    related_entity_type: Optional[str] = None
+    related_entity_id: Optional[str] = None
+    attachments: List[Dict[str, Any]] = Field(default_factory=list)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    sent_at: Optional[datetime] = None
+    created_at: datetime
+    updated_at: datetime
+    recipients: List[LabourFormalMessageRecipientOut] = Field(default_factory=list)
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class InspectorEmployerSummaryOut(BaseModel):
+    id: int
+    raison_sociale: str
+    nif: Optional[str] = None
+    stat: Optional[str] = None
+    rccm: Optional[str] = None
+    adresse: Optional[str] = None
+    secteur: Optional[str] = None
+    contact_rh: Optional[str] = None
+    company_size: int = 0
+    open_cases: int = 0
+    pending_job_offers: int = 0
+    pending_reviews: int = 0
+    unread_messages: int = 0
+    latest_activity_at: Optional[datetime] = None
+
+
+class InspectorEmployerDetailOut(BaseModel):
+    employer: Dict[str, Any] = Field(default_factory=dict)
+    compliance_status: Dict[str, Any] = Field(default_factory=dict)
+    contacts: List[Dict[str, Any]] = Field(default_factory=list)
+    documents: List[InspectionDocumentOut] = Field(default_factory=list)
+    cases: List[InspectorCaseOut] = Field(default_factory=list)
+    job_offers: List[Dict[str, Any]] = Field(default_factory=list)
+    formal_messages: List[LabourFormalMessageOut] = Field(default_factory=list)
+    observations: List[Dict[str, Any]] = Field(default_factory=list)
+    actions: List[Dict[str, Any]] = Field(default_factory=list)
+
+
+class InspectorDashboardOut(BaseModel):
+    scope: Dict[str, Any] = Field(default_factory=dict)
+    metrics: Dict[str, int] = Field(default_factory=dict)
+    recent_companies: List[InspectorEmployerSummaryOut] = Field(default_factory=list)
+    recent_cases: List[InspectorCaseOut] = Field(default_factory=list)
+    recent_messages: List[LabourFormalMessageOut] = Field(default_factory=list)
+    pending_job_offers: List[Dict[str, Any]] = Field(default_factory=list)
+    pending_documents: List[Dict[str, Any]] = Field(default_factory=list)
+    alerts: List[Dict[str, Any]] = Field(default_factory=list)
 
 
 class WorkforceJobProfileBase(BaseModel):
@@ -2208,14 +3204,25 @@ class WorkforceJobProfileCreate(WorkforceJobProfileBase):
     pass
 
 
+class WorkforceJobProfileUpdate(BaseModel):
+    title: Optional[str] = None
+    department: Optional[str] = None
+    category_prof: Optional[str] = None
+    classification_index: Optional[str] = None
+    criticality: Optional[str] = None
+    target_headcount: Optional[int] = None
+    required_skills: Optional[List[Dict[str, Any]]] = None
+    mobility_paths: Optional[List[str]] = None
+    succession_candidates: Optional[List[str]] = None
+    notes: Optional[str] = None
+
+
 class WorkforceJobProfileOut(WorkforceJobProfileBase):
     id: int
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
-
+    model_config = ConfigDict(from_attributes=True)
 
 class PerformanceCycleBase(BaseModel):
     employer_id: int
@@ -2237,9 +3244,7 @@ class PerformanceCycleOut(PerformanceCycleBase):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
-
+    model_config = ConfigDict(from_attributes=True)
 
 class PerformanceReviewBase(BaseModel):
     cycle_id: int
@@ -2273,9 +3278,7 @@ class PerformanceReviewOut(PerformanceReviewBase):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
-
+    model_config = ConfigDict(from_attributes=True)
 
 class WorkforcePlanningBase(BaseModel):
     employer_id: int
@@ -2301,9 +3304,7 @@ class WorkforcePlanningOut(WorkforcePlanningBase):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
-
+    model_config = ConfigDict(from_attributes=True)
 
 class TrainingNeedBase(BaseModel):
     employer_id: int
@@ -2335,9 +3336,7 @@ class TrainingNeedOut(TrainingNeedBase):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
-
+    model_config = ConfigDict(from_attributes=True)
 
 class TrainingPlanBase(BaseModel):
     employer_id: int
@@ -2359,9 +3358,7 @@ class TrainingPlanOut(TrainingPlanBase):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
-
+    model_config = ConfigDict(from_attributes=True)
 
 class TrainingPlanItemBase(BaseModel):
     training_plan_id: int
@@ -2387,9 +3384,7 @@ class TrainingPlanItemOut(TrainingPlanItemBase):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
-
+    model_config = ConfigDict(from_attributes=True)
 
 class TrainingEvaluationBase(BaseModel):
     employer_id: int
@@ -2410,9 +3405,7 @@ class TrainingEvaluationOut(TrainingEvaluationBase):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
-
+    model_config = ConfigDict(from_attributes=True)
 
 class DisciplinaryCaseBase(BaseModel):
     employer_id: int
@@ -2446,9 +3439,7 @@ class DisciplinaryCaseOut(DisciplinaryCaseBase):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
-
+    model_config = ConfigDict(from_attributes=True)
 
 class TerminationWorkflowBase(BaseModel):
     employer_id: int
@@ -2459,10 +3450,23 @@ class TerminationWorkflowBase(BaseModel):
     motif: str
     status: str = "draft"
     effective_date: Optional[date] = None
+    notification_sent_at: Optional[datetime] = None
+    notification_received_at: Optional[datetime] = None
+    pre_hearing_notice_sent_at: Optional[datetime] = None
+    pre_hearing_scheduled_at: Optional[datetime] = None
+    preavis_start_date: Optional[date] = None
+    economic_consultation_started_at: Optional[date] = None
+    economic_inspection_referral_at: Optional[date] = None
+    technical_layoff_declared_at: Optional[date] = None
+    technical_layoff_end_at: Optional[date] = None
     sensitive_case: bool = False
+    handover_required: bool = False
     inspection_required: bool = False
+    legal_risk_level: str = "normal"
     checklist: List[Dict[str, Any]] = Field(default_factory=list)
     documents: List[Dict[str, Any]] = Field(default_factory=list)
+    legal_metadata: Dict[str, Any] = Field(default_factory=dict)
+    readonly_stc: Dict[str, Any] = Field(default_factory=dict)
     notes: Optional[str] = None
 
 
@@ -2482,9 +3486,7 @@ class TerminationWorkflowOut(TerminationWorkflowBase):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
-
+    model_config = ConfigDict(from_attributes=True)
 
 class DuerEntryBase(BaseModel):
     employer_id: int
@@ -2510,9 +3512,7 @@ class DuerEntryOut(DuerEntryBase):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
-
+    model_config = ConfigDict(from_attributes=True)
 
 class PreventionActionBase(BaseModel):
     employer_id: int
@@ -2540,9 +3540,7 @@ class PreventionActionOut(PreventionActionBase):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
-
+    model_config = ConfigDict(from_attributes=True)
 
 class HrDashboardOut(BaseModel):
     workforce: Dict[str, Any] = Field(default_factory=dict)
@@ -2550,4 +3548,30 @@ class HrDashboardOut(BaseModel):
     training: Dict[str, Any] = Field(default_factory=dict)
     discipline: Dict[str, Any] = Field(default_factory=dict)
     safety: Dict[str, Any] = Field(default_factory=dict)
+    legal_status: Dict[str, Any] = Field(default_factory=dict)
     alerts: List[Dict[str, Any]] = Field(default_factory=list)
+
+
+class LegalModulesStatusOut(BaseModel):
+    modules_implemented: int
+    procedures_created: int
+    pv_generated: int
+    test_cases: int
+    employers: List[Dict[str, Any]] = Field(default_factory=list)
+    highlights: List[Dict[str, Any]] = Field(default_factory=list)
+    role_coverage: List[str] = Field(default_factory=list)
+
+
+class DebugExecutionItemOut(BaseModel):
+    label: str
+    value: str
+    at: Optional[datetime] = None
+
+
+class DebugExecutionPanelOut(BaseModel):
+    last_migrations_executed: List[DebugExecutionItemOut] = Field(default_factory=list)
+    last_seed_executed: List[DebugExecutionItemOut] = Field(default_factory=list)
+    last_errors: List[DebugExecutionItemOut] = Field(default_factory=list)
+    modules_created: List[DebugExecutionItemOut] = Field(default_factory=list)
+
+

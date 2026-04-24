@@ -1,4 +1,4 @@
-"""
+﻿"""
 OrganizationalStructureService - Service for managing hierarchical organizational structures
 
 This service provides all operations for managing the hierarchical organizational structure,
@@ -20,7 +20,7 @@ from ..schemas import (
     CascadingChoicesResponse,
     ValidationResult
 )
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 
 logger = logging.getLogger(__name__)
@@ -130,8 +130,8 @@ class OrganizationalStructureService:
             name=data.name,
             description=data.description,
             is_active=True,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow()
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc)
         )
         
         self.db.add(unit)
@@ -175,7 +175,7 @@ class OrganizationalStructureService:
         if data.is_active is not None:
             unit.is_active = data.is_active
         
-        unit.updated_at = datetime.utcnow()
+        unit.updated_at = datetime.now(timezone.utc)
         
         self.db.commit()
         self.db.refresh(unit)
@@ -640,9 +640,9 @@ class OrganizationalStructureService:
         if children_count > 0:
             reasons.append(f"{children_count} sous-structures")
         if direct_workers_count > 0:
-            reasons.append(f"{direct_workers_count} salariés directement assignés")
+            reasons.append(f"{direct_workers_count} salariÃ©s directement assignÃ©s")
         if descendant_workers_count > 0:
-            reasons.append(f"{descendant_workers_count} salariés dans les sous-structures")
+            reasons.append(f"{descendant_workers_count} salariÃ©s dans les sous-structures")
         
         reason = None if can_delete else f"Contient: {', '.join(reasons)}"
         
@@ -752,3 +752,5 @@ class OrganizationalStructureService:
                 )
         
         return ValidationResult(is_valid=True, message="Valid update request")
+
+

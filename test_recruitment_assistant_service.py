@@ -7,6 +7,7 @@ from app import models
 from app.config.config import Base
 from app.services.recruitment_assistant_service import (
     build_announcement_payload,
+    build_contract_guidance,
     build_contract_draft_html,
     ensure_recruitment_library,
     parse_candidate_profile,
@@ -16,9 +17,9 @@ from app.services.recruitment_assistant_service import (
 
 class RecruitmentAssistantServiceTests(unittest.TestCase):
     def setUp(self):
-        engine = create_engine("sqlite:///:memory:")
-        Base.metadata.create_all(engine)
-        self.SessionLocal = sessionmaker(bind=engine)
+        self.engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(self.engine)
+        self.SessionLocal = sessionmaker(bind=self.engine)
         self.db = self.SessionLocal()
 
         employer = models.Employer(raison_sociale="Demo Employer")
@@ -40,6 +41,7 @@ class RecruitmentAssistantServiceTests(unittest.TestCase):
 
     def tearDown(self):
         self.db.close()
+        self.engine.dispose()
 
     def test_suggest_job_profile_returns_editable_structured_draft(self):
         ensure_recruitment_library(self.db)
@@ -55,6 +57,28 @@ class RecruitmentAssistantServiceTests(unittest.TestCase):
         self.assertTrue(result["mission_summary"])
         self.assertIn("Excel", result["tools"])
         self.assertIn("Français", result["languages"])
+
+    def test_recruitment_library_seeds_operational_dropdown_references(self):
+        ensure_recruitment_library(self.db)
+        categories = {item.category for item in self.db.query(models.RecruitmentLibraryItem).all()}
+        self.assertIn("benefit", categories)
+        self.assertIn("working_schedule", categories)
+        self.assertIn("working_days", categories)
+        self.assertIn("interview_stage", categories)
+
+    def test_suggest_job_profile_uses_template_family_before_generic_fallback(self):
+        ensure_recruitment_library(self.db)
+        result = suggest_job_profile(
+            self.db,
+            title="Responsable paie",
+            department="Ressources humaines",
+            description="Pilotage de la paie, declarations sociales et controle mensuel.",
+            employer_id=self.employer.id,
+            mode="adapt",
+        )
+        self.assertEqual(result["probable_title"], "Responsable paie")
+        self.assertNotEqual(result["detected_job_family"], "it")
+        self.assertIn("Responsable paie", result["generated_context"])
 
     def test_parse_candidate_profile_extracts_email_phone_and_skills(self):
         ensure_recruitment_library(self.db)
@@ -87,6 +111,8 @@ class RecruitmentAssistantServiceTests(unittest.TestCase):
             "benefits": ["Assurance santé"],
             "salary_min": 800000,
             "salary_max": 1200000,
+            "working_hours": "Temps plein",
+            "working_days": ["Lundi-Vendredi"],
             "application_deadline": "2026-04-15",
             "announcement_title": "Assistant RH confirmé",
         }
@@ -95,6 +121,8 @@ class RecruitmentAssistantServiceTests(unittest.TestCase):
         self.assertIn("Postulez", payload["facebook_text"])
         self.assertIn("LinkedIn", "LinkedIn " + payload["linkedin_text"])
         self.assertIn("non-discrimination", payload["web_body"])
+        self.assertIn("Temps plein", payload["web_body"])
+        self.assertIn("Lundi-Vendredi", payload["web_body"])
 
     def test_build_contract_draft_html_links_candidate_job_and_employer(self):
         candidate = models.RecruitmentCandidate(
@@ -112,6 +140,19 @@ class RecruitmentAssistantServiceTests(unittest.TestCase):
         self.assertIn("Jean Rakoto", html)
         self.assertIn("Assistant RH", html)
         self.assertIn("Demo Employer", html)
+
+    def test_build_contract_guidance_exposes_madagascar_contract_alerts(self):
+        self.job.contract_type = "CDD"
+        self.job.title = "Responsable paie"
+        guidance = build_contract_guidance(
+            self.job,
+            {"mission_summary": "Pilotage permanent de la paie", "classification": "OP2B", "salary_min": 900000},
+        )
+        self.assertEqual(guidance["suggested_primary_type"], "CDD")
+        self.assertIn("CDI", guidance["available_types"])
+        self.assertIn("FR/MG", guidance["language_options"])
+        self.assertTrue(any(item["code"] == "cdd_duration_check" for item in guidance["alerts"]))
+        self.assertTrue(any("CDI" in item for item in guidance["recommendations"]))
 
 
 if __name__ == "__main__":

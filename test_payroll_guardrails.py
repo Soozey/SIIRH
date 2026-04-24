@@ -1,5 +1,6 @@
 import unittest
 from datetime import date
+from typing import Optional
 
 from app.payroll_logic import (
     _apply_plafond,
@@ -11,9 +12,10 @@ from app.payroll_logic import (
 
 
 class FakeCalendarDay:
-    def __init__(self, year: int, month: int, day: int, is_worked: bool):
+    def __init__(self, year: int, month: int, day: int, is_worked: bool, status: Optional[str] = None):
         self.date = date(year, month, day)
         self.is_worked = is_worked
+        self.status = status
 
 
 class FakeEmployer:
@@ -73,6 +75,7 @@ class PayrollGuardrailTests(unittest.TestCase):
             salaire_base=250000.0,
             salaire_horaire=1442.31,
             salaire_journalier=11536.64,
+            period="2025-01",
         )
 
         self.assertEqual(constants["NOMBRENF"], 2.0)
@@ -81,6 +84,42 @@ class PayrollGuardrailTests(unittest.TestCase):
         self.assertEqual(constants["SOMMBRUT"], 275000.0)
         self.assertGreater(constants["ANCIENJR"], 0.0)
         self.assertGreater(constants["DAYSWORK"], 0.0)
+
+    def test_calculate_constants_dayswork_supports_status_three_states(self):
+        worker = FakeWorker()
+        worker.employer.calendar_days = [
+            FakeCalendarDay(2025, 1, 2, True, status="off"),
+            FakeCalendarDay(2025, 1, 3, True, status="closed"),
+            FakeCalendarDay(2025, 1, 4, False, status="worked"),
+        ]
+        payvar = FakePayVar("2025-01")
+
+        constants = calculate_constants(
+            worker=worker,
+            payvar=payvar,
+            brut_numeraire_courant=275000.0,
+            salaire_base=250000.0,
+            salaire_horaire=1442.31,
+            salaire_journalier=11536.64,
+            period="2025-01",
+        )
+
+        self.assertEqual(constants["DAYSWORK"], 22.0)
+
+    def test_calculate_constants_dayswork_uses_period_even_without_payvar(self):
+        worker = FakeWorker()
+
+        constants = calculate_constants(
+            worker=worker,
+            payvar=None,
+            brut_numeraire_courant=275000.0,
+            salaire_base=250000.0,
+            salaire_horaire=1442.31,
+            salaire_journalier=11536.64,
+            period="2025-01",
+        )
+
+        self.assertEqual(constants["DAYSWORK"], 22.0)
 
 
 if __name__ == "__main__":

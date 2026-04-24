@@ -7,11 +7,12 @@ from sqlalchemy import or_, and_
 from ..config.config import get_db
 
 logger = logging.getLogger(__name__)
-from ..models import OrganizationalUnit, Worker, Employer
+from ..models import OrganizationalUnit, Worker, Employer, OrgUnitEvent
 from ..schemas import (
     OrganizationalUnitCreate, 
     OrganizationalUnitUpdate, 
     OrganizationalUnitOut,
+    OrgUnitEventOut,
     WorkerAssignment,
     OrganizationTree,
     MigrationResult
@@ -78,6 +79,16 @@ def create_organizational_unit(
             parent_id=unit_data.parent_id,
             description=unit_data.description
         )
+        OrganizationalService.refresh_org_references(
+            db,
+            employer_id=employer_id,
+            root_unit_id=unit.id,
+            event_type="org.created",
+            triggered_by_user_id=getattr(user, "id", None),
+            payload={"name": unit.name, "code": unit.code, "level": unit.level},
+        )
+        db.commit()
+        db.refresh(unit)
         return unit
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -140,10 +151,12 @@ def update_organizational_unit(
         raise HTTPException(status_code=404, detail="Unité organisationnelle non trouvée")
     
     # Vérifier l'unicité du code si modifié
+    target_parent_id = unit_data.parent_id if "parent_id" in unit_data.dict(exclude_unset=True) else unit.parent_id
+
     if unit_data.code and unit_data.code != unit.code:
         existing = db.query(OrganizationalUnit).filter(
             OrganizationalUnit.employer_id == unit.employer_id,
-            OrganizationalUnit.parent_id == unit.parent_id,
+            OrganizationalUnit.parent_id == target_parent_id,
             OrganizationalUnit.code == unit_data.code,
             OrganizationalUnit.id != unit_id
         ).first()
@@ -151,10 +164,31 @@ def update_organizational_unit(
         if existing:
             raise HTTPException(status_code=400, detail=f"Le code '{unit_data.code}' existe déjà à ce niveau")
     
+    if "parent_id" in unit_data.dict(exclude_unset=True):
+        try:
+            OrganizationalService.validate_parent_assignment(
+                db,
+                employer_id=unit.employer_id,
+                unit_id=unit.id,
+                parent_id=unit_data.parent_id,
+                level=unit.level,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+
     # Appliquer les modifications
     for field, value in unit_data.dict(exclude_unset=True).items():
         setattr(unit, field, value)
-    
+
+    db.flush()
+    OrganizationalService.refresh_org_references(
+        db,
+        employer_id=unit.employer_id,
+        root_unit_id=unit.id,
+        event_type="org.updated",
+        triggered_by_user_id=getattr(user, "id", None),
+        payload={"name": unit.name, "code": unit.code, "level": unit.level},
+    )
     db.commit()
     db.refresh(unit)
     return unit
@@ -193,6 +227,14 @@ def delete_organizational_unit(
         )
     
     unit.is_active = False
+    OrganizationalService.refresh_org_references(
+        db,
+        employer_id=unit.employer_id,
+        root_unit_id=unit.id,
+        event_type="org.deleted",
+        triggered_by_user_id=getattr(user, "id", None),
+        payload={"name": unit.name, "code": unit.code, "level": unit.level, "is_active": False},
+    )
     db.commit()
     return {"message": "Unité organisationnelle supprimée avec succès"}
 
@@ -214,6 +256,23 @@ def get_organization_tree(
     
     tree = OrganizationalService.get_organization_tree(db, employer_id)
     return tree
+
+
+@router.get("/employers/{employer_id}/events", response_model=List[OrgUnitEventOut])
+def list_org_unit_events(
+    employer_id: int,
+    limit: int = Query(20, ge=1, le=200),
+    db: Session = Depends(get_db),
+    user=Depends(require_roles(*READ_PAYROLL_ROLES)),
+):
+    _ensure_employer_scope(db, user, employer_id)
+    return (
+        db.query(OrgUnitEvent)
+        .filter(OrgUnitEvent.employer_id == employer_id)
+        .order_by(OrgUnitEvent.created_at.desc(), OrgUnitEvent.id.desc())
+        .limit(limit)
+        .all()
+    )
 
 
 @router.get("/units/{unit_id}/available-workers")
@@ -389,6 +448,15 @@ def migrate_existing_data(
     
     try:
         migrated_count = OrganizationalService.migrate_existing_data(db, employer_id)
+        OrganizationalService.refresh_org_references(
+            db,
+            employer_id=employer_id,
+            root_unit_id=None,
+            event_type="org.migrated",
+            triggered_by_user_id=getattr(user, "id", None),
+            payload={"migrated_workers": migrated_count},
+        )
+        db.commit()
         return MigrationResult(
             migrated_count=migrated_count,
             message=f"Migration réussie : {migrated_count} salariés migrés vers la structure organisationnelle"
