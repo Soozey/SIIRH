@@ -12,6 +12,7 @@ from datetime import datetime, date
 import pandas as pd
 import io
 from fastapi.responses import StreamingResponse
+from openpyxl.styles import Font, PatternFill
 import logging
 import traceback
 
@@ -537,6 +538,38 @@ def generate_excel_response(
         else:
             df = df[[c for c in df.columns if not c.startswith("_")]]
 
+        numeric_columns = [
+            'salaire_base', 'Salaire de base', 'brut_total',
+            'HS Non Imposable 130%', 'HS Imposable 130%', 'HS Non Imposable 150%', 'HS Imposable 150%',
+            'Heures Majorées Nuit Hab. 30%', 'Heures Majorées Nuit Occ. 50%',
+            'Heures Majorées Dimanche 40%', 'Heures Majorées Jours Fériés 50%',
+            'Avantage en nature véhicule', 'Avantage en nature logement', 'Avantage en nature téléphone',
+            'Cotisation CNaPS', 'CNaPS Patronal', 'Total CNaPS',
+            'Cotisation SMIE', 'SMIE Patronal', 'Total SMIE',
+            'Charges salariales', 'Charges patronales',
+            'IRSA', 'Avance sur salaire', 'Avance sur salaire (quinzaine)', 'Autres Déductions',
+            'net_a_payer', 'cout_total_employeur'
+        ]
+
+        def is_numeric_total_column(column_name: str) -> bool:
+            return (
+                column_name in numeric_columns
+                or "Prime" in column_name
+                or "13ème" in column_name
+                or "Avantage" in column_name
+            )
+
+        added_totals_row = False
+        if not df.empty:
+            totals_row = {column: "" for column in df.columns}
+            label_column = "matricule" if "matricule" in df.columns else df.columns[0]
+            totals_row[label_column] = f"TOTAL ({len(df)})"
+            for column in df.columns:
+                if is_numeric_total_column(column):
+                    totals_row[column] = pd.to_numeric(df[column], errors="coerce").abs().sum()
+            df = pd.concat([df, pd.DataFrame([totals_row])], ignore_index=True)
+            added_totals_row = True
+
         if user is None:
             raise HTTPException(500, "Missing reporting user context.")
 
@@ -590,6 +623,14 @@ def generate_excel_response(
                     for row_num in range(2, len(df) + 2):  # Commencer à la ligne 2 (après l'en-tête)
                         cell = worksheet[f'{col_letter}{row_num}']
                         cell.number_format = '#,##0.00'
+
+            if added_totals_row:
+                total_row_idx = len(df) + 1
+                total_fill = PatternFill("solid", fgColor="1E293B")
+                total_font = Font(bold=True, color="FFFFFF")
+                for cell in worksheet[total_row_idx]:
+                    cell.fill = total_fill
+                    cell.font = total_font
 
         output.seek(0)
         filename = f"{'Journal' if is_journal else 'Reporting'}_{period}.xlsx"
