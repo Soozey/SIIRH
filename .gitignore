@@ -38,3 +38,4 @@ uploads/
 
 # Testing
 .pytest_cache/
+.hypothesis/
