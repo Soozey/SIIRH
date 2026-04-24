@@ -15,7 +15,9 @@ class DataMappingError(ValueError):
 
 
 def _normalize_column_name(value: object) -> str:
-    raw = "" if value is None else str(value)
+    if value is None or pd.isna(value):
+        return ""
+    raw = str(value)
     without_accents = unicodedata.normalize("NFKD", raw).encode("ascii", "ignore").decode("ascii")
     lowered = without_accents.lower().replace("_", " ").replace("-", " ")
     without_parentheses = re.sub(r"\([^)]*\)", " ", lowered)
@@ -46,6 +48,45 @@ def _read_excel(user_file: str | Path | bytes | bytearray | BinaryIO) -> pd.Data
         return pd.read_excel(user_file)
     except Exception as exc:
         raise DataMappingError(f"Fichier Excel vide, corrompu ou illisible: {exc}") from exc
+
+
+def _read_excel_with_detected_header(user_file: str | Path | bytes | bytearray | BinaryIO) -> pd.DataFrame:
+    try:
+        if isinstance(user_file, (str, Path)):
+            raw_df = pd.read_excel(user_file, header=None, dtype=object)
+        elif isinstance(user_file, (bytes, bytearray)):
+            raw_df = pd.read_excel(BytesIO(user_file), header=None, dtype=object)
+        else:
+            if hasattr(user_file, "seek"):
+                user_file.seek(0)
+            raw_df = pd.read_excel(user_file, header=None, dtype=object)
+    except Exception as exc:
+        raise DataMappingError(f"Fichier Excel vide, corrompu ou illisible: {exc}") from exc
+
+    if raw_df.empty:
+        raise DataMappingError("Le fichier Excel ne contient aucune donnee exploitable.")
+
+    best_row_index: int | None = None
+    best_score = 0
+    for row_index in range(min(20, len(raw_df))):
+        row = raw_df.iloc[row_index]
+        score = sum(1 for value in row if _normalize_column_name(value))
+        if score > best_score:
+            best_score = score
+            best_row_index = row_index
+
+    if best_row_index is None or best_score == 0:
+        raise DataMappingError("Impossible de detecter une ligne d'entetes dans le fichier Excel.")
+
+    headers = []
+    for column_index, value in enumerate(raw_df.iloc[best_row_index], start=1):
+        header = str(value).strip() if not pd.isna(value) else ""
+        headers.append(header or f"Colonne {column_index}")
+
+    data_df = raw_df.iloc[best_row_index + 1 :].copy()
+    data_df.columns = headers
+    data_df = data_df.dropna(how="all")
+    return data_df.reset_index(drop=True)
 
 
 def build_fuzzy_column_mapping(
@@ -112,6 +153,18 @@ def map_user_excel_to_template(
         aliases=aliases,
         threshold=threshold,
     )
+    if not mapping:
+        source_df = _read_excel_with_detected_header(user_file)
+        if source_df.empty:
+            raise DataMappingError("Le fichier Excel ne contient aucune ligne de donnees apres les entetes.")
+        mapping = build_fuzzy_column_mapping(
+            list(source_df.columns),
+            list(template_columns),
+            aliases=aliases,
+            threshold=threshold,
+        )
+    if not mapping:
+        raise DataMappingError("Aucune colonne du fichier source ne correspond au template SIIRH.")
 
     mapped_df = pd.DataFrame("", index=source_df.index, columns=list(template_columns))
     for target_column, source_column in mapping.items():

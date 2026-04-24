@@ -48,6 +48,27 @@ def test_map_user_excel_to_template_rejects_empty_file():
         map_user_excel_to_template(empty_excel, ["Nom"])
 
 
+def test_map_user_excel_to_template_detects_shifted_header_row():
+    buffer = BytesIO()
+    shifted = pd.DataFrame(
+        [
+            ["", "", ""],
+            ["Export utilisateur", "", ""],
+            ["Matricules", "NOM", "Prénoms"],
+            ["M001", "RAKOTO", "Jean"],
+        ]
+    )
+    with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+        shifted.to_excel(writer, index=False, header=False)
+    buffer.seek(0)
+
+    mapped = map_user_excel_to_template(buffer.getvalue(), ["Matricule", "Nom", "Prenom"])
+
+    assert mapped.loc[0, "Matricule"] == "M001"
+    assert mapped.loc[0, "Nom"] == "RAKOTO"
+    assert mapped.loc[0, "Prenom"] == "Jean"
+
+
 def test_map_user_excel_to_template_rejects_corrupt_file():
     with pytest.raises(DataMappingError, match="illisible"):
         map_user_excel_to_template(b"not an excel file", ["Nom"])
