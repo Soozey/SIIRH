@@ -552,12 +552,21 @@ def generate_excel_response(
         ]
 
         def is_numeric_total_column(column_name: str) -> bool:
-            return (
+            if column_name in {"matricule", "nom", "prenom", "cin", "cnaps_num", "date_embauche", "mode_paiement"}:
+                return False
+            if (
                 column_name in numeric_columns
                 or "Prime" in column_name
                 or "13ème" in column_name
                 or "Avantage" in column_name
-            )
+            ):
+                return True
+            values = df[column_name].dropna()
+            values = values[values.astype(str).str.strip() != ""]
+            if values.empty:
+                return False
+            numeric_values = pd.to_numeric(values, errors="coerce")
+            return numeric_values.notna().all()
 
         added_totals_row = False
         if not df.empty:
