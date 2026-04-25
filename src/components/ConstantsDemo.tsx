@@ -57,7 +57,9 @@ export const ConstantsDemo: React.FC = () => {
     }
   ];
 
-  const renderTestResult = (test: any) => {
+  type ConstantTest = (typeof tests)[number];
+
+  const renderTestResult = (test: ConstantTest) => {
     if (isLoading) {
       return (
         <div className="flex items-center space-x-2 text-blue-600">

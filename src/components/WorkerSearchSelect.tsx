@@ -3,7 +3,7 @@ import { Combobox } from "@headlessui/react";
 import { ArrowsUpDownIcon, CheckIcon, MagnifyingGlassIcon } from "@heroicons/react/24/outline";
 
 import { api } from "../api";
-import { useTheme } from "../contexts/ThemeContext";
+import { useTheme } from "../contexts/useTheme";
 import { useWorkerData } from "../hooks/useConstants";
 
 interface Worker {
@@ -101,7 +101,7 @@ export default function WorkerSearchSelect({
     } else {
       setSelectedWorker(null);
     }
-  }, [selectedId, workers]);
+  }, [selectedId, selectedWorker, workers]);
 
   return (
     <div className={`relative w-full ${className}`}>

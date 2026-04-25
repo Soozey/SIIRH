@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { usePrint } from '../hooks/usePrint';
 import ConstantsPalette from './ConstantsPalette';
-import { useAuth } from '../contexts/AuthContext';
+import { useAuth } from '../contexts/useAuth';
 import { hasModulePermission } from '../rbac';
 import { 
     useWorkerDefaultContract, 

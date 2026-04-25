@@ -6,7 +6,7 @@ import {
   type TabularImportReport,
 } from "../api";
 import WorkerSearchSelect from "../components/WorkerSearchSelect";
-import { useTheme } from "../contexts/ThemeContext";
+import { useTheme } from "../contexts/useTheme";
 import { useWorkerData } from "../hooks/useConstants";
 
 type AbsenceInput = {
@@ -391,7 +391,7 @@ const Absences: React.FC = () => {
       console.error(err);
       resetAbsenceValues();
     }
-  }, [absenceMois, applyHistoryToForm, loadWorkerLatestAbsence, resetAbsenceValues, worker?.employer_id]);
+  }, [absenceMois, applyHistoryToForm, loadWorkerLatestAbsence, resetAbsenceValues]);
 
   const displayWorker = worker
     ? {

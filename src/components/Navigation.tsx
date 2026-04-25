@@ -25,8 +25,8 @@ import {
   MoonIcon,
 } from "@heroicons/react/24/outline";
 
-import { useAuth } from "../contexts/AuthContext";
-import { useTheme } from "../contexts/ThemeContext";
+import { useAuth } from "../contexts/useAuth";
+import { useTheme } from "../contexts/useTheme";
 import { hasModulePermission, sessionHasRole } from "../rbac";
 import type { AppModule } from "../rbac";
 

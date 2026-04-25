@@ -4,8 +4,8 @@ import { ArrowUpTrayIcon, ClipboardDocumentCheckIcon, ShieldCheckIcon, UserPlusI
 
 import { api } from "../api";
 import InspectorPortalWorkspace from "../components/inspection/InspectorPortalWorkspace";
-import { useToast } from "../components/ui/ToastProvider";
-import { useAuth } from "../contexts/AuthContext";
+import { useToast } from "../components/ui/useToast";
+import { useAuth } from "../contexts/useAuth";
 import { sessionHasRole } from "../rbac";
 
 

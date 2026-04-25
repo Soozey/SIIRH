@@ -313,7 +313,7 @@ export default function Employee360() {
 
   useEffect(() => {
     if (!orderedTabs.includes(activeTab)) {
-      setActiveTab(orderedTabs[0] ?? "identity");
+      queueMicrotask(() => setActiveTab(orderedTabs[0] ?? "identity"));
     }
   }, [activeTab, orderedTabs]);
 
@@ -322,14 +322,14 @@ export default function Employee360() {
 
   useEffect(() => {
     if (!activeSection) {
-      setEditValues({});
+      queueMicrotask(() => setEditValues({}));
       return;
     }
     const next: Record<string, string> = {};
     Object.entries(activeSection.data ?? {}).forEach(([key, value]) => {
       next[key] = stringifyValue(value);
     });
-    setEditValues(next);
+    queueMicrotask(() => setEditValues(next));
   }, [activeSection]);
 
   const invalidateCurrent = async () => {

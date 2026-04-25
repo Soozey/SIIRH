@@ -3,8 +3,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 
 import { api } from "../api";
-import { useToast } from "../components/ui/ToastProvider";
-import { useAuth } from "../contexts/AuthContext";
+import { useToast } from "../components/ui/useToast";
+import { useAuth } from "../contexts/useAuth";
 import { sessionHasRole } from "../rbac";
 
 
@@ -81,32 +81,21 @@ export default function RecruitmentSettings() {
   const [configForm, setConfigForm] = useState<ChannelConfigForm>(emptyConfigForm);
   const canManageSettings = sessionHasRole(session, ["admin", "rh", "recrutement"]);
 
-  if (!canManageSettings) {
-    return (
-      <div className="rounded-[1.75rem] border border-amber-400/30 bg-amber-500/10 p-6 text-amber-100">
-        <div className="text-lg font-semibold">Accès restreint</div>
-        <p className="mt-2 text-sm text-amber-50/90">Cette page de configuration est réservée aux rôles RH / recrutement autorisés.</p>
-        <Link to="/recruitment" className="mt-4 inline-flex rounded-xl border border-amber-300/40 px-3 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-amber-100">
-          Retour recrutement
-        </Link>
-      </div>
-    );
-  }
-
   const { data: employers = [] } = useQuery({
     queryKey: ["recruitment-settings", "employers"],
+    enabled: canManageSettings,
     queryFn: async () => (await api.get<Employer[]>("/employers")).data,
   });
 
   useEffect(() => {
     if (!selectedEmployerId && employers.length > 0) {
-      setSelectedEmployerId(employers[0].id);
+      queueMicrotask(() => setSelectedEmployerId(employers[0].id));
     }
   }, [employers, selectedEmployerId]);
 
   const { data: channels = [] } = useQuery({
     queryKey: ["recruitment-settings", "channels", selectedEmployerId],
-    enabled: selectedEmployerId !== null,
+    enabled: canManageSettings && selectedEmployerId !== null,
     queryFn: async () =>
       (await api.get<PublicationChannel[]>("/recruitment/publication-channels", { params: { employer_id: selectedEmployerId } })).data,
   });
@@ -185,6 +174,18 @@ export default function RecruitmentSettings() {
       },
     });
   };
+
+  if (!canManageSettings) {
+    return (
+      <div className="rounded-[1.75rem] border border-amber-400/30 bg-amber-500/10 p-6 text-amber-100">
+        <div className="text-lg font-semibold">Acc?s restreint</div>
+        <p className="mt-2 text-sm text-amber-50/90">Cette page de configuration est r?serv?e aux r?les RH / recrutement autoris?s.</p>
+        <Link to="/recruitment" className="mt-4 inline-flex rounded-xl border border-amber-300/40 px-3 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-amber-100">
+          Retour recrutement
+        </Link>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

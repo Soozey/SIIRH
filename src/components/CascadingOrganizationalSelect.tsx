@@ -90,7 +90,7 @@ export const CascadingOrganizationalSelect: React.FC<CascadingOrganizationalSele
     if (!valuesEqual(resolvedValue, value)) {
       setResolvedValue(value);
     }
-  }, [valueSignature]);
+  }, [resolvedValue, value, valueSignature]);
 
   React.useEffect(() => {
     const deepestSelectedId = value.unite ?? value.service ?? value.departement ?? value.etablissement;
@@ -153,7 +153,16 @@ export const CascadingOrganizationalSelect: React.FC<CascadingOrganizationalSele
     return () => {
       isCancelled = true;
     };
-  }, [employerId, resolvedValueSignature, valueSignature]);
+  }, [
+    employerId,
+    resolvedValue,
+    resolvedValueSignature,
+    value.departement,
+    value.etablissement,
+    value.service,
+    value.unite,
+    valueSignature,
+  ]);
 
   const { data: etablissements = [] } = useQuery({
     queryKey: ['org-units', employerId, 'etablissement', null],

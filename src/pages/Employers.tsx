@@ -3,7 +3,7 @@ import { api, updateEmployer, deleteEmployer } from "../api";
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import HierarchicalOrganizationTree from "../components/HierarchicalOrganizationTreeFinal";
-import { useAuth } from "../contexts/AuthContext";
+import { useAuth } from "../contexts/useAuth";
 import { hasModulePermission, sessionHasRole } from "../rbac";
 import {
   PlusIcon,

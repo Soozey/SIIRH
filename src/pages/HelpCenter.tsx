@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { BookOpenIcon, QuestionMarkCircleIcon, ShieldCheckIcon } from "@heroicons/react/24/outline";
 
-import { useAuth } from "../contexts/AuthContext";
+import { useAuth } from "../contexts/useAuth";
 import { helpModules, roleGuides, type HelpRole } from "../help/helpContent";
 
 const shellCard =
@@ -42,7 +42,7 @@ export default function HelpCenter() {
 
   useEffect(() => {
     if (!scopedModules.some((item) => item.code === activeModuleCode)) {
-      setActiveModuleCode(scopedModules[0]?.code ?? helpModules[0]?.code ?? "workforce");
+      queueMicrotask(() => setActiveModuleCode(scopedModules[0]?.code ?? helpModules[0]?.code ?? "workforce"));
     }
   }, [activeModuleCode, scopedModules]);
 

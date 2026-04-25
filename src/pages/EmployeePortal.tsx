@@ -9,7 +9,7 @@ import {
 } from "@heroicons/react/24/outline";
 
 import { api } from "../api";
-import { useAuth } from "../contexts/AuthContext";
+import { useAuth } from "../contexts/useAuth";
 import { sessionHasRole } from "../rbac";
 
 
@@ -123,10 +123,6 @@ export default function EmployeePortal() {
   const isEmployerScoped = sessionHasRole(session, ["employeur"]);
   const isInspectorScoped = sessionHasRole(session, ["inspecteur"]);
 
-  if (isInspectorScoped) {
-    return <Navigate to="/messages" replace />;
-  }
-
   const senderRole = session?.effective_role_code || session?.role_code || "employee";
   const [selectedEmployerId, setSelectedEmployerId] = useState<number | null>(session?.employer_id ?? null);
   const [selectedWorkerId, setSelectedWorkerId] = useState<number | null>(session?.worker_id ?? null);
@@ -153,7 +149,7 @@ export default function EmployeePortal() {
 
   const { data: employers = [] } = useQuery({
     queryKey: ["employee-portal", "employers"],
-    enabled: !isEmployeeScoped,
+    enabled: !isEmployeeScoped && !isInspectorScoped,
     queryFn: async () => (await api.get<Employer[]>("/employers")).data,
   });
 
@@ -166,7 +162,7 @@ export default function EmployeePortal() {
 
   const { data: workers = [] } = useQuery({
     queryKey: ["employee-portal", "workers", effectiveEmployerId],
-    enabled: effectiveEmployerId !== null && !isEmployeeScoped,
+    enabled: effectiveEmployerId !== null && !isEmployeeScoped && !isInspectorScoped,
     queryFn: async () => (await api.get<Worker[]>("/workers", { params: { employer_id: effectiveEmployerId } })).data,
   });
 
@@ -182,19 +178,19 @@ export default function EmployeePortal() {
 
   const { data: dashboard } = useQuery({
     queryKey: ["employee-portal", "dashboard", effectiveWorkerId],
-    enabled: effectiveWorkerId !== null,
+    enabled: effectiveWorkerId !== null && !isInspectorScoped,
     queryFn: async () => (await api.get<PortalDashboard>("/employee-portal/dashboard", { params: { worker_id: effectiveWorkerId } })).data,
   });
 
   const { data: flow } = useQuery({
     queryKey: ["employee-portal", "flow", effectiveWorkerId],
-    enabled: effectiveWorkerId !== null,
+    enabled: effectiveWorkerId !== null && !isInspectorScoped,
     queryFn: async () => (await api.get<WorkerFlow>(`/employee-portal/worker-flow/${effectiveWorkerId}`)).data,
   });
 
   const { data: cases = [] } = useQuery({
     queryKey: ["employee-portal", "cases", effectiveWorkerId, effectiveEmployerId],
-    enabled: effectiveWorkerId !== null || effectiveEmployerId !== null,
+    enabled: !isInspectorScoped && (effectiveWorkerId !== null || effectiveEmployerId !== null),
     queryFn: async () => (
       await api.get<InspectorCase[]>("/employee-portal/inspection-cases", {
         params: {
@@ -214,7 +210,7 @@ export default function EmployeePortal() {
 
   const { data: messages = [] } = useQuery({
     queryKey: ["employee-portal", "messages", effectiveCaseId],
-    enabled: effectiveCaseId !== null,
+    enabled: effectiveCaseId !== null && !isInspectorScoped,
     queryFn: async () => (await api.get<InspectorMessage[]>(`/employee-portal/inspection-cases/${effectiveCaseId}/messages`)).data,
   });
 
@@ -362,6 +358,10 @@ export default function EmployeePortal() {
   const dashboardNotifications = dashboard?.notifications ?? [];
   const flowIntegrityIssues = flow?.integrity_issues ?? [];
   const caseMessages = messages ?? [];
+
+  if (isInspectorScoped) {
+    return <Navigate to="/messages" replace />;
+  }
 
   return (
     <div className="space-y-8">

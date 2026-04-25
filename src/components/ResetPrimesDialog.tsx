@@ -3,7 +3,7 @@ import { Dialog } from "@headlessui/react";
 import { XMarkIcon, ExclamationTriangleIcon } from "@heroicons/react/24/outline";
 import { api } from "../api";
 import type { PayrollOrganizationFilters } from "../api";
-import { useTheme } from "../contexts/ThemeContext";
+import { useTheme } from "../contexts/useTheme";
 
 interface ResetPrimesDialogProps {
   isOpen: boolean;

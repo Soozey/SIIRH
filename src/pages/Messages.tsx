@@ -4,8 +4,8 @@ import { BellAlertIcon, ChatBubbleLeftRightIcon, UserGroupIcon } from "@heroicon
 
 import { api } from "../api";
 import InspectorPortalWorkspace from "../components/inspection/InspectorPortalWorkspace";
-import { useToast } from "../components/ui/ToastProvider";
-import { useAuth } from "../contexts/AuthContext";
+import { useToast } from "../components/ui/useToast";
+import { useAuth } from "../contexts/useAuth";
 import { hasModulePermission, sessionHasRole } from "../rbac";
 
 
@@ -84,13 +84,9 @@ export default function Messages() {
   const isInspector = sessionHasRole(session, ["inspecteur"]);
   const canWriteMessages = hasModulePermission(session, "messages", "write");
 
-  if (isInspector) {
-    return <InspectorPortalWorkspace initialTab="messages" />;
-  }
-
   const { data: employers = [] } = useQuery({
     queryKey: ["messages", "employers"],
-    enabled: !isSelfScoped,
+    enabled: !isSelfScoped && !isInspector,
     queryFn: async () => (await api.get<Employer[]>("/employers")).data,
   });
 
@@ -106,7 +102,7 @@ export default function Messages() {
 
   const { data: dashboard } = useQuery({
     queryKey: ["messages", "dashboard", effectiveEmployerId],
-    enabled: effectiveEmployerId !== null,
+    enabled: effectiveEmployerId !== null && !isInspector,
     queryFn: async () => (
       await api.get<MessagesDashboard>("/messages/dashboard", {
         params: { employer_id: effectiveEmployerId },
@@ -130,7 +126,7 @@ export default function Messages() {
 
   const { data: users = [] } = useQuery({
     queryKey: ["messages", "available-users", effectiveEmployerId],
-    enabled: effectiveEmployerId !== null,
+    enabled: effectiveEmployerId !== null && !isInspector,
     queryFn: async () => (
       await api.get<AppUserLight[]>("/messages/available-users", {
         params: { employer_id: effectiveEmployerId },
@@ -140,7 +136,7 @@ export default function Messages() {
 
   const { data: messages = [] } = useQuery({
     queryKey: ["messages", "channel", effectiveChannelId],
-    enabled: effectiveChannelId !== null,
+    enabled: effectiveChannelId !== null && !isInspector,
     queryFn: async () => (await api.get<MessageEntry[]>(`/messages/channels/${effectiveChannelId}/messages`)).data,
   });
 
@@ -223,6 +219,10 @@ export default function Messages() {
     const selected = channels.find((item) => item.id === effectiveChannelId);
     return selected?.title ?? "Aucun canal";
   }, [channels, effectiveChannelId]);
+
+  if (isInspector) {
+    return <InspectorPortalWorkspace initialTab="messages" />;
+  }
 
   return (
     <div className="space-y-8">

@@ -21,12 +21,14 @@ interface ConstantsManagerProps {
 const ConstantsSection: React.FC<{
   title: string;
   icon: React.ReactNode;
-  data: any;
+  data: unknown;
   type: 'object' | 'array' | 'simple';
 }> = ({ title, icon, data, type }) => {
   const [isExpanded, setIsExpanded] = useState(false);
+  const itemCount = Array.isArray(data) ? data.length : 0;
+  const propertyCount = data && typeof data === "object" && !Array.isArray(data) ? Object.keys(data).length : 0;
 
-  const renderValue = (value: any) => {
+  const renderValue = (value: unknown) => {
     if (typeof value === 'object' && value !== null) {
       if (Array.isArray(value)) {
         return (
@@ -67,8 +69,8 @@ const ConstantsSection: React.FC<{
           <span>{title}</span>
         </div>
         <span className="text-sm text-gray-500">
-          {type === 'array' ? `${data?.length || 0} éléments` : 
-           type === 'object' ? `${Object.keys(data || {}).length} propriétés` : 
+          {type === 'array' ? `${itemCount} éléments` :
+           type === 'object' ? `${propertyCount} propriétés` :
            'Valeur simple'}
         </span>
       </button>
@@ -79,7 +81,7 @@ const ConstantsSection: React.FC<{
             renderValue(data)
           ) : type === 'array' ? (
             <div className="space-y-3">
-              {data?.map((item: any, index: number) => (
+              {Array.isArray(data) && data.map((item: unknown, index: number) => (
                 <div key={index} className="p-3 bg-gray-50 rounded border">
                   {renderValue(item)}
                 </div>
@@ -87,7 +89,7 @@ const ConstantsSection: React.FC<{
             </div>
           ) : (
             <div className="space-y-3">
-              {Object.entries(data || {}).map(([key, value]) => (
+              {Object.entries(data && typeof data === "object" && !Array.isArray(data) ? data : {}).map(([key, value]) => (
                 <div key={key} className="p-3 bg-gray-50 rounded border">
                   <div className="font-medium text-gray-800 mb-2">{key}</div>
                   {renderValue(value)}

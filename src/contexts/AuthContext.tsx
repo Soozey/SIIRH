@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import {
   type AuthSession,
@@ -8,16 +8,7 @@ import {
   logoutRequest,
   storeSession,
 } from "../api";
-
-
-type AuthContextValue = {
-  session: AuthSession | null;
-  loading: boolean;
-  login: (username: string, password: string) => Promise<AuthSession>;
-  logout: () => Promise<void>;
-};
-
-const AuthContext = createContext<AuthContextValue | undefined>(undefined);
+import { AuthContext, type AuthContextValue } from "./authContextCore";
 
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -88,13 +79,4 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }), [loading, session]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
-}
-
-
-export function useAuth() {
-  const context = useContext(AuthContext);
-  if (!context) {
-    throw new Error("useAuth must be used within AuthProvider");
-  }
-  return context;
 }

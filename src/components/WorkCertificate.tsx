@@ -4,9 +4,37 @@ import { useWorkerData } from '../hooks/useConstants';
 import { usePrint } from '../hooks/usePrint';
 
 type Props = {
-    worker: any;
-    employer: any;
+    worker: {
+        id?: number;
+        nom?: string | null;
+        prenom?: string | null;
+        matricule?: string | null;
+        poste?: string | null;
+        categorie_prof?: string | null;
+        date_embauche?: string | null;
+        date_debauche?: string | null;
+        position_history?: PositionHistoryItem[];
+    };
+    employer: {
+        raison_sociale?: string | null;
+        adresse?: string | null;
+        ville?: string | null;
+        pays?: string | null;
+        nif?: string | null;
+        stat?: string | null;
+        representant?: string | null;
+        rep_nom_prenom?: string | null;
+        rep_fonction?: string | null;
+        logo_path?: string | null;
+    };
     onClose?: () => void;
+};
+
+type PositionHistoryItem = {
+    poste?: string | null;
+    categorie_prof?: string | null;
+    start_date?: string | null;
+    end_date?: string | null;
 };
 
 export default function WorkCertificate({ worker, employer, onClose }: Props) {
@@ -25,7 +53,7 @@ export default function WorkCertificate({ worker, employer, onClose }: Props) {
 
     const handlePrint = usePrint(`Certificat_Travail_${displayWorker.nom}_${displayWorker.prenom}`);
 
-    const formatDate = (dateStr: string) => {
+    const formatDate = (dateStr?: string | null) => {
         if (!dateStr) return "....................";
         return new Date(dateStr).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
     };
@@ -114,8 +142,8 @@ export default function WorkCertificate({ worker, employer, onClose }: Props) {
                         {positionHistory.length > 0 ? (
                             <ul className="list-disc pl-5 space-y-2 text-sm">
                                 {positionHistory
-                                    .sort((a: any, b: any) => new Date(a.start_date).getTime() - new Date(b.start_date).getTime())
-                                    .map((hist: any, idx: number) => (
+                                    .sort((a, b) => new Date(a.start_date || "").getTime() - new Date(b.start_date || "").getTime())
+                                    .map((hist, idx: number) => (
                                         <li key={idx}>
                                             <span className="font-bold">{hist.poste}</span> {hist.categorie_prof ? `(${hist.categorie_prof})` : ''} <br />
                                             <span className="text-gray-600">Du {formatDate(hist.start_date)} au {hist.end_date ? formatDate(hist.end_date) : formatDate(displayWorker.date_debauche)}</span>

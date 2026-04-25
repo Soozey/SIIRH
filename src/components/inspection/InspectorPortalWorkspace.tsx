@@ -10,9 +10,9 @@ import {
 } from "@heroicons/react/24/outline";
 
 import { api } from "../../api";
-import { useAuth } from "../../contexts/AuthContext";
+import { useAuth } from "../../contexts/useAuth";
 import { sessionHasRole } from "../../rbac";
-import { useToast } from "../ui/ToastProvider";
+import { useToast } from "../ui/useToast";
 
 
 type TabKey = "dashboard" | "companies" | "offers" | "cases" | "collective" | "conciliation" | "pv" | "assistant" | "messages" | "help" | "settings";
@@ -655,21 +655,23 @@ export default function InspectorPortalWorkspace({
       return;
     }
     if (!selectedEmployerId && employers.length > 0) {
-      setSelectedEmployerId(employers[0].id);
-      setAssignmentForm((current) => ({ ...current, employer_id: String(employers[0].id) }));
+      queueMicrotask(() => {
+        setSelectedEmployerId(employers[0].id);
+        setAssignmentForm((current) => ({ ...current, employer_id: String(employers[0].id) }));
+      });
     }
   }, [employers, isInspectorOperator, selectedEmployerId]);
 
   useEffect(() => {
     const nextTab = availableTabs.some((item) => item.key === initialTab) ? initialTab : availableTabs[0]?.key ?? "cases";
-    setActiveTab(nextTab);
+    queueMicrotask(() => setActiveTab(nextTab));
   }, [availableTabs, initialTab]);
 
   useEffect(() => {
     if (availableTabs.some((item) => item.key === activeTab)) {
       return;
     }
-    setActiveTab(availableTabs[0]?.key ?? "cases");
+    queueMicrotask(() => setActiveTab(availableTabs[0]?.key ?? "cases"));
   }, [activeTab, availableTabs]);
 
   const { data: dashboard } = useQuery({
@@ -728,7 +730,7 @@ export default function InspectorPortalWorkspace({
     if (selectedCaseId && cases.some((item) => item.id === selectedCaseId)) {
       return;
     }
-    setSelectedCaseId(cases[0]?.id ?? null);
+    queueMicrotask(() => setSelectedCaseId(cases[0]?.id ?? null));
   }, [cases, selectedCaseId]);
 
   const { data: caseMessages = [] } = useQuery({
@@ -780,7 +782,7 @@ export default function InspectorPortalWorkspace({
     if (selectedOfferId && offers.some((item) => item.id === selectedOfferId)) {
       return;
     }
-    setSelectedOfferId(offers[0]?.id ?? null);
+    queueMicrotask(() => setSelectedOfferId(offers[0]?.id ?? null));
   }, [offers, selectedOfferId]);
 
   const selectedOffer = useMemo(
@@ -842,7 +844,7 @@ export default function InspectorPortalWorkspace({
     () => inboxBuckets.find((item) => item.key === inboxView) ?? inboxBuckets[0],
     [inboxBuckets, inboxView],
   );
-  const inboxCases = activeInboxBucket?.items ?? [];
+  const inboxCases = useMemo(() => activeInboxBucket?.items ?? [], [activeInboxBucket]);
   const selectedCaseBucket = selectedCase ? resolveInboxBucket(selectedCase, session?.user_id) : null;
 
   useEffect(() => {
@@ -854,7 +856,7 @@ export default function InspectorPortalWorkspace({
     }
     const fallbackBucket = inboxBuckets.find((item) => item.count > 0);
     if (fallbackBucket && fallbackBucket.key !== inboxView) {
-      setInboxView(fallbackBucket.key);
+      queueMicrotask(() => setInboxView(fallbackBucket.key));
     }
   }, [activeInboxBucket, inboxBuckets, inboxView]);
 
@@ -865,21 +867,23 @@ export default function InspectorPortalWorkspace({
     if (selectedCaseId && inboxCases.some((item) => item.id === selectedCaseId)) {
       return;
     }
-    setSelectedCaseId(inboxCases[0]?.id ?? null);
+    queueMicrotask(() => setSelectedCaseId(inboxCases[0]?.id ?? null));
   }, [activeTab, inboxCases, selectedCaseId]);
 
   useEffect(() => {
     if (!selectedCase) {
       return;
     }
-    setStatusForm((current) => ({
-      ...current,
-      status: selectedCase.status || current.status,
-      current_stage: selectedCase.current_stage || current.current_stage,
-      outcome_summary: selectedCase.outcome_summary || "",
-      resolution_type: selectedCase.resolution_type || "",
-      note: "",
-    }));
+    queueMicrotask(() => {
+      setStatusForm((current) => ({
+        ...current,
+        status: selectedCase.status || current.status,
+        current_stage: selectedCase.current_stage || current.current_stage,
+        outcome_summary: selectedCase.outcome_summary || "",
+        resolution_type: selectedCase.resolution_type || "",
+        note: "",
+      }));
+    });
   }, [selectedCase]);
 
   const refreshPortal = async () => {

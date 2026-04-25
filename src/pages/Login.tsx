@@ -15,24 +15,10 @@ import {
   type PublicRegistrationConfig,
   type RoleCatalogPublicItem,
 } from "../api";
-import { useAuth } from "../contexts/AuthContext";
-import { useToast } from "../components/ui/ToastProvider";
+import { useAuth } from "../contexts/useAuth";
+import { useToast } from "../components/ui/useToast";
 
-const DEFAULT_DEMO_ACCOUNTS: PublicDemoAccount[] = [
-  { label: "Administrateur système", role_code: "admin", username: "admin@siirh.com" },
-  { label: "Administrateur employeur", role_code: "employer_admin", username: "employer.admin.avenir@siirh.com" },
-  { label: "Responsable RH", role_code: "hr_manager", username: "hr.manager.avenir@siirh.com" },
-  { label: "Chargé RH", role_code: "hr_officer", username: "hr.officer.avenir@siirh.com" },
-  { label: "Employé", role_code: "employee", username: "tovo.ratsimbazafy@avenir.example" },
-  { label: "Inspecteur du travail", role_code: "labor_inspector", username: "labor.inspector@siirh.com" },
-  { label: "Inspecteur principal", role_code: "labor_inspector_supervisor", username: "labor.inspector.supervisor@siirh.com" },
-  { label: "Délégué du personnel", role_code: "staff_delegate", username: "staff.delegate.avenir@siirh.com" },
-  { label: "Comité d’entreprise", role_code: "works_council_member", username: "works.council.avenir@siirh.com" },
-  { label: "Juge", role_code: "judge_readonly", username: "judge.readonly@siirh.com" },
-  { label: "Greffier", role_code: "court_clerk_readonly", username: "court.clerk.readonly@siirh.com" },
-  { label: "Auditeur", role_code: "auditor_readonly", username: "auditor.readonly@siirh.com" },
-  { label: "Inspecteur (alias actif)", role_code: "inspecteur", username: "inspecteur@siirh.com" },
-];
+const DEFAULT_DEMO_ACCOUNTS: PublicDemoAccount[] = [];
 
 const DEMO_LOGIN_PASSWORD = "Siirh2026";
 
@@ -474,7 +460,7 @@ export default function Login() {
                     <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">Comptes de test</div>
                     <p className="mt-0.5 text-[12px] text-slate-400">Sélection rapide du compte avec le mot de passe local de test prérempli.</p>
                   </div>
-                  <div className={`rounded-full border px-2 py-1 text-[11px] font-medium ${demoAccountsStatus === "live" ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-100" : "border-slate-400/30 bg-slate-400/10 text-slate-100"}`}>{demoAccountsStatus === "live" ? "Synchronisé" : "Local"}</div>
+                  <div className={`rounded-full border px-2 py-1 text-[11px] font-medium ${demoAccountsStatus === "live" ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-100" : "border-slate-400/30 bg-slate-400/10 text-slate-100"}`}>{demoAccountsStatus === "live" ? "Synchronisé" : "API indisponible"}</div>
                 </div>
                 <div className="mt-2 grid gap-1.5 md:grid-cols-2 xl:grid-cols-3">
                   {demoAccounts.map((item) => (

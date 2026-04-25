@@ -13,7 +13,7 @@ import {
   type TabularImportReport,
 } from "../api";
 import HelpTooltip from "../components/help/HelpTooltip";
-import { useAuth } from "../contexts/AuthContext";
+import { useAuth } from "../contexts/useAuth";
 import { getContextHelp } from "../help/helpContent";
 import { hasModulePermission, sessionHasRole } from "../rbac";
 import EmploymentAttestation from "../components/EmploymentAttestation";

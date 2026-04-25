@@ -4,8 +4,28 @@ import { useWorkerData } from '../hooks/useConstants';
 import { usePrint } from '../hooks/usePrint';
 
 type Props = {
-    worker: any;
-    employer: any;
+    worker: {
+        id?: number;
+        nom?: string | null;
+        prenom?: string | null;
+        matricule?: string | null;
+        poste?: string | null;
+        categorie_prof?: string | null;
+        nature_contrat?: string | null;
+        date_embauche?: string | null;
+    };
+    employer: {
+        raison_sociale?: string | null;
+        adresse?: string | null;
+        ville?: string | null;
+        pays?: string | null;
+        nif?: string | null;
+        stat?: string | null;
+        representant?: string | null;
+        rep_nom_prenom?: string | null;
+        rep_fonction?: string | null;
+        logo_path?: string | null;
+    };
     onClose?: () => void;
 };
 

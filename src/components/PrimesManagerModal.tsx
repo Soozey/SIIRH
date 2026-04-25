@@ -3,7 +3,7 @@ import { Dialog } from "@headlessui/react";
 import { XMarkIcon, PencilIcon, TrashIcon, CheckIcon } from "@heroicons/react/24/outline";
 import { getPrimeValues, updatePrimeValues, resetBulkPrimeValues, getEmployer } from "../api";
 import type { PrimeValuesOut } from "../api";
-import { useTheme } from "../contexts/ThemeContext";
+import { useTheme } from "../contexts/useTheme";
 
 interface PrimesManagerModalProps {
     isOpen: boolean;

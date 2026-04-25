@@ -3,9 +3,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowDownTrayIcon, CheckBadgeIcon, ClipboardDocumentCheckIcon, DocumentChartBarIcon } from "@heroicons/react/24/outline";
 
 import { api } from "../api";
-import { useAuth } from "../contexts/AuthContext";
+import { useAuth } from "../contexts/useAuth";
 import { hasModulePermission } from "../rbac";
-import { useToast } from "../components/ui/ToastProvider";
+import { useToast } from "../components/ui/useToast";
 import { formatCount, formatNumber } from "../utils/format";
 
 

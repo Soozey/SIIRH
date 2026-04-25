@@ -1,10 +1,10 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { api } from "../api";
+import { api , getApiErrorMessage } from "../api";
 import HelpTooltip from "../components/help/HelpTooltip";
 import WorkCalendar from "../components/WorkCalendar";
-import { useAuth } from "../contexts/AuthContext";
+import { useAuth } from "../contexts/useAuth";
 import { getContextHelp } from "../help/helpContent";
 import { sessionHasRole } from "../rbac";
 
@@ -306,7 +306,7 @@ export default function LeavePermissionManagement() {
       setRequestFile(null);
       alert("Demande soumise.");
     },
-    onError: (error: any) => alert(error?.response?.data?.detail || "Erreur lors de la demande."),
+    onError: (error: unknown) => alert(getApiErrorMessage(error, "Erreur lors de la demande.")),
   });
 
   const createTypeMutation = useMutation({
@@ -401,7 +401,7 @@ export default function LeavePermissionManagement() {
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["leave"] });
     },
-    onError: (error: any) => alert(error?.response?.data?.detail || "Decision impossible."),
+    onError: (error: unknown) => alert(getApiErrorMessage(error, "Decision impossible.")),
   });
 
   const requalifyMutation = useMutation({
@@ -411,7 +411,7 @@ export default function LeavePermissionManagement() {
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["leave"] });
     },
-    onError: (error: any) => alert(error?.response?.data?.detail || "Requalification impossible."),
+    onError: (error: unknown) => alert(getApiErrorMessage(error, "Requalification impossible.")),
   });
 
   const deleteRequestMutation = useMutation({
@@ -419,7 +419,7 @@ export default function LeavePermissionManagement() {
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["leave"] });
     },
-    onError: (error: any) => alert(error?.response?.data?.detail || "Suppression impossible."),
+    onError: (error: unknown) => alert(getApiErrorMessage(error, "Suppression impossible.")),
   });
 
   const createCycleMutation = useMutation({

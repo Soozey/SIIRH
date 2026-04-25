@@ -94,7 +94,7 @@ export default function Organization() {
     {
       label: 'Gestion Classique',
       content: selectedEmployerId ? (
-        <OrganizationManagerFixed employerId={selectedEmployerId} />
+        <OrganizationManagerFixed key={`classic-${selectedEmployerId}-${refreshKey}`} employerId={selectedEmployerId} />
       ) : (
         <div className="text-center py-8 text-gray-500">
           Sélectionnez un employeur pour gérer l&apos;organisation.
@@ -105,6 +105,7 @@ export default function Organization() {
       label: 'Gestion Hiérarchique avec Suppression',
       content: selectedEmployerId ? (
         <SimpleOrganizationalUnitManager
+          key={`hierarchy-${selectedEmployerId}-${refreshKey}`}
           employerId={selectedEmployerId}
           onRefresh={handleRefresh}
         />

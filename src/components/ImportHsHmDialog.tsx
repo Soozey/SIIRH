@@ -42,7 +42,6 @@ export default function ImportHsHmDialog({
   employerId,
   employerLabel,
   organizationFilters,
-  period,
   onSuccess,
 }: ImportHsHmDialogProps) {
   const [file, setFile] = useState<File | null>(null);

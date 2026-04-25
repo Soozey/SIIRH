@@ -1,23 +1,6 @@
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
-
-type ToastVariant = "info" | "success" | "error";
-
-type ToastItem = {
-  id: number;
-  title: string;
-  description?: string;
-  variant: ToastVariant;
-};
-
-type ToastContextValue = {
-  push: (toast: Omit<ToastItem, "id">) => void;
-  success: (title: string, description?: string) => void;
-  error: (title: string, description?: string) => void;
-  info: (title: string, description?: string) => void;
-};
-
-const ToastContext = createContext<ToastContextValue | undefined>(undefined);
+import { ToastContext, type ToastContextValue, type ToastItem, type ToastVariant } from "./toastContext";
 
 const toastStyles: Record<ToastVariant, string> = {
   info: "border-slate-700/80 bg-slate-900/95 text-slate-100",
@@ -77,13 +60,4 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
       </div>
     </ToastContext.Provider>
   );
-}
-
-
-export function useToast() {
-  const context = useContext(ToastContext);
-  if (!context) {
-    throw new Error("useToast must be used within ToastProvider");
-  }
-  return context;
 }

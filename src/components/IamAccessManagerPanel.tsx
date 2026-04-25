@@ -24,6 +24,7 @@ import {
   updateAuthUser,
   getWorkers,
   api,
+  getApiErrorMessage,
   type AppUserLight,
   type AuditLogEntry,
   type IamUserRoleAssignment,
@@ -139,8 +140,8 @@ export default function IamAccessManagerPanel() {
         const nextRole = current.role_code || hydratedRoles[0]?.code || "";
         return { ...current, role_code: nextRole };
       });
-    } catch (err: any) {
-      setError(err?.response?.data?.detail || err?.message || "Chargement IAM impossible.");
+    } catch (err: unknown) {
+      setError(getApiErrorMessage(err, "Chargement IAM impossible."));
     } finally {
       setLoading(false);
     }
@@ -169,9 +170,9 @@ export default function IamAccessManagerPanel() {
         if (cancelled) return;
         setAssignments(rows);
         setAccessPreview(preview);
-      } catch (err: any) {
+      } catch (err: unknown) {
         if (!cancelled) {
-          setError(err?.response?.data?.detail || err?.message || "Chargement utilisateur impossible.");
+          setError(getApiErrorMessage(err, "Chargement utilisateur impossible."));
         }
       }
     };
@@ -236,8 +237,8 @@ export default function IamAccessManagerPanel() {
       await setIamRoleActivation(roleCode, nextValue);
       setActivations((current) => ({ ...current, [roleCode]: nextValue }));
       setStatus(`Activation mise à jour pour ${roleCode}.`);
-    } catch (err: any) {
-      setError(err?.response?.data?.detail || err?.message || "Mise à jour impossible.");
+    } catch (err: unknown) {
+      setError(getApiErrorMessage(err, "Mise à jour impossible."));
     }
   };
 
@@ -269,8 +270,8 @@ export default function IamAccessManagerPanel() {
       setAccessPreview(await getUserAccessPreview(selectedUserId));
       setStatus("Habilitations complémentaires sauvegardées.");
       await loadAll(selectedUserId);
-    } catch (err: any) {
-      setError(err?.response?.data?.detail || err?.message || "Sauvegarde des habilitations impossible.");
+    } catch (err: unknown) {
+      setError(getApiErrorMessage(err, "Sauvegarde des habilitations impossible."));
     } finally {
       setSavingRoles(false);
     }
@@ -313,8 +314,8 @@ export default function IamAccessManagerPanel() {
       );
       setStatus(`Permissions du rôle ${selectedRoleCode} sauvegardées.`);
       await loadAll(selectedUserId);
-    } catch (err: any) {
-      setError(err?.response?.data?.detail || err?.message || "Sauvegarde des permissions impossible.");
+    } catch (err: unknown) {
+      setError(getApiErrorMessage(err, "Sauvegarde des permissions impossible."));
     } finally {
       setSavingPermissions(false);
     }
@@ -337,8 +338,8 @@ export default function IamAccessManagerPanel() {
       setStatus(`Compte créé: ${created.username}.`);
       setCreateForm(emptyAccountForm(createForm.role_code));
       await loadAll(created.id);
-    } catch (err: any) {
-      setError(err?.response?.data?.detail || err?.message || "Création du compte impossible.");
+    } catch (err: unknown) {
+      setError(getApiErrorMessage(err, "Création du compte impossible."));
     } finally {
       setSavingAccount(false);
     }
@@ -362,8 +363,8 @@ export default function IamAccessManagerPanel() {
       setStatus("Compte mis à jour.");
       setEditForm((current) => ({ ...current, password: "" }));
       await loadAll(selectedUserId);
-    } catch (err: any) {
-      setError(err?.response?.data?.detail || err?.message || "Mise à jour du compte impossible.");
+    } catch (err: unknown) {
+      setError(getApiErrorMessage(err, "Mise à jour du compte impossible."));
     } finally {
       setSavingAccount(false);
     }
@@ -379,8 +380,8 @@ export default function IamAccessManagerPanel() {
       setDeletePassword("");
       setStatus("Compte désactivé et sessions révoquées.");
       await loadAll(null);
-    } catch (err: any) {
-      setError(err?.response?.data?.detail || err?.message || "Suppression du compte impossible.");
+    } catch (err: unknown) {
+      setError(getApiErrorMessage(err, "Suppression du compte impossible."));
     } finally {
       setSavingAccount(false);
     }

@@ -14,8 +14,8 @@ import {
 import { api, downloadRecruitmentImportTemplate, importRecruitmentResource, type TabularImportReport } from "../api";
 import HelpTooltip from "../components/help/HelpTooltip";
 import { getContextHelp } from "../help/helpContent";
-import { useToast } from "../components/ui/ToastProvider";
-import { useAuth } from "../contexts/AuthContext";
+import { useToast } from "../components/ui/useToast";
+import { useAuth } from "../contexts/useAuth";
 import { sessionHasRole } from "../rbac";
 
 

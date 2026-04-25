@@ -21,7 +21,7 @@ import {
   CorporateStatCard,
   CorporateStatusBadge,
 } from "../components/corporate/CorporateUI";
-import { useAuth } from "../contexts/AuthContext";
+import { useAuth } from "../contexts/useAuth";
 import { sessionHasRole } from "../rbac";
 import { formatCount } from "../utils/format";
 

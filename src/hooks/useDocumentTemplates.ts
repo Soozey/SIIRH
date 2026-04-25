@@ -82,7 +82,7 @@ export const useCreateDocumentTemplate = () => {
       const response = await api.post('/document-templates/', templateData);
       return response.data as DocumentTemplate;
     },
-    onSuccess: (data) => {
+    onSuccess: () => {
       // Invalider TOUS les caches de templates pour forcer le rechargement
       queryClient.invalidateQueries({ queryKey: ['document-templates'] });
       // Forcer le rechargement immédiat

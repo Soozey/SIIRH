@@ -29,24 +29,24 @@ export interface ValidationRule {
 }
 
 export interface PayrollConstants {
-  cotisations: any;
-  majorations: any;
-  calculs: any;
+  cotisations: Record<string, unknown>;
+  majorations: Record<string, unknown>;
+  calculs: Record<string, unknown>;
   formules: Record<string, string>;
   variables: Record<string, string>;
 }
 
 export interface BusinessConstants {
-  contrats: any;
-  paiements: any;
-  famille: any;
-  sexe: any;
-  regimes: any;
-  preavis: any;
-  categories: any;
-  etablissements: any;
+  contrats: Record<string, unknown>;
+  paiements: Record<string, unknown>;
+  famille: Record<string, unknown>;
+  sexe: Record<string, unknown>;
+  regimes: Record<string, unknown>;
+  preavis: Record<string, unknown>;
+  categories: Record<string, unknown>;
+  etablissements: Record<string, unknown>;
   postes: string[];
-  banques: any[];
+  banques: unknown[];
 }
 
 // Constantes locales (non dépendantes de l'API)
@@ -88,11 +88,11 @@ export const LOCAL_CONSTANTS = {
 };
 
 // Cache pour les constantes API
-let constantsCache: {
+const constantsCache: {
   payroll?: PayrollConstants;
   business?: BusinessConstants;
   documentFields?: Record<string, Record<string, DocumentField>>;
-  validation?: any;
+  validation?: Record<string, unknown>;
   lastFetch?: number;
 } = {};
 
@@ -101,7 +101,7 @@ export const getConstants = () => constantsCache;
 export const setCacheTimestamp = () => {
   constantsCache.lastFetch = Date.now();
 };
-export const updateCache = (key: string, data: any) => {
-  (constantsCache as any)[key] = data;
+export const updateCache = (key: keyof typeof constantsCache, data: (typeof constantsCache)[typeof key]) => {
+  constantsCache[key] = data as never;
   setCacheTimestamp();
 };

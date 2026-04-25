@@ -31,6 +31,7 @@ import {
   previewSystemDataExport,
   previewSystemDataImport,
   startSystemUpdate,
+  getApiErrorMessage,
   type SystemDataExportPreview,
   type SystemDataImportExecuteResponse,
   type SystemDataImportReport,
@@ -128,8 +129,8 @@ export default function DataTransfer() {
       try {
         const fresh = await getSystemUpdateJob(updateJob.job_id);
         setUpdateJob(fresh);
-      } catch (err: any) {
-        setUpdateError(err?.response?.data?.detail || err?.message || "Lecture statut update impossible.");
+      } catch (err: unknown) {
+        setUpdateError(getApiErrorMessage(err, "Lecture statut update impossible."));
       }
     }, 1200);
     return () => window.clearInterval(timer);
@@ -143,8 +144,8 @@ export default function DataTransfer() {
     try {
       const response = await previewSystemDataImport(file, options);
       setReport(response);
-    } catch (err: any) {
-      setError(err?.response?.data?.detail || err?.message || "Preview impossible.");
+    } catch (err: unknown) {
+      setError(getApiErrorMessage(err, "Preview impossible."));
     } finally {
       setPreviewLoading(false);
     }
@@ -158,8 +159,8 @@ export default function DataTransfer() {
       const response = await executeSystemDataImport(file, options);
       setResult(response);
       setReport(response.report);
-    } catch (err: any) {
-      setError(err?.response?.data?.detail || err?.message || "Import impossible.");
+    } catch (err: unknown) {
+      setError(getApiErrorMessage(err, "Import impossible."));
     } finally {
       setImportLoading(false);
     }
@@ -171,8 +172,8 @@ export default function DataTransfer() {
     try {
       const preview = await previewSystemDataExport(exportOptions);
       setExportPreview(preview);
-    } catch (err: any) {
-      setExportError(err?.response?.data?.detail || err?.message || "Preview export impossible.");
+    } catch (err: unknown) {
+      setExportError(getApiErrorMessage(err, "Preview export impossible."));
     } finally {
       setExportPreviewLoading(false);
     }
@@ -191,8 +192,8 @@ export default function DataTransfer() {
       link.click();
       link.remove();
       window.URL.revokeObjectURL(url);
-    } catch (err: any) {
-      setExportError(err?.response?.data?.detail || err?.message || "Export impossible.");
+    } catch (err: unknown) {
+      setExportError(getApiErrorMessage(err, "Export impossible."));
     } finally {
       setExportLoading(false);
     }
@@ -211,8 +212,8 @@ export default function DataTransfer() {
       link.click();
       link.remove();
       window.URL.revokeObjectURL(url);
-    } catch (err: any) {
-      setExportError(err?.response?.data?.detail || err?.message || "Export package update impossible.");
+    } catch (err: unknown) {
+      setExportError(getApiErrorMessage(err, "Export package update impossible."));
     } finally {
       setExportUpdateLoading(false);
     }
@@ -229,8 +230,8 @@ export default function DataTransfer() {
     try {
       const job = await startSystemUpdate(updateFile);
       setUpdateJob(job);
-    } catch (err: any) {
-      setUpdateError(err?.response?.data?.detail || err?.message || "Lancement update impossible.");
+    } catch (err: unknown) {
+      setUpdateError(getApiErrorMessage(err, "Lancement update impossible."));
     } finally {
       setUpdateStarting(false);
     }
@@ -310,8 +311,8 @@ export default function DataTransfer() {
   const handleDownloadTemplateHub = async (download: (typeof templateDownloads)[number]) => {
     try {
       await download.action();
-    } catch (err: any) {
-      setExportError(err?.response?.data?.detail || err?.message || `Telechargement du modele ${download.label} impossible.`);
+    } catch (err: unknown) {
+      setExportError(getApiErrorMessage(err, `Telechargement du modele ${download.label} impossible.`));
     }
   };
 

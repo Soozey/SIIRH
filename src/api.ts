@@ -70,6 +70,15 @@ api.interceptors.response.use(
   }
 );
 
+export function getApiErrorMessage(error: unknown, fallback: string): string {
+  if (axios.isAxiosError(error)) {
+    const detail = (error.response?.data as { detail?: unknown } | undefined)?.detail;
+    if (typeof detail === "string" && detail.trim()) return detail;
+  }
+  if (error instanceof Error && error.message.trim()) return error.message;
+  return fallback;
+}
+
 export async function loginRequest(username: string, password: string): Promise<AuthSession> {
   const response = await api.post<AuthSession>("/auth/login", { username, password });
   return response.data;

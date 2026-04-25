@@ -23,6 +23,12 @@ interface ConstantsPaletteProps {
   onInsertConstant: (constant: string, value: string) => void;
 }
 
+type PaletteField = {
+  key: string;
+  label: string;
+  description?: string;
+};
+
 export const ConstantsPalette: React.FC<ConstantsPaletteProps> = ({
   workerId,
   employerId,
@@ -168,7 +174,7 @@ export const ConstantsPalette: React.FC<ConstantsPaletteProps> = ({
                   
                   {isExpanded && (
                     <div className="p-2 space-y-1 max-h-48 overflow-y-auto">
-                      {fieldsArray.map((field: any) => {
+                      {fieldsArray.map((field: PaletteField) => {
                         const currentValue = getFieldValue(field.key); // Utiliser la nouvelle fonction
                         const isDragging = draggedItem === field.key;
                         

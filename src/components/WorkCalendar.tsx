@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Dialog } from "@headlessui/react";
 import { ChevronLeftIcon, ChevronRightIcon, XMarkIcon } from "@heroicons/react/24/outline";
 import dayjs from "dayjs";
@@ -12,7 +12,7 @@ import {
   type CalendarDay,
   type CalendarDayStatus,
 } from "../api";
-import { useTheme } from "../contexts/ThemeContext";
+import { useTheme } from "../contexts/useTheme";
 
 dayjs.locale("fr");
 
@@ -106,7 +106,7 @@ export default function WorkCalendar({
     }
   }, [initialPeriod, isOpen]);
 
-  const fetchCalendar = async () => {
+  const fetchCalendar = useCallback(async () => {
     setLoading(true);
     try {
       const year = currentDate.year();
@@ -122,12 +122,12 @@ export default function WorkCalendar({
     } finally {
       setLoading(false);
     }
-  };
+  }, [currentDate, employerId, showAgenda, workerId]);
 
   useEffect(() => {
     if (!isOpen) return;
     void fetchCalendar();
-  }, [currentDate, employerId, isOpen, showAgenda, workerId]);
+  }, [fetchCalendar, isOpen]);
 
   const resolveDefaultStatus = (value: dayjs.Dayjs): CalendarDayStatus => DEFAULT_STATUS_BY_WEEKDAY[value.day()] ?? "off";
 

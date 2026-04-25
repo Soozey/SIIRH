@@ -106,12 +106,14 @@ export const OrganizationalFilterModalOptimized: React.FC<OrganizationalFilterMo
     if (!isOpen) {
       return;
     }
-    setSelectedEtablissement(initialFilters?.etablissement ? Number(initialFilters.etablissement) : null);
-    setSelectedDepartement(initialFilters?.departement ? Number(initialFilters.departement) : null);
-    setSelectedService(initialFilters?.service ? Number(initialFilters.service) : null);
-    setSelectedUnite(initialFilters?.unite ? Number(initialFilters.unite) : null);
-    setUseFilters(Boolean(initialFilters && Object.keys(initialFilters).length > 0));
-    setSelectedEmployerId(initialEmployerId);
+    queueMicrotask(() => {
+      setSelectedEtablissement(initialFilters?.etablissement ? Number(initialFilters.etablissement) : null);
+      setSelectedDepartement(initialFilters?.departement ? Number(initialFilters.departement) : null);
+      setSelectedService(initialFilters?.service ? Number(initialFilters.service) : null);
+      setSelectedUnite(initialFilters?.unite ? Number(initialFilters.unite) : null);
+      setUseFilters(Boolean(initialFilters && Object.keys(initialFilters).length > 0));
+      setSelectedEmployerId(initialEmployerId);
+    });
   }, [initialEmployerId, initialFilters, isOpen]);
 
   const { data: etablissements = [], isLoading: loadingEtablissements } = useQuery<OrganizationalUnitOption[]>({

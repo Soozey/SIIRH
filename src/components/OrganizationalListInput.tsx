@@ -26,7 +26,7 @@ export function OrganizationalListInput({ label, items, onChange, placeholder }:
   };
 
   // Ensure newItem is always a string
-  const safeSetNewItem = (value: any) => {
+  const safeSetNewItem = (value: unknown) => {
     const stringValue = typeof value === 'string' ? value : String(value || '');
     setNewItem(stringValue);
   };

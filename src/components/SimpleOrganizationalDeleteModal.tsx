@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { api } from '../api';
+import React, { useCallback, useState, useEffect } from 'react';
+import { api, getApiErrorMessage } from '../api';
 
 interface Worker {
   id: number;
@@ -45,16 +45,7 @@ const SimpleOrganizationalDeleteModal: React.FC<SimpleOrganizationalDeleteModalP
   const [constraints, setConstraints] = useState<DeletionConstraints | null>(null);
   const [showForceOption, setShowForceOption] = useState(false);
 
-  useEffect(() => {
-    if (isOpen && unitId) {
-      checkDeletionConstraints();
-    } else {
-      setConstraints(null);
-      setShowForceOption(false);
-    }
-  }, [isOpen, unitId]);
-
-  const checkDeletionConstraints = async () => {
+  const checkDeletionConstraints = useCallback(async () => {
     if (!unitId) return;
 
     setLoading(true);
@@ -68,7 +59,16 @@ const SimpleOrganizationalDeleteModal: React.FC<SimpleOrganizationalDeleteModalP
     } finally {
       setLoading(false);
     }
-  };
+  }, [onClose, unitId]);
+
+  useEffect(() => {
+    if (isOpen && unitId) {
+      void checkDeletionConstraints();
+    } else {
+      setConstraints(null);
+      setShowForceOption(false);
+    }
+  }, [checkDeletionConstraints, isOpen, unitId]);
 
   const handleDelete = async (force: boolean = false) => {
     if (!unitId) return;
@@ -79,10 +79,10 @@ const SimpleOrganizationalDeleteModal: React.FC<SimpleOrganizationalDeleteModalP
       
       alert(`La structure organisationnelle "${constraints?.unit_name}" a été supprimée avec succès.`);
       onSuccess();
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error deleting unit:', error);
       
-      const errorMessage = error.response?.data?.detail || 'Erreur lors de la suppression';
+      const errorMessage = getApiErrorMessage(error, 'Erreur lors de la suppression');
       alert(`Erreur de suppression: ${errorMessage}`);
     } finally {
       setDeleting(false);

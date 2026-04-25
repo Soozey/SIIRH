@@ -15,7 +15,7 @@ import {
   CorporateStatCard,
   CorporateStatusBadge,
 } from "../components/corporate/CorporateUI";
-import { useAuth } from "../contexts/AuthContext";
+import { useAuth } from "../contexts/useAuth";
 import { useWorkerData } from "../hooks/useConstants";
 import { hasModulePermission, sessionHasRole } from "../rbac";
 import { formatAriary } from "../utils/ariary";
