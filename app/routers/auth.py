@@ -1,5 +1,6 @@
 import re
 import json
+from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -49,6 +50,18 @@ PUBLIC_REGISTRATION_ALLOWED_ROLES = {
     "ancien_salarie",
 }
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+ACCOUNT_PENDING = "PENDING_APPROVAL"
+ACCOUNT_ACTIVE = "ACTIVE"
+ACCOUNT_SUSPENDED = "SUSPENDED"
+ACCOUNT_REJECTED = "REJECTED"
+ACCOUNT_PASSWORD_RESET_REQUIRED = "PASSWORD_RESET_REQUIRED"
+ACCOUNT_STATUSES = {
+    ACCOUNT_PENDING,
+    ACCOUNT_ACTIVE,
+    ACCOUNT_SUSPENDED,
+    ACCOUNT_REJECTED,
+    ACCOUNT_PASSWORD_RESET_REQUIRED,
+}
 
 
 def _json_object(raw: Optional[str]) -> dict:
@@ -61,18 +74,53 @@ def _json_object(raw: Optional[str]) -> dict:
     return value if isinstance(value, dict) else {}
 
 
-@router.post("/login", response_model=schemas.UserSessionOut)
-def login(payload: schemas.UserLoginIn, db: Session = Depends(get_db)):
-    username = payload.username.strip()
-    normalized_username = username.lower() if "@" in username else username
-    user = db.query(models.AppUser).filter(models.AppUser.username == normalized_username).first()
-    if not user or not verify_password(payload.password, user.password_hash):
-        raise HTTPException(status_code=401, detail="Identifiants invalides")
-    if not user.is_active:
-        raise HTTPException(status_code=403, detail="Compte inactif")
+def _now() -> datetime:
+    return datetime.utcnow()
 
-    token = create_session_for_user(db, user)
-    access_profile = build_user_access_profile_for_user(db, user)
+
+def _normalize_account_status(value: Optional[str], is_active: bool = True) -> str:
+    status_value = (value or "").strip().upper()
+    if not status_value:
+        return ACCOUNT_ACTIVE if is_active else ACCOUNT_SUSPENDED
+    if status_value not in ACCOUNT_STATUSES:
+        raise HTTPException(status_code=400, detail="Statut de compte invalide")
+    return status_value
+
+
+def _apply_account_status(target: models.AppUser, status_value: str, actor: Optional[models.AppUser] = None) -> None:
+    normalized = _normalize_account_status(status_value, bool(target.is_active))
+    target.account_status = normalized
+    if normalized == ACCOUNT_ACTIVE:
+        target.is_active = True
+        target.must_change_password = False
+        target.approved_at = target.approved_at or _now()
+        target.approved_by = target.approved_by or (actor.id if actor else None)
+    elif normalized == ACCOUNT_PASSWORD_RESET_REQUIRED:
+        target.is_active = True
+        target.must_change_password = True
+        target.approved_at = target.approved_at or _now()
+        target.approved_by = target.approved_by or (actor.id if actor else None)
+    elif normalized == ACCOUNT_PENDING:
+        target.is_active = False
+        target.must_change_password = False
+    elif normalized == ACCOUNT_REJECTED:
+        target.is_active = False
+        target.must_change_password = False
+        target.rejected_at = _now()
+        target.rejected_by = actor.id if actor else target.rejected_by
+    elif normalized == ACCOUNT_SUSPENDED:
+        target.is_active = False
+        target.must_change_password = False
+
+
+def _revoke_user_sessions(db: Session, user_id: int) -> None:
+    db.query(models.AuthSession).filter(
+        models.AuthSession.user_id == user_id,
+        models.AuthSession.revoked_at.is_(None),
+    ).update({"revoked_at": models.func.now()}, synchronize_session=False)
+
+
+def _session_out(token: str, user: models.AppUser, access_profile: dict) -> schemas.UserSessionOut:
     return schemas.UserSessionOut(
         token=token,
         user_id=user.id,
@@ -86,7 +134,31 @@ def login(payload: schemas.UserLoginIn, db: Session = Depends(get_db)):
         role_scope=access_profile["role_scope"],
         module_permissions=access_profile["module_permissions"],
         assigned_role_codes=access_profile["assigned_role_codes"],
+        account_status=_normalize_account_status(getattr(user, "account_status", None), bool(user.is_active)),
+        must_change_password=bool(getattr(user, "must_change_password", False)),
     )
+
+
+@router.post("/login", response_model=schemas.UserSessionOut)
+def login(payload: schemas.UserLoginIn, db: Session = Depends(get_db)):
+    username = payload.username.strip()
+    normalized_username = username.lower() if "@" in username else username
+    user = db.query(models.AppUser).filter(models.AppUser.username == normalized_username).first()
+    if not user or not verify_password(payload.password, user.password_hash):
+        raise HTTPException(status_code=401, detail="Identifiants invalides")
+    account_status = _normalize_account_status(getattr(user, "account_status", None), bool(user.is_active))
+    if account_status == ACCOUNT_PENDING:
+        raise HTTPException(status_code=403, detail="Compte en attente de validation administrateur")
+    if account_status == ACCOUNT_REJECTED:
+        raise HTTPException(status_code=403, detail="Compte refusé par l'administrateur")
+    if account_status == ACCOUNT_SUSPENDED or not user.is_active:
+        raise HTTPException(status_code=403, detail="Compte suspendu ou inactif")
+
+    token = create_session_for_user(db, user)
+    user.last_login_at = _now()
+    db.commit()
+    access_profile = build_user_access_profile_for_user(db, user)
+    return _session_out(token, user, access_profile)
 
 
 @router.get("/me", response_model=schemas.UserSessionOut)
@@ -95,20 +167,7 @@ def me(
     user: models.AppUser = Depends(get_current_user),
 ):
     access_profile = build_user_access_profile_for_user(db, user)
-    return schemas.UserSessionOut(
-        token="",
-        user_id=user.id,
-        username=user.username,
-        full_name=user.full_name,
-        role_code=user.role_code,
-        employer_id=user.employer_id,
-        worker_id=user.worker_id,
-        effective_role_code=access_profile["effective_role_code"],
-        role_label=access_profile["role_label"],
-        role_scope=access_profile["role_scope"],
-        module_permissions=access_profile["module_permissions"],
-        assigned_role_codes=access_profile["assigned_role_codes"],
-    )
+    return _session_out("", user, access_profile)
 
 
 @router.get("/access-profile", response_model=schemas.UserAccessProfileOut)
@@ -382,7 +441,9 @@ def register_public_user(
         full_name=full_name,
         password_hash=hash_password(payload.password),
         role_code=role_code,
-        is_active=True,
+        is_active=False,
+        account_status=ACCOUNT_PENDING,
+        must_change_password=False,
         employer_id=worker.employer_id,
         worker_id=worker.id,
     )
@@ -400,6 +461,7 @@ def register_public_user(
         after={
             "username": user_obj.username,
             "role_code": user_obj.role_code,
+            "account_status": user_obj.account_status,
             "worker_matricule": worker.matricule,
         },
     )
@@ -410,6 +472,7 @@ def register_public_user(
         username=user_obj.username,
         full_name=user_obj.full_name,
         role_code=user_obj.role_code,
+        account_status=user_obj.account_status,
         employer_id=user_obj.employer_id,
         worker_id=user_obj.worker_id or worker.id,
         created_at=user_obj.created_at,
@@ -462,6 +525,10 @@ def create_user(
         worker_id=payload.worker_id,
     )
     _ensure_admin_scope(db, user, employer_id, normalized_role_code)
+    requested_status = payload.account_status
+    if not requested_status:
+        requested_status = ACCOUNT_PASSWORD_RESET_REQUIRED if payload.must_change_password else (ACCOUNT_ACTIVE if payload.is_active else ACCOUNT_SUSPENDED)
+    normalized_status = _normalize_account_status(requested_status, payload.is_active)
 
     obj = models.AppUser(
         username=normalized_username,
@@ -469,9 +536,12 @@ def create_user(
         password_hash=hash_password(payload.password),
         role_code=normalized_role_code,
         is_active=payload.is_active,
+        account_status=normalized_status,
+        must_change_password=payload.must_change_password,
         employer_id=employer_id,
         worker_id=worker_id,
     )
+    _apply_account_status(obj, normalized_status, user)
     db.add(obj)
     db.flush()
     record_audit(
@@ -487,6 +557,8 @@ def create_user(
             "username": obj.username,
             "role_code": obj.role_code,
             "is_active": obj.is_active,
+            "account_status": obj.account_status,
+            "must_change_password": obj.must_change_password,
             "employer_id": obj.employer_id,
             "worker_id": obj.worker_id,
         },
@@ -514,6 +586,8 @@ def update_user(
         "full_name": target.full_name,
         "role_code": target.role_code,
         "is_active": target.is_active,
+        "account_status": _normalize_account_status(getattr(target, "account_status", None), bool(target.is_active)),
+        "must_change_password": bool(getattr(target, "must_change_password", False)),
         "employer_id": target.employer_id,
         "worker_id": target.worker_id,
     }
@@ -537,13 +611,28 @@ def update_user(
         target.full_name = changes["full_name"]
     if "password" in changes:
         target.password_hash = hash_password(changes["password"])
+        target.must_change_password = True
+        target.account_status = ACCOUNT_PASSWORD_RESET_REQUIRED
+        target.is_active = True
     if "role_code" in changes:
         target.role_code = next_role
-    if "is_active" in changes:
+    if "account_status" in changes and changes["account_status"] is not None:
+        _apply_account_status(target, changes["account_status"], user)
+    elif "is_active" in changes:
         target.is_active = changes["is_active"]
+        target.account_status = ACCOUNT_ACTIVE if changes["is_active"] else ACCOUNT_SUSPENDED
+    if "must_change_password" in changes and changes["must_change_password"] is not None:
+        target.must_change_password = bool(changes["must_change_password"])
+        if target.must_change_password:
+            target.account_status = ACCOUNT_PASSWORD_RESET_REQUIRED
+            target.is_active = True
+        elif target.account_status == ACCOUNT_PASSWORD_RESET_REQUIRED:
+            target.account_status = ACCOUNT_ACTIVE
     if "role_code" in changes or "employer_id" in changes or "worker_id" in changes:
         target.employer_id = next_employer_id
         target.worker_id = next_worker_id
+    if not target.is_active:
+        _revoke_user_sessions(db, target.id)
 
     record_audit(
         db,
@@ -559,6 +648,8 @@ def update_user(
             "full_name": target.full_name,
             "role_code": target.role_code,
             "is_active": target.is_active,
+            "account_status": target.account_status,
+            "must_change_password": target.must_change_password,
             "employer_id": target.employer_id,
             "worker_id": target.worker_id,
         },
@@ -566,6 +657,224 @@ def update_user(
     db.commit()
     db.refresh(target)
     return target
+
+
+@router.patch("/users/{user_id}/status", response_model=schemas.AppUserOut)
+def update_user_status(
+    user_id: int,
+    payload: schemas.AppUserStatusUpdateIn,
+    db: Session = Depends(get_db),
+    user: models.AppUser = Depends(require_roles(*USER_ADMIN_ROLES)),
+):
+    target = db.query(models.AppUser).filter(models.AppUser.id == user_id).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="Compte introuvable")
+    if not _can_view_user(db, user, target):
+        raise HTTPException(status_code=403, detail="Accès refusé")
+    if target.id == user.id and payload.status.upper() != ACCOUNT_ACTIVE:
+        raise HTTPException(status_code=400, detail="Modification de votre propre statut interdite")
+
+    before = {"account_status": target.account_status, "is_active": target.is_active}
+    _apply_account_status(target, payload.status, user)
+    if not target.is_active:
+        _revoke_user_sessions(db, target.id)
+    record_audit(
+        db,
+        actor=user,
+        action="auth.user.status_update",
+        entity_type="app_user",
+        entity_id=target.id,
+        route=f"/auth/users/{target.id}/status",
+        before=before,
+        after={"account_status": target.account_status, "is_active": target.is_active},
+    )
+    db.commit()
+    db.refresh(target)
+    return target
+
+
+@router.post("/users/{user_id}/approve", response_model=schemas.AppUserOut)
+def approve_user(
+    user_id: int,
+    db: Session = Depends(get_db),
+    user: models.AppUser = Depends(require_roles(*USER_ADMIN_ROLES)),
+):
+    target = db.query(models.AppUser).filter(models.AppUser.id == user_id).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="Compte introuvable")
+    if not _can_view_user(db, user, target):
+        raise HTTPException(status_code=403, detail="Accès refusé")
+    _ensure_admin_scope(db, user, resolve_user_employer_id(db, target), target.role_code)
+    before = {"account_status": target.account_status, "is_active": target.is_active}
+    _apply_account_status(target, ACCOUNT_ACTIVE, user)
+    existing_assignment = (
+        db.query(models.IamUserRole.id)
+        .filter(
+            models.IamUserRole.user_id == target.id,
+            models.IamUserRole.role_code == normalize_role_key(target.role_code),
+        )
+        .first()
+    )
+    if existing_assignment is None:
+        db.add(
+            models.IamUserRole(
+                user_id=target.id,
+                role_code=normalize_role_key(target.role_code),
+                employer_id=target.employer_id,
+                worker_id=target.worker_id,
+                is_active=True,
+                delegated_by_user_id=user.id,
+            )
+        )
+    record_audit(
+        db,
+        actor=user,
+        action="auth.user.approve",
+        entity_type="app_user",
+        entity_id=target.id,
+        route=f"/auth/users/{target.id}/approve",
+        before=before,
+        after={"account_status": target.account_status, "is_active": target.is_active},
+    )
+    db.commit()
+    db.refresh(target)
+    return target
+
+
+@router.post("/users/{user_id}/reject", response_model=schemas.AppUserOut)
+def reject_user(
+    user_id: int,
+    payload: Optional[schemas.AppUserRejectIn] = None,
+    db: Session = Depends(get_db),
+    user: models.AppUser = Depends(require_roles(*USER_ADMIN_ROLES)),
+):
+    target = db.query(models.AppUser).filter(models.AppUser.id == user_id).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="Compte introuvable")
+    if not _can_view_user(db, user, target):
+        raise HTTPException(status_code=403, detail="Accès refusé")
+    if target.id == user.id:
+        raise HTTPException(status_code=400, detail="Refus de votre propre compte interdit")
+    before = {"account_status": target.account_status, "is_active": target.is_active}
+    _apply_account_status(target, ACCOUNT_REJECTED, user)
+    _revoke_user_sessions(db, target.id)
+    record_audit(
+        db,
+        actor=user,
+        action="auth.user.reject",
+        entity_type="app_user",
+        entity_id=target.id,
+        route=f"/auth/users/{target.id}/reject",
+        before=before,
+        after={"account_status": target.account_status, "reason": payload.reason if payload else None},
+    )
+    db.commit()
+    db.refresh(target)
+    return target
+
+
+@router.post("/users/{user_id}/suspend", response_model=schemas.AppUserOut)
+def suspend_user(
+    user_id: int,
+    db: Session = Depends(get_db),
+    user: models.AppUser = Depends(require_roles(*USER_ADMIN_ROLES)),
+):
+    target = db.query(models.AppUser).filter(models.AppUser.id == user_id).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="Compte introuvable")
+    if not _can_view_user(db, user, target):
+        raise HTTPException(status_code=403, detail="Accès refusé")
+    if target.id == user.id:
+        raise HTTPException(status_code=400, detail="Suspension de votre propre compte interdite")
+    before = {"account_status": target.account_status, "is_active": target.is_active}
+    _apply_account_status(target, ACCOUNT_SUSPENDED, user)
+    _revoke_user_sessions(db, target.id)
+    record_audit(
+        db,
+        actor=user,
+        action="auth.user.suspend",
+        entity_type="app_user",
+        entity_id=target.id,
+        route=f"/auth/users/{target.id}/suspend",
+        before=before,
+        after={"account_status": target.account_status, "is_active": target.is_active},
+    )
+    db.commit()
+    db.refresh(target)
+    return target
+
+
+@router.post("/users/{user_id}/reset-password", response_model=schemas.AppUserOut)
+def reset_user_password(
+    user_id: int,
+    payload: schemas.AppUserResetPasswordIn,
+    db: Session = Depends(get_db),
+    user: models.AppUser = Depends(require_roles(*USER_ADMIN_ROLES)),
+):
+    target = db.query(models.AppUser).filter(models.AppUser.id == user_id).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="Compte introuvable")
+    if not _can_view_user(db, user, target):
+        raise HTTPException(status_code=403, detail="Accès refusé")
+    _validate_registration_password(payload.temporary_password)
+    before = {
+        "account_status": target.account_status,
+        "must_change_password": target.must_change_password,
+    }
+    target.password_hash = hash_password(payload.temporary_password)
+    target.must_change_password = bool(payload.must_change_password)
+    if target.must_change_password:
+        target.account_status = ACCOUNT_PASSWORD_RESET_REQUIRED
+        target.is_active = True
+    elif target.account_status == ACCOUNT_PASSWORD_RESET_REQUIRED:
+        target.account_status = ACCOUNT_ACTIVE
+    _revoke_user_sessions(db, target.id)
+    record_audit(
+        db,
+        actor=user,
+        action="auth.user.reset_password",
+        entity_type="app_user",
+        entity_id=target.id,
+        route=f"/auth/users/{target.id}/reset-password",
+        before=before,
+        after={
+            "account_status": target.account_status,
+            "must_change_password": target.must_change_password,
+            "password_hash_rotated": True,
+        },
+    )
+    db.commit()
+    db.refresh(target)
+    return target
+
+
+@router.post("/change-password", response_model=schemas.UserSessionOut)
+def change_own_password(
+    payload: schemas.AppUserChangePasswordIn,
+    db: Session = Depends(get_db),
+    user: models.AppUser = Depends(get_current_user),
+):
+    if not verify_password(payload.current_password, user.password_hash):
+        raise HTTPException(status_code=403, detail="Mot de passe actuel invalide")
+    _validate_registration_password(payload.new_password)
+    user.password_hash = hash_password(payload.new_password)
+    user.must_change_password = False
+    if user.account_status == ACCOUNT_PASSWORD_RESET_REQUIRED:
+        user.account_status = ACCOUNT_ACTIVE
+        user.is_active = True
+    record_audit(
+        db,
+        actor=user,
+        action="auth.user.change_password",
+        entity_type="app_user",
+        entity_id=user.id,
+        route="/auth/change-password",
+        after={"must_change_password": False, "password_hash_rotated": True},
+    )
+    db.commit()
+    db.refresh(user)
+    access_profile = build_user_access_profile_for_user(db, user)
+    return _session_out("", user, access_profile)
 
 
 @router.delete("/users/{user_id}", response_model=schemas.AppUserOut)
@@ -594,10 +903,9 @@ def delete_user(
         "worker_id": target.worker_id,
     }
     target.is_active = False
-    db.query(models.AuthSession).filter(models.AuthSession.user_id == target.id).update(
-        {"revoked_at": models.func.now()},
-        synchronize_session=False,
-    )
+    target.account_status = ACCOUNT_SUSPENDED
+    target.must_change_password = False
+    _revoke_user_sessions(db, target.id)
     record_audit(
         db,
         actor=user,
@@ -613,6 +921,7 @@ def delete_user(
             "full_name": target.full_name,
             "role_code": target.role_code,
             "is_active": target.is_active,
+            "account_status": target.account_status,
             "employer_id": target.employer_id,
             "worker_id": target.worker_id,
         },
@@ -658,6 +967,26 @@ def bootstrap_role_logins(
         "quick_accounts": summary["quick_accounts"],
         "worker_accounts": summary["worker_accounts"],
     }
+
+
+@router.get("/iam/summary", response_model=schemas.IamSummaryOut)
+def get_iam_summary(
+    db: Session = Depends(get_db),
+    user: models.AppUser = Depends(require_roles(*USER_ADMIN_ROLES)),
+):
+    _ = user
+    return schemas.IamSummaryOut(
+        total_users=db.query(models.AppUser.id).count(),
+        pending_users=db.query(models.AppUser.id).filter(models.AppUser.account_status == ACCOUNT_PENDING).count(),
+        active_users=db.query(models.AppUser.id).filter(models.AppUser.account_status == ACCOUNT_ACTIVE).count(),
+        suspended_users=db.query(models.AppUser.id).filter(models.AppUser.account_status == ACCOUNT_SUSPENDED).count(),
+        rejected_users=db.query(models.AppUser.id).filter(models.AppUser.account_status == ACCOUNT_REJECTED).count(),
+        password_reset_required_users=db.query(models.AppUser.id).filter(
+            models.AppUser.account_status == ACCOUNT_PASSWORD_RESET_REQUIRED
+        ).count(),
+        roles_count=db.query(models.IamRole.code).count(),
+        permissions_count=db.query(models.IamPermission.code).count(),
+    )
 
 
 @router.get("/iam/permissions", response_model=list[schemas.IamPermissionCatalogItemOut])

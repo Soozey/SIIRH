@@ -1012,13 +1012,22 @@ class AppUser(Base):
     password_hash = Column(String(255), nullable=False)
     role_code = Column(String(80), nullable=False, index=True)
     is_active = Column(Boolean, default=True, nullable=False)
+    account_status = Column(String(40), default="ACTIVE", nullable=False, index=True)
+    must_change_password = Column(Boolean, default=False, nullable=False)
     employer_id = Column(Integer, ForeignKey("employers.id"), nullable=True, index=True)
     worker_id = Column(Integer, ForeignKey("workers.id"), nullable=True, index=True)
+    approved_at = Column(DateTime, nullable=True)
+    approved_by = Column(Integer, ForeignKey("app_users.id"), nullable=True)
+    rejected_at = Column(DateTime, nullable=True)
+    rejected_by = Column(Integer, ForeignKey("app_users.id"), nullable=True)
+    last_login_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=utcnow, nullable=False)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
     employer = relationship("Employer")
     worker = relationship("Worker", foreign_keys=[worker_id])
+    approved_by_user = relationship("AppUser", remote_side=[id], foreign_keys=[approved_by])
+    rejected_by_user = relationship("AppUser", remote_side=[id], foreign_keys=[rejected_by])
     role_assignments = relationship(
         "IamUserRole",
         foreign_keys="IamUserRole.user_id",

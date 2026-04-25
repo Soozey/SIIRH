@@ -1162,6 +1162,7 @@ class PublicRegisterOut(BaseModel):
     username: str
     full_name: Optional[str] = None
     role_code: str
+    account_status: str = "PENDING_APPROVAL"
     employer_id: Optional[int] = None
     worker_id: int
     created_at: datetime
@@ -1205,6 +1206,8 @@ class UserSessionOut(BaseModel):
     role_scope: Optional[str] = None
     module_permissions: Dict[str, List[str]] = Field(default_factory=dict)
     assigned_role_codes: List[str] = Field(default_factory=list)
+    account_status: str = "ACTIVE"
+    must_change_password: bool = False
 
 
 class UserAccessProfileOut(BaseModel):
@@ -1224,6 +1227,8 @@ class AppUserLightOut(BaseModel):
     employer_id: Optional[int] = None
     worker_id: Optional[int] = None
     is_active: bool = True
+    account_status: str = "ACTIVE"
+    must_change_password: bool = False
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -1322,6 +1327,8 @@ class AppUserCreateIn(BaseModel):
     employer_id: Optional[int] = None
     worker_id: Optional[int] = None
     is_active: bool = True
+    account_status: Optional[str] = None
+    must_change_password: bool = False
 
 
 class AppUserUpdateIn(BaseModel):
@@ -1331,6 +1338,8 @@ class AppUserUpdateIn(BaseModel):
     employer_id: Optional[int] = None
     worker_id: Optional[int] = None
     is_active: Optional[bool] = None
+    account_status: Optional[str] = None
+    must_change_password: Optional[bool] = None
 
 
 class AppUserDeleteIn(BaseModel):
@@ -1340,8 +1349,42 @@ class AppUserDeleteIn(BaseModel):
 class AppUserOut(AppUserLightOut):
     created_at: datetime
     updated_at: datetime
+    approved_at: Optional[datetime] = None
+    approved_by: Optional[int] = None
+    rejected_at: Optional[datetime] = None
+    rejected_by: Optional[int] = None
+    last_login_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class AppUserStatusUpdateIn(BaseModel):
+    status: str
+
+
+class AppUserRejectIn(BaseModel):
+    reason: Optional[str] = None
+
+
+class AppUserResetPasswordIn(BaseModel):
+    temporary_password: str
+    must_change_password: bool = True
+
+
+class AppUserChangePasswordIn(BaseModel):
+    current_password: str
+    new_password: str
+
+
+class IamSummaryOut(BaseModel):
+    total_users: int = 0
+    pending_users: int = 0
+    active_users: int = 0
+    suspended_users: int = 0
+    rejected_users: int = 0
+    password_reset_required_users: int = 0
+    roles_count: int = 0
+    permissions_count: int = 0
 
 
 class AuditLogOut(BaseModel):

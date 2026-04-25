@@ -402,7 +402,7 @@ ROLE_ASSIGNMENT_MATRIX = {
     },
 }
 
-DEMO_LOGIN_PASSWORD = "Siirh2026"
+DEMO_LOGIN_PASSWORD = settings.DEFAULT_ADMIN_PASSWORD
 DEMO_LOGIN_DOMAIN = "siirh.com"
 EMAIL_REGEX = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 LEGACY_DEMO_USERNAMES = {
@@ -503,6 +503,7 @@ def get_role_module_permissions(db: Optional[Session], role_code: str) -> Dict[s
     key = normalize_role_key(role_code)
     base_role_code = normalize_role_code(role_code)
     granular_by_module: dict[str, set[str]] = {}
+    db_had_links = False
 
     if db is not None:
         try:
@@ -515,6 +516,7 @@ def get_role_module_permissions(db: Optional[Session], role_code: str) -> Dict[s
                 )
                 .all()
             )
+            db_had_links = len(links) > 0
             for link, permission in links:
                 _ = link
                 module = (permission.module or "").strip().lower()
@@ -526,20 +528,21 @@ def get_role_module_permissions(db: Optional[Session], role_code: str) -> Dict[s
         except Exception:
             granular_by_module = {}
 
-    role_entry = ROLE_MODULE_MATRIX.get(base_role_code, {})
-    compact_modules = role_entry.get("modules", {})
-    for module, compact_actions in compact_modules.items():
-        if module not in granular_by_module:
-            granular_by_module[module] = set()
-        for action in compact_actions:
-            granular_by_module[module].update(_expand_compact_action(action))
+    if not db_had_links:
+        role_entry = ROLE_MODULE_MATRIX.get(base_role_code, {})
+        compact_modules = role_entry.get("modules", {})
+        for module, compact_actions in compact_modules.items():
+            if module not in granular_by_module:
+                granular_by_module[module] = set()
+            for action in compact_actions:
+                granular_by_module[module].update(_expand_compact_action(action))
 
-    override_modules = ENTERPRISE_ROLE_MODULE_OVERRIDES.get(key, {})
-    for module, compact_actions in override_modules.items():
-        if module not in granular_by_module:
-            granular_by_module[module] = set()
-        for action in compact_actions:
-            granular_by_module[module].update(_expand_compact_action(action))
+        override_modules = ENTERPRISE_ROLE_MODULE_OVERRIDES.get(key, {})
+        for module, compact_actions in override_modules.items():
+            if module not in granular_by_module:
+                granular_by_module[module] = set()
+            for action in compact_actions:
+                granular_by_module[module].update(_expand_compact_action(action))
 
     compact_modules: dict[str, list[str]] = {}
     for module, actions in granular_by_module.items():
@@ -1004,6 +1007,8 @@ def _upsert_demo_account(
                 password_hash=hash_password(DEMO_LOGIN_PASSWORD),
                 role_code=normalized_role,
                 is_active=True,
+                account_status="PASSWORD_RESET_REQUIRED",
+                must_change_password=True,
                 employer_id=scoped_employer_id,
                 worker_id=scoped_worker_id,
             )
@@ -1021,9 +1026,10 @@ def _upsert_demo_account(
             existing.username = normalized_username
 
     existing.full_name = full_name
-    existing.password_hash = hash_password(DEMO_LOGIN_PASSWORD)
     existing.role_code = normalized_role
     existing.is_active = True
+    if not getattr(existing, "account_status", None):
+        existing.account_status = "ACTIVE"
     existing.employer_id = scoped_employer_id
     existing.worker_id = scoped_worker_id
     return {"status": "updated", "username": existing.username}
@@ -1113,6 +1119,8 @@ def ensure_demo_accounts(db: Session, preferred_employer_id: Optional[int] = Non
                 password_hash=hash_password(DEMO_LOGIN_PASSWORD),
                 role_code="salarie_agent",
                 is_active=True,
+                account_status="PASSWORD_RESET_REQUIRED",
+                must_change_password=True,
                 employer_id=worker.employer_id,
                 worker_id=worker.id,
             )
@@ -1138,8 +1146,9 @@ def ensure_demo_accounts(db: Session, preferred_employer_id: Optional[int] = Non
             if conflict is None:
                 existing.username = desired_username
         existing.full_name = _worker_full_name(worker)
-        existing.password_hash = hash_password(DEMO_LOGIN_PASSWORD)
         existing.is_active = True
+        if not getattr(existing, "account_status", None):
+            existing.account_status = "ACTIVE"
         existing.employer_id = worker.employer_id
         if normalize_role_code(existing.role_code) == "employe" or _is_legacy_demo_username(existing.username):
             existing.role_code = normalize_role_key(existing.role_code or "salarie_agent") or "salarie_agent"
@@ -1215,13 +1224,16 @@ def seed_default_admin(db: Session):
                 password_hash=hash_password(settings.DEFAULT_ADMIN_PASSWORD),
                 role_code="admin",
                 is_active=True,
+                account_status="PASSWORD_RESET_REQUIRED",
+                must_change_password=True,
             )
             db.add(admin)
 
     if admin is not None:
         admin.role_code = "admin"
         admin.is_active = True
-        admin.password_hash = hash_password(settings.DEFAULT_ADMIN_PASSWORD)
+        if not getattr(admin, "account_status", None):
+            admin.account_status = "ACTIVE"
 
     ensure_demo_accounts(db)
     db.commit()
@@ -1397,6 +1409,9 @@ def get_current_user(
 
     if not session or not session.user or not session.user.is_active:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid session")
+    account_status = (getattr(session.user, "account_status", None) or "ACTIVE").strip().upper()
+    if account_status in {"PENDING_APPROVAL", "SUSPENDED", "REJECTED"}:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid session")
 
     session.last_seen_at = datetime.now(timezone.utc).replace(tzinfo=None)
     db.commit()
@@ -1409,6 +1424,8 @@ def require_roles(*roles: str) -> Callable:
         db: Session = Depends(get_db),
         request: Request = None,
     ) -> models.AppUser:
+        if bool(getattr(user, "must_change_password", False)):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="PASSWORD_RESET_REQUIRED")
         if not user_has_any_role(db, user, *roles):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
         guard = _infer_module_guard_from_request(request)
@@ -1426,6 +1443,8 @@ def require_module_access(module: str, action: str = "read") -> Callable:
         user: models.AppUser = Depends(get_current_user),
         db: Session = Depends(get_db),
     ) -> models.AppUser:
+        if bool(getattr(user, "must_change_password", False)):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="PASSWORD_RESET_REQUIRED")
         if not has_module_access_for_user(db, user, module, action):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
         return user

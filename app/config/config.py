@@ -33,7 +33,7 @@ class Settings(BaseSettings):
     UPLOAD_DIR: str = "uploads"
     AUTH_REQUIRED: bool = True
     DEFAULT_ADMIN_USERNAME: str = "admin@siirh.com"
-    DEFAULT_ADMIN_PASSWORD: str = "Siirh2026"
+    DEFAULT_ADMIN_PASSWORD: str = "change_me"
     AUTH_PUBLIC_REGISTRATION_ENABLED: bool = True
     DOCUMENT_VERIFY_SECRET: str = "change_document_secret"
     APP_PUBLIC_URL: str = "http://127.0.0.1:8001"
@@ -100,6 +100,15 @@ def _apply_lightweight_schema_updates():
             )
 
         additive_columns = {
+            "app_users": [
+                ("account_status", "VARCHAR(40) DEFAULT 'ACTIVE' NOT NULL"),
+                ("must_change_password", "BOOLEAN DEFAULT FALSE NOT NULL"),
+                ("approved_at", "TIMESTAMP"),
+                ("approved_by", "INTEGER"),
+                ("rejected_at", "TIMESTAMP"),
+                ("rejected_by", "INTEGER"),
+                ("last_login_at", "TIMESTAMP"),
+            ],
             "primes": [
                 ("target_mode", "VARCHAR(20) DEFAULT 'global'"),
             ],
@@ -150,6 +159,29 @@ def _apply_lightweight_schema_updates():
                 if column_name in existing_columns:
                     continue
                 connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {ddl}"))
+
+        if "app_users" in table_names:
+            connection.execute(
+                text(
+                    """
+                    UPDATE app_users
+                    SET account_status = CASE
+                        WHEN is_active = TRUE THEN 'ACTIVE'
+                        ELSE 'SUSPENDED'
+                    END
+                    WHERE account_status IS NULL OR TRIM(account_status) = ''
+                    """
+                )
+            )
+            connection.execute(
+                text(
+                    """
+                    UPDATE app_users
+                    SET must_change_password = FALSE
+                    WHERE must_change_password IS NULL
+                    """
+                )
+            )
 
         if "prime_organizational_targets" not in table_names:
             connection.execute(

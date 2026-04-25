@@ -11,7 +11,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from .. import models
-from ..config.config import BACKEND_ROOT
+from ..config.config import BACKEND_ROOT, settings
 from ..security import hash_password, seed_iam_catalog
 from .audit_service import record_audit
 from .employee_portal_service import json_dump, json_load, next_inspector_case_number, next_sequence
@@ -318,7 +318,9 @@ def _get_or_create_user(
             employer_id=employer_id,
             worker_id=worker_id,
             is_active=True,
-            password_hash=hash_password("Siirh2026"),
+            account_status="PASSWORD_RESET_REQUIRED",
+            must_change_password=True,
+            password_hash=hash_password(settings.DEFAULT_ADMIN_PASSWORD),
         )
         db.add(item)
         db.flush()
@@ -328,7 +330,8 @@ def _get_or_create_user(
         item.employer_id = employer_id
         item.worker_id = worker_id
         item.is_active = True
-        item.password_hash = hash_password("Siirh2026")
+        if not getattr(item, "account_status", None):
+            item.account_status = "ACTIVE"
     return item
 
 
