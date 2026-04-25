@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import {
   type AuthSession,
+  changeOwnPassword,
   fetchCurrentSession,
   getStoredSession,
   loginRequest,
@@ -60,6 +61,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     loading,
     login: async (username: string, password: string) => {
       const nextSession = await loginRequest(username, password);
+      storeSession(nextSession);
+      setSession(nextSession);
+      return nextSession;
+    },
+    changePassword: async (currentPassword: string, newPassword: string) => {
+      const changed = await changeOwnPassword(currentPassword, newPassword);
+      const refreshed = await fetchCurrentSession().catch(() => changed);
+      const nextSession = { ...refreshed, token: session?.token ?? getStoredSession()?.token ?? refreshed.token };
       storeSession(nextSession);
       setSession(nextSession);
       return nextSession;

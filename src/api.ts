@@ -16,6 +16,8 @@ export type AuthSession = {
   assigned_role_codes?: string[];
   employer_id?: number | null;
   worker_id?: number | null;
+  account_status?: string;
+  must_change_password?: boolean;
 };
 
 export function getStoredSession(): AuthSession | null {
@@ -92,6 +94,14 @@ export async function fetchCurrentSession(): Promise<AuthSession> {
 
 export async function logoutRequest() {
   await api.post("/auth/logout");
+}
+
+export async function changeOwnPassword(currentPassword: string, newPassword: string): Promise<AuthSession> {
+  const response = await api.post<AuthSession>("/auth/change-password", {
+    current_password: currentPassword,
+    new_password: newPassword,
+  });
+  return response.data;
 }
 
 /**
@@ -1092,6 +1102,7 @@ export interface PublicRegisterResult {
   username: string;
   full_name?: string | null;
   role_code: string;
+  account_status: string;
   employer_id?: number | null;
   worker_id: number;
   created_at: string;
@@ -1150,11 +1161,18 @@ export interface AppUserLight {
   employer_id?: number | null;
   worker_id?: number | null;
   is_active: boolean;
+  account_status: string;
+  must_change_password: boolean;
 }
 
 export interface AppUser extends AppUserLight {
   created_at: string;
   updated_at: string;
+  approved_at?: string | null;
+  approved_by?: number | null;
+  rejected_at?: string | null;
+  rejected_by?: number | null;
+  last_login_at?: string | null;
 }
 
 export interface AppUserCreatePayload {
@@ -1165,6 +1183,8 @@ export interface AppUserCreatePayload {
   employer_id?: number | null;
   worker_id?: number | null;
   is_active?: boolean;
+  account_status?: string | null;
+  must_change_password?: boolean;
 }
 
 export interface AppUserUpdatePayload {
@@ -1174,6 +1194,19 @@ export interface AppUserUpdatePayload {
   employer_id?: number | null;
   worker_id?: number | null;
   is_active?: boolean;
+  account_status?: string | null;
+  must_change_password?: boolean | null;
+}
+
+export interface IamSummary {
+  total_users: number;
+  pending_users: number;
+  active_users: number;
+  suspended_users: number;
+  rejected_users: number;
+  password_reset_required_users: number;
+  roles_count: number;
+  permissions_count: number;
 }
 
 export interface AuditLogEntry {
@@ -1251,6 +1284,43 @@ export async function createAuthUser(payload: AppUserCreatePayload): Promise<App
 
 export async function updateAuthUser(userId: number, payload: AppUserUpdatePayload): Promise<AppUser> {
   const response = await api.patch<AppUser>(`/auth/users/${userId}`, payload);
+  return response.data;
+}
+
+export async function updateAuthUserStatus(userId: number, status: string): Promise<AppUser> {
+  const response = await api.patch<AppUser>(`/auth/users/${userId}/status`, { status });
+  return response.data;
+}
+
+export async function approveAuthUser(userId: number): Promise<AppUser> {
+  const response = await api.post<AppUser>(`/auth/users/${userId}/approve`);
+  return response.data;
+}
+
+export async function rejectAuthUser(userId: number, reason?: string): Promise<AppUser> {
+  const response = await api.post<AppUser>(`/auth/users/${userId}/reject`, { reason: reason ?? null });
+  return response.data;
+}
+
+export async function suspendAuthUser(userId: number): Promise<AppUser> {
+  const response = await api.post<AppUser>(`/auth/users/${userId}/suspend`);
+  return response.data;
+}
+
+export async function resetAuthUserPassword(
+  userId: number,
+  temporaryPassword: string,
+  mustChangePassword = true
+): Promise<AppUser> {
+  const response = await api.post<AppUser>(`/auth/users/${userId}/reset-password`, {
+    temporary_password: temporaryPassword,
+    must_change_password: mustChangePassword,
+  });
+  return response.data;
+}
+
+export async function getIamSummary(): Promise<IamSummary> {
+  const response = await api.get<IamSummary>("/auth/iam/summary");
   return response.data;
 }
 

@@ -8,6 +8,7 @@ import { useAuth } from "./contexts/useAuth";
 import Login from "./pages/Login";
 import { canAccessPath } from "./rbac";
 
+const ChangePassword = lazy(() => import("./pages/ChangePassword"));
 const Dashboard = lazy(() => import("./pages/Dashboard"));
 const DataTransfer = lazy(() => import("./pages/DataTransfer"));
 const Declarations = lazy(() => import("./pages/Declarations"));
@@ -99,6 +100,7 @@ export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
+      <Route path="/change-password" element={<ProtectedRoute><Suspense fallback={<RouteLoader />}><ChangePassword /></Suspense></ProtectedRoute>} />
       <Route path="/*" element={<ProtectedApp />} />
     </Routes>
   );

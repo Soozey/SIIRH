@@ -20,9 +20,7 @@ import { useToast } from "../components/ui/useToast";
 
 const DEFAULT_DEMO_ACCOUNTS: PublicDemoAccount[] = [];
 
-const DEMO_LOGIN_PASSWORD = "Siirh2026";
-
-type CatalogStatus = "loading" | "live" | "fallback";
+type CatalogStatus = "loading" | "live" | "unavailable";
 
 type RoleInsight = {
   title: string;
@@ -106,22 +104,6 @@ const ROLE_INSIGHTS: RoleInsight[] = [
   },
 ];
 
-const FALLBACK_PUBLIC_ROLES: RoleCatalogPublicItem[] = [
-  { code: "admin", label: "Administrateur système", scope: "global", base_role_code: "admin", is_active: true },
-  { code: "employer_admin", label: "Administrateur employeur", scope: "company", base_role_code: "employeur", is_active: true },
-  { code: "hr_manager", label: "Responsable RH", scope: "company", base_role_code: "rh", is_active: true },
-  { code: "hr_officer", label: "Chargé RH", scope: "company", base_role_code: "rh", is_active: true },
-  { code: "employee", label: "Employé", scope: "self", base_role_code: "employe", is_active: true },
-  { code: "labor_inspector", label: "Inspecteur du travail", scope: "external", base_role_code: "inspecteur", is_active: true },
-  { code: "labor_inspector_supervisor", label: "Inspecteur principal", scope: "external", base_role_code: "inspecteur", is_active: true },
-  { code: "staff_delegate", label: "Délégué du personnel", scope: "company", base_role_code: "juridique", is_active: true },
-  { code: "works_council_member", label: "Comité d’entreprise", scope: "company", base_role_code: "juridique", is_active: true },
-  { code: "judge_readonly", label: "Juge", scope: "judicial", base_role_code: "judge_readonly", is_active: true },
-  { code: "court_clerk_readonly", label: "Greffier", scope: "judicial", base_role_code: "court_clerk_readonly", is_active: true },
-  { code: "auditor_readonly", label: "Auditeur", scope: "readonly", base_role_code: "auditor_readonly", is_active: true },
-  { code: "inspecteur", label: "Inspecteur (alias actif)", scope: "external", base_role_code: "inspecteur", is_active: true },
-];
-
 function extractErrorDetail(error: unknown): string | null {
   if (typeof error !== "object" || error === null) return null;
   const response = (error as { response?: unknown }).response;
@@ -156,8 +138,8 @@ export default function Login() {
   const { login } = useAuth();
   const toast = useToast();
 
-  const [username, setUsername] = useState("admin@siirh.com");
-  const [password, setPassword] = useState(DEMO_LOGIN_PASSWORD);
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [demoAccounts, setDemoAccounts] = useState<PublicDemoAccount[]>(DEFAULT_DEMO_ACCOUNTS);
@@ -190,18 +172,19 @@ export default function Login() {
         if (cancelled) return;
         const sortedRows = [...rows].sort((a, b) => a.label.localeCompare(b.label, "fr", { sensitivity: "base" }));
         if (sortedRows.length === 0) {
-          setPublicRoles(FALLBACK_PUBLIC_ROLES);
-          setPublicRolesStatus("fallback");
-          setPublicRolesError("Catalogue local utilise en attendant des roles publies.");
+          setPublicRoles([]);
+          setPublicRolesStatus("unavailable");
+          setPublicRolesError("Aucun rôle publié par l’API.");
           return;
         }
-        setPublicRoles(sortedRows);
+        const deduped = Array.from(new Map(sortedRows.map((item) => [item.code.trim().toLowerCase(), item])).values());
+        setPublicRoles(deduped);
         setPublicRolesStatus("live");
       } catch (error: unknown) {
         if (cancelled) return;
-        setPublicRoles(FALLBACK_PUBLIC_ROLES);
-        setPublicRolesStatus("fallback");
-        setPublicRolesError(extractErrorDetail(error) ?? "Catalogue local utilise provisoirement.");
+        setPublicRoles([]);
+        setPublicRolesStatus("unavailable");
+        setPublicRolesError(extractErrorDetail(error) ?? "Catalogue des rôles indisponible.");
       }
     };
 
@@ -211,11 +194,11 @@ export default function Login() {
         const rows = await listPublicDemoAccounts();
         if (cancelled) return;
         setDemoAccounts(rows.length ? rows : DEFAULT_DEMO_ACCOUNTS);
-        setDemoAccountsStatus(rows.length ? "live" : "fallback");
+        setDemoAccountsStatus(rows.length ? "live" : "unavailable");
       } catch {
         if (cancelled) return;
         setDemoAccounts(DEFAULT_DEMO_ACCOUNTS);
-        setDemoAccountsStatus("fallback");
+        setDemoAccountsStatus("unavailable");
       }
     };
 
@@ -229,12 +212,8 @@ export default function Login() {
         if (config.allowed_roles.length > 0) setRegisterRoleCode(config.allowed_roles[0].code);
       } catch {
         if (cancelled) return;
-        setRegistrationConfig({
-          enabled: true,
-          password_policy: "Min 8 caracteres, avec majuscule, minuscule et chiffre.",
-          allowed_roles: [{ code: "salarie_agent", label: "Salarie / Agent", scope: "self" }],
-        });
-        setRegistrationStatus("fallback");
+        setRegistrationConfig(null);
+        setRegistrationStatus("unavailable");
       }
     };
 
@@ -247,7 +226,7 @@ export default function Login() {
     };
   }, []);
 
-  const roleCatalog = useMemo(() => (publicRoles.length ? publicRoles : FALLBACK_PUBLIC_ROLES), [publicRoles]);
+  const roleCatalog = useMemo(() => publicRoles, [publicRoles]);
   const businessRoleCatalog = useMemo(() => roleCatalog.filter((item) => !isTechnicalRole(item)), [roleCatalog]);
   const technicalRoleCatalog = useMemo(() => roleCatalog.filter((item) => isTechnicalRole(item)), [roleCatalog]);
 
@@ -257,17 +236,13 @@ export default function Login() {
         const catalogRole =
           roleCatalog.find((item) => insight.aliases.some((alias) => normalizeToken(item.code) === alias || normalizeToken(item.base_role_code) === alias)) ||
           roleCatalog.find((item) => matchInsight(item)?.title === insight.title);
+        if (!catalogRole) return null;
         return {
           insight,
-          role: catalogRole ?? {
-            code: insight.aliases[0],
-            label: insight.title,
-            scope: "catalogue",
-            base_role_code: insight.aliases[0],
-            is_active: true,
-          },
+          role: catalogRole,
         };
-      }).filter((item, index, array) => array.findIndex((candidate) => candidate.role.code === item.role.code) === index),
+      }).filter((item): item is { insight: RoleInsight; role: RoleCatalogPublicItem } => item !== null)
+        .filter((item, index, array) => array.findIndex((candidate) => candidate.role.code === item.role.code) === index),
     [roleCatalog]
   );
 
@@ -309,8 +284,8 @@ export default function Login() {
     const loginForRole = resolveRoleLogin(role.code);
     if (loginForRole) {
       setUsername(loginForRole.username);
-      setPassword(DEMO_LOGIN_PASSWORD);
-      toast.info("Rôle présélectionné", `Compte de test sélectionné pour ${loginForRole.label}.`);
+      setPassword("");
+      toast.info("Rôle présélectionné", `Compte sélectionné pour ${loginForRole.label}. Saisissez le mot de passe.`);
     }
   };
 
@@ -318,8 +293,12 @@ export default function Login() {
     event.preventDefault();
     setLoading(true);
     try {
-      await login(username, password);
+      const nextSession = await login(username, password);
       toast.success("Connexion établie", "Session sécurisée ouverte.");
+      if (nextSession.must_change_password) {
+        navigate("/change-password", { replace: true });
+        return;
+      }
       navigate(redirectTo, { replace: true });
     } catch (error: unknown) {
       toast.error("Connexion refusee", extractErrorDetail(error) ?? "Identifiants invalides.");
@@ -343,9 +322,9 @@ export default function Login() {
         role_code: registerRoleCode,
         worker_matricule: registerWorkerMatricule.trim(),
       });
-      toast.success("Compte créé", `Compte actif pour ${created.username}.`);
+      toast.success("Compte créé", `Validation administrateur requise pour ${created.username}.`);
       setUsername(created.username);
-      setPassword(registerPassword);
+      setPassword("");
       setRegisterEmail("");
       setRegisterPassword("");
       setRegisterPasswordConfirm("");
@@ -366,10 +345,10 @@ export default function Login() {
         className: "border-emerald-400/30 bg-emerald-400/10 text-emerald-100",
       };
     }
-    if (publicRolesStatus === "fallback") {
+    if (publicRolesStatus === "unavailable") {
       return {
         icon: InformationCircleIcon,
-        label: "Catalogue local",
+        label: "API rôles indisponible",
         className: "border-amber-400/30 bg-amber-400/10 text-amber-100",
       };
     }
@@ -409,7 +388,7 @@ export default function Login() {
                 <form onSubmit={handleSubmit} className="mt-2 grid gap-2">
                   <label className="block">
                     <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Email</span>
-                    <input type="email" value={username} onChange={(event) => setUsername(event.target.value)} className="h-8.5 w-full rounded-lg border border-slate-800 bg-slate-900/85 px-3 text-[15px] text-white outline-none transition focus:border-cyan-400/70 focus:ring-2 focus:ring-cyan-400/20" placeholder="admin@siirh.com" autoComplete="username" required />
+                    <input type="email" value={username} onChange={(event) => setUsername(event.target.value)} className="h-8.5 w-full rounded-lg border border-slate-800 bg-slate-900/85 px-3 text-[15px] text-white outline-none transition focus:border-cyan-400/70 focus:ring-2 focus:ring-cyan-400/20" placeholder="email@domaine.local" autoComplete="username" required />
                   </label>
                   <label className="block">
                     <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Mot de passe</span>
@@ -434,7 +413,7 @@ export default function Login() {
                     <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">Création de compte</div>
                     <p className="mt-0.5 text-[12px] leading-4 text-slate-400">Matricule existant requis. {registrationConfig?.password_policy ?? ""}</p>
                   </div>
-                  <div className={`rounded-full border px-2 py-1 text-[11px] font-medium ${registrationStatus === "live" ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-100" : "border-slate-400/30 bg-slate-400/10 text-slate-100"}`}>{registrationStatus === "live" ? "Actif" : "Local"}</div>
+                  <div className={`rounded-full border px-2 py-1 text-[11px] font-medium ${registrationStatus === "live" ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-100" : "border-slate-400/30 bg-slate-400/10 text-slate-100"}`}>{registrationStatus === "live" ? "Actif" : "API indisponible"}</div>
                 </div>
                 <form onSubmit={handlePublicRegister} className="mt-2 grid gap-1.5 md:grid-cols-2">
                   <input type="email" value={registerEmail} onChange={(event) => setRegisterEmail(event.target.value)} className="h-8.5 rounded-lg border border-slate-800 bg-slate-900/85 px-3 text-[15px] text-white outline-none transition focus:border-cyan-400/70 focus:ring-2 focus:ring-cyan-400/20" placeholder="email de connexion" required />
@@ -450,7 +429,7 @@ export default function Login() {
                   >
                     {showRegisterPassword ? "Masquer les mots de passe" : "Afficher les mots de passe"}
                   </button>
-                  <button type="submit" disabled={registrationLoading || !registrationConfig?.enabled} className="md:col-span-2 flex h-8.5 items-center justify-center rounded-lg border border-cyan-400/40 bg-cyan-400/10 px-4 text-[15px] font-semibold text-cyan-200 transition hover:bg-cyan-400/20 disabled:cursor-not-allowed disabled:opacity-60">{registrationLoading ? "Création..." : "Créer un compte"}</button>
+                  <button type="submit" disabled={registrationLoading || !registrationConfig?.enabled || !(registrationConfig?.allowed_roles?.length)} className="md:col-span-2 flex h-8.5 items-center justify-center rounded-lg border border-cyan-400/40 bg-cyan-400/10 px-4 text-[15px] font-semibold text-cyan-200 transition hover:bg-cyan-400/20 disabled:cursor-not-allowed disabled:opacity-60">{registrationLoading ? "Création..." : "Créer un compte"}</button>
                 </form>
               </div>
 
@@ -458,9 +437,9 @@ export default function Login() {
                 <div className="flex items-center justify-between gap-2">
                   <div>
                     <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">Comptes de test</div>
-                    <p className="mt-0.5 text-[12px] text-slate-400">Sélection rapide du compte avec le mot de passe local de test prérempli.</p>
+                    <p className="mt-0.5 text-[12px] text-slate-400">Sélection rapide de l’identifiant uniquement. Aucun mot de passe n’est prérempli.</p>
                   </div>
-                  <div className={`rounded-full border px-2 py-1 text-[11px] font-medium ${demoAccountsStatus === "live" ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-100" : "border-slate-400/30 bg-slate-400/10 text-slate-100"}`}>{demoAccountsStatus === "live" ? "Synchronisé" : "API indisponible"}</div>
+                  <div className={`rounded-full border px-2 py-1 text-[11px] font-medium ${demoAccountsStatus === "live" ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-100" : "border-slate-400/30 bg-slate-400/10 text-slate-100"}`}>{demoAccountsStatus === "live" ? "Synchronisé" : "Aucun compte publié"}</div>
                 </div>
                 <div className="mt-2 grid gap-1.5 md:grid-cols-2 xl:grid-cols-3">
                   {demoAccounts.map((item) => (
@@ -469,7 +448,7 @@ export default function Login() {
                       type="button"
                       onClick={() => {
                         setUsername(item.username);
-                        setPassword(DEMO_LOGIN_PASSWORD);
+                        setPassword("");
                       }}
                       className="rounded-lg border border-slate-800 bg-slate-900/75 px-2.5 py-1.5 text-left transition hover:border-cyan-400/40 hover:bg-slate-900"
                     >
@@ -498,9 +477,9 @@ export default function Login() {
                 <div className="mt-2 grid grid-cols-3 gap-1.5 text-[11px]">
                   <div className="rounded-lg border border-white/10 bg-slate-950/45 px-2 py-1.5"><div className="text-slate-400">Rôles métier</div><div className="mt-0.5 font-semibold text-white">{businessRoleCatalog.length}</div></div>
                   <div className="rounded-lg border border-white/10 bg-slate-950/45 px-2 py-1.5"><div className="text-slate-400">Techniques</div><div className="mt-0.5 font-semibold text-white">{technicalRoleCatalog.length}</div></div>
-                  <div className="rounded-lg border border-white/10 bg-slate-950/45 px-2 py-1.5"><div className="text-slate-400">Statut</div><div className="mt-0.5 font-semibold text-white">{publicRolesStatus === "live" ? "Serveur" : publicRolesStatus === "fallback" ? "Local" : "Chargement"}</div></div>
+                  <div className="rounded-lg border border-white/10 bg-slate-950/45 px-2 py-1.5"><div className="text-slate-400">Statut</div><div className="mt-0.5 font-semibold text-white">{publicRolesStatus === "live" ? "Serveur" : publicRolesStatus === "unavailable" ? "Indisponible" : "Chargement"}</div></div>
                 </div>
-                {publicRolesError ? <div className="mt-1.5 text-[11px] text-slate-500">Source locale active temporairement.</div> : null}
+                {publicRolesError ? <div className="mt-1.5 text-[11px] text-slate-500">{publicRolesError}</div> : null}
               </div>
 
               <div className="rounded-[1.1rem] border border-white/10 bg-white/5 px-2.5 py-2.5">

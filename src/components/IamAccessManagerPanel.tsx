@@ -9,8 +9,10 @@ import {
 } from "@heroicons/react/24/outline";
 
 import {
+  approveAuthUser,
   createAuthUser,
   deleteAuthUser,
+  getIamSummary,
   getUserAccessPreview,
   getUserRoleAssignments,
   listAuditLogs,
@@ -18,9 +20,12 @@ import {
   listIamPermissions,
   listIamRoleActivations,
   listRoleCatalog,
+  rejectAuthUser,
+  resetAuthUserPassword,
   setIamRoleActivation,
   setRolePermissions,
   setUserRoleAssignments,
+  suspendAuthUser,
   updateAuthUser,
   getWorkers,
   api,
@@ -28,6 +33,7 @@ import {
   type AppUserLight,
   type AuditLogEntry,
   type IamUserRoleAssignment,
+  type IamSummary,
   type RoleCatalogItem,
   type UserAccessPreview,
 } from "../api";
@@ -45,6 +51,8 @@ type AccountForm = {
   employer_id: number | null;
   worker_id: number | null;
   is_active: boolean;
+  account_status: string;
+  must_change_password: boolean;
 };
 
 const ACTIONS: Array<"read" | "write" | "admin"> = ["read", "write", "admin"];
@@ -77,12 +85,34 @@ function emptyAccountForm(defaultRoleCode = ""): AccountForm {
     employer_id: null,
     worker_id: null,
     is_active: true,
+    account_status: "ACTIVE",
+    must_change_password: false,
   };
+}
+
+const ACCOUNT_STATUSES = ["PENDING_APPROVAL", "ACTIVE", "SUSPENDED", "REJECTED", "PASSWORD_RESET_REQUIRED"];
+
+function accountStatusLabel(status: string) {
+  switch (status) {
+    case "PENDING_APPROVAL":
+      return "En attente";
+    case "ACTIVE":
+      return "Actif";
+    case "SUSPENDED":
+      return "Suspendu";
+    case "REJECTED":
+      return "Refusé";
+    case "PASSWORD_RESET_REQUIRED":
+      return "Mot de passe à changer";
+    default:
+      return status || "Non défini";
+  }
 }
 
 export default function IamAccessManagerPanel() {
   const [roles, setRoles] = useState<RoleCatalogItem[]>([]);
   const [users, setUsers] = useState<AppUserLight[]>([]);
+  const [iamSummary, setIamSummary] = useState<IamSummary | null>(null);
   const [employers, setEmployers] = useState<Employer[]>([]);
   const [activations, setActivations] = useState<Record<string, boolean>>({});
   const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
@@ -95,6 +125,9 @@ export default function IamAccessManagerPanel() {
   const [createWorkers, setCreateWorkers] = useState<Array<{ id: number; nom: string; prenom: string; matricule?: string | null }>>([]);
   const [editWorkers, setEditWorkers] = useState<Array<{ id: number; nom: string; prenom: string; matricule?: string | null }>>([]);
   const [deletePassword, setDeletePassword] = useState("");
+  const [statusFilter, setStatusFilter] = useState("ALL");
+  const [resetPassword, setResetPassword] = useState("");
+  const [resetMustChange, setResetMustChange] = useState(true);
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [savingRoles, setSavingRoles] = useState(false);
@@ -107,13 +140,14 @@ export default function IamAccessManagerPanel() {
     setLoading(true);
     setError(null);
     try {
-      const [rolesRows, activationsRows, usersRows, permissionsRows, employersRows, auditRows] = await Promise.all([
+      const [rolesRows, activationsRows, usersRows, permissionsRows, employersRows, auditRows, summaryRows] = await Promise.all([
         listRoleCatalog(),
         listIamRoleActivations(),
         listAuthUsers(),
         listIamPermissions(),
         api.get<Employer[]>("/employers").then((response) => response.data),
         listAuditLogs({ limit: 40 }),
+        getIamSummary(),
       ]);
 
       const activationMap: Record<string, boolean> = {};
@@ -131,6 +165,7 @@ export default function IamAccessManagerPanel() {
 
       setRoles(hydratedRoles);
       setUsers(usersRows);
+      setIamSummary(summaryRows);
       setEmployers(employersRows);
       setActivations(activationMap);
       setAuditLogs(auditRows);
@@ -200,8 +235,15 @@ export default function IamAccessManagerPanel() {
       employer_id: selectedUser.employer_id ?? null,
       worker_id: selectedUser.worker_id ?? null,
       is_active: selectedUser.is_active,
+      account_status: selectedUser.account_status,
+      must_change_password: selectedUser.must_change_password,
     });
   }, [selectedUser, roles]);
+
+  const visibleUsers = useMemo(
+    () => users.filter((item) => statusFilter === "ALL" || item.account_status === statusFilter),
+    [statusFilter, users]
+  );
 
   useEffect(() => {
     if (!createForm.employer_id) {
@@ -334,6 +376,8 @@ export default function IamAccessManagerPanel() {
         employer_id: createForm.employer_id,
         worker_id: createForm.worker_id,
         is_active: createForm.is_active,
+        account_status: createForm.account_status,
+        must_change_password: createForm.must_change_password,
       });
       setStatus(`Compte créé: ${created.username}.`);
       setCreateForm(emptyAccountForm(createForm.role_code));
@@ -353,11 +397,12 @@ export default function IamAccessManagerPanel() {
     try {
       const payload = {
         full_name: editForm.full_name.trim() || null,
-        password: editForm.password.trim() || null,
         role_code: editForm.role_code,
         employer_id: editForm.employer_id,
         worker_id: editForm.worker_id,
         is_active: editForm.is_active,
+        account_status: editForm.account_status,
+        must_change_password: editForm.must_change_password,
       };
       await updateAuthUser(selectedUserId, payload);
       setStatus("Compte mis à jour.");
@@ -387,6 +432,71 @@ export default function IamAccessManagerPanel() {
     }
   };
 
+  const handleApproveUser = async () => {
+    if (!selectedUserId) return;
+    setSavingAccount(true);
+    setStatus(null);
+    setError(null);
+    try {
+      await approveAuthUser(selectedUserId);
+      setStatus("Compte validé. Les accès du rôle sont actifs.");
+      await loadAll(selectedUserId);
+    } catch (err: unknown) {
+      setError(getApiErrorMessage(err, "Validation du compte impossible."));
+    } finally {
+      setSavingAccount(false);
+    }
+  };
+
+  const handleRejectUser = async () => {
+    if (!selectedUserId) return;
+    setSavingAccount(true);
+    setStatus(null);
+    setError(null);
+    try {
+      await rejectAuthUser(selectedUserId);
+      setStatus("Compte refusé et sessions révoquées.");
+      await loadAll(selectedUserId);
+    } catch (err: unknown) {
+      setError(getApiErrorMessage(err, "Refus du compte impossible."));
+    } finally {
+      setSavingAccount(false);
+    }
+  };
+
+  const handleSuspendUser = async () => {
+    if (!selectedUserId) return;
+    setSavingAccount(true);
+    setStatus(null);
+    setError(null);
+    try {
+      await suspendAuthUser(selectedUserId);
+      setStatus("Compte suspendu et sessions révoquées.");
+      await loadAll(selectedUserId);
+    } catch (err: unknown) {
+      setError(getApiErrorMessage(err, "Suspension du compte impossible."));
+    } finally {
+      setSavingAccount(false);
+    }
+  };
+
+  const handleResetPassword = async () => {
+    if (!selectedUserId || !resetPassword.trim()) return;
+    setSavingAccount(true);
+    setStatus(null);
+    setError(null);
+    try {
+      await resetAuthUserPassword(selectedUserId, resetPassword, resetMustChange);
+      setResetPassword("");
+      setStatus("Mot de passe réinitialisé. L’ancien mot de passe n’est jamais affiché.");
+      await loadAll(selectedUserId);
+    } catch (err: unknown) {
+      setError(getApiErrorMessage(err, "Réinitialisation du mot de passe impossible."));
+    } finally {
+      setSavingAccount(false);
+    }
+  };
+
   return (
     <section className="mt-6 rounded-2xl border border-slate-800 bg-slate-900/60 p-4 md:p-5">
       <h2 className="inline-flex items-center gap-2 text-sm font-semibold text-slate-100">
@@ -399,6 +509,16 @@ export default function IamAccessManagerPanel() {
 
       {error ? <div className="mt-3 rounded-xl border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">{error}</div> : null}
       {status ? <div className="mt-3 rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">{status}</div> : null}
+      {iamSummary ? (
+        <div className="mt-4 grid gap-2 text-xs text-slate-200 sm:grid-cols-3 lg:grid-cols-6">
+          <div className="rounded-xl border border-slate-800 bg-slate-950/50 p-3"><div className="text-slate-500">Total</div><div className="text-lg font-semibold text-white">{iamSummary.total_users}</div></div>
+          <div className="rounded-xl border border-amber-400/25 bg-amber-400/10 p-3"><div className="text-amber-100">En attente</div><div className="text-lg font-semibold text-white">{iamSummary.pending_users}</div></div>
+          <div className="rounded-xl border border-emerald-400/25 bg-emerald-400/10 p-3"><div className="text-emerald-100">Actifs</div><div className="text-lg font-semibold text-white">{iamSummary.active_users}</div></div>
+          <div className="rounded-xl border border-slate-700 bg-slate-900/70 p-3"><div className="text-slate-300">Suspendus</div><div className="text-lg font-semibold text-white">{iamSummary.suspended_users}</div></div>
+          <div className="rounded-xl border border-rose-400/25 bg-rose-400/10 p-3"><div className="text-rose-100">Refusés</div><div className="text-lg font-semibold text-white">{iamSummary.rejected_users}</div></div>
+          <div className="rounded-xl border border-cyan-400/25 bg-cyan-400/10 p-3"><div className="text-cyan-100">Reset requis</div><div className="text-lg font-semibold text-white">{iamSummary.password_reset_required_users}</div></div>
+        </div>
+      ) : null}
 
       {loading ? (
         <div className="mt-4 inline-flex items-center gap-2 text-sm text-slate-300">
@@ -515,6 +635,30 @@ export default function IamAccessManagerPanel() {
                     />
                     Compte actif
                   </label>
+                  <select
+                    value={createForm.account_status}
+                    onChange={(event) =>
+                      setCreateForm((current) => ({
+                        ...current,
+                        account_status: event.target.value,
+                        is_active: ["ACTIVE", "PASSWORD_RESET_REQUIRED"].includes(event.target.value),
+                        must_change_password: event.target.value === "PASSWORD_RESET_REQUIRED" ? true : current.must_change_password,
+                      }))
+                    }
+                    className={inputClassName}
+                  >
+                    {ACCOUNT_STATUSES.map((item) => (
+                      <option key={`create-status-${item}`} value={item}>{accountStatusLabel(item)}</option>
+                    ))}
+                  </select>
+                  <label className="flex items-center gap-2 text-sm text-slate-300">
+                    <input
+                      type="checkbox"
+                      checked={createForm.must_change_password}
+                      onChange={(event) => setCreateForm((current) => ({ ...current, must_change_password: event.target.checked }))}
+                    />
+                    Forcer le changement au premier accès
+                  </label>
                   <button
                     type="button"
                     onClick={() => void handleCreateUser()}
@@ -532,24 +676,22 @@ export default function IamAccessManagerPanel() {
                     onChange={(event) => setSelectedUserId(event.target.value ? Number(event.target.value) : null)}
                     className={inputClassName}
                   >
-                    {users.map((user) => (
+                    <option value="">Sélectionner un compte</option>
+                    {visibleUsers.map((user) => (
                       <option key={`iam-user-${user.id}`} value={user.id}>
-                        {user.full_name || user.username} ({user.role_code})
+                        {user.full_name || user.username} ({accountStatusLabel(user.account_status)})
                       </option>
                     ))}
+                  </select>
+                  <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className={inputClassName}>
+                    <option value="ALL">Tous les statuts</option>
+                    {ACCOUNT_STATUSES.map((item) => <option key={`filter-${item}`} value={item}>{accountStatusLabel(item)}</option>)}
                   </select>
                   <input value={editForm.username} className={`${inputClassName} opacity-70`} disabled />
                   <input
                     value={editForm.full_name}
                     onChange={(event) => setEditForm((current) => ({ ...current, full_name: event.target.value }))}
                     placeholder="Nom complet"
-                    className={inputClassName}
-                  />
-                  <input
-                    type="password"
-                    value={editForm.password}
-                    onChange={(event) => setEditForm((current) => ({ ...current, password: event.target.value }))}
-                    placeholder="Nouveau mot de passe"
                     className={inputClassName}
                   />
                   <select
@@ -601,6 +743,35 @@ export default function IamAccessManagerPanel() {
                     />
                     Compte actif
                   </label>
+                  <select
+                    value={editForm.account_status}
+                    onChange={(event) =>
+                      setEditForm((current) => ({
+                        ...current,
+                        account_status: event.target.value,
+                        is_active: ["ACTIVE", "PASSWORD_RESET_REQUIRED"].includes(event.target.value),
+                        must_change_password: event.target.value === "PASSWORD_RESET_REQUIRED" ? true : current.must_change_password,
+                      }))
+                    }
+                    className={inputClassName}
+                  >
+                    {ACCOUNT_STATUSES.map((item) => (
+                      <option key={`edit-status-${item}`} value={item}>{accountStatusLabel(item)}</option>
+                    ))}
+                  </select>
+                  <label className="flex items-center gap-2 text-sm text-slate-300">
+                    <input
+                      type="checkbox"
+                      checked={editForm.must_change_password}
+                      onChange={(event) => setEditForm((current) => ({ ...current, must_change_password: event.target.checked }))}
+                    />
+                    Changement de mot de passe obligatoire
+                  </label>
+                  <div className="grid grid-cols-3 gap-2">
+                    <button type="button" onClick={() => void handleApproveUser()} disabled={savingAccount || !selectedUserId} className="rounded-xl border border-emerald-400/40 px-3 py-2 text-xs font-semibold text-emerald-100 disabled:opacity-50">Valider</button>
+                    <button type="button" onClick={() => void handleRejectUser()} disabled={savingAccount || !selectedUserId} className="rounded-xl border border-rose-400/40 px-3 py-2 text-xs font-semibold text-rose-100 disabled:opacity-50">Refuser</button>
+                    <button type="button" onClick={() => void handleSuspendUser()} disabled={savingAccount || !selectedUserId} className="rounded-xl border border-slate-500/60 px-3 py-2 text-xs font-semibold text-slate-100 disabled:opacity-50">Suspendre</button>
+                  </div>
                   <button
                     type="button"
                     onClick={() => void handleUpdateUser()}
@@ -609,6 +780,28 @@ export default function IamAccessManagerPanel() {
                   >
                     {savingAccount ? "Enregistrement..." : "Enregistrer les changements"}
                   </button>
+                  <div className="rounded-xl border border-amber-500/25 bg-amber-500/10 p-3">
+                    <div className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-100">Réinitialisation mot de passe</div>
+                    <input
+                      type="password"
+                      value={resetPassword}
+                      onChange={(event) => setResetPassword(event.target.value)}
+                      placeholder="Nouveau mot de passe temporaire"
+                      className={`${inputClassName} mt-3`}
+                    />
+                    <label className="mt-3 flex items-center gap-2 text-sm text-slate-300">
+                      <input type="checkbox" checked={resetMustChange} onChange={(event) => setResetMustChange(event.target.checked)} />
+                      Forcer le changement à la prochaine connexion
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => void handleResetPassword()}
+                      disabled={savingAccount || !selectedUserId || !resetPassword.trim()}
+                      className="mt-3 w-full rounded-xl border border-amber-400/40 px-4 py-2 text-sm font-semibold text-amber-100 disabled:opacity-50"
+                    >
+                      Réinitialiser
+                    </button>
+                  </div>
                   <div className="rounded-xl border border-rose-500/25 bg-rose-500/10 p-3">
                     <div className="text-xs font-semibold uppercase tracking-[0.18em] text-rose-100">Suppression logique</div>
                     <input
