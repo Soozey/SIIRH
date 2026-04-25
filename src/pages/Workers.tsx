@@ -10,6 +10,11 @@ import ImportWorkersDialog from "../components/ImportWorkersDialog";
 import { CascadingOrganizationalSelect } from "../components/CascadingOrganizationalSelect";
 import type { CascadingSelectValue } from "../components/CascadingOrganizationalSelection";
 import { Skeleton } from "../components/ui/Skeleton";
+import {
+  CorporatePanel,
+  CorporateStatCard,
+  CorporateStatusBadge,
+} from "../components/corporate/CorporateUI";
 import { useAuth } from "../contexts/AuthContext";
 import { useWorkerData } from "../hooks/useConstants";
 import { hasModulePermission, sessionHasRole } from "../rbac";
@@ -24,7 +29,7 @@ import {
   PencilIcon,
   TrashIcon,
   BriefcaseIcon,
-  CurrencyDollarIcon,
+  BanknotesIcon,
   ClockIcon,
   IdentificationIcon,
   TagIcon,
@@ -1032,6 +1037,54 @@ export default function Workers() {
         </div>
       </div>
 
+      <section className="grid gap-4 print:hidden md:grid-cols-2 xl:grid-cols-4">
+        <CorporateStatCard
+          label="Effectif"
+          value={totalWorkers}
+          hint="Dossiers travailleurs"
+          icon={UserIcon}
+          tone="navy"
+        />
+        <CorporateStatCard
+          label="Employeurs"
+          value={employers.length}
+          hint="Filtrage multi-sociétés"
+          icon={BuildingOfficeIcon}
+          tone="emerald"
+        />
+        <CorporateStatCard
+          label="Page active"
+          value={`${page}/${totalPages}`}
+          hint={`${workers.length} ligne(s) affichée(s)`}
+          icon={BriefcaseIcon}
+          tone="blue"
+        />
+        <CorporateStatCard
+          label="Sélection"
+          value={selectedIds.size}
+          hint={selectedIds.size > 0 ? "Action groupée prête" : "Aucune ligne sélectionnée"}
+          icon={IdentificationIcon}
+          tone={selectedIds.size > 0 ? "amber" : "slate"}
+        />
+      </section>
+
+      <CorporatePanel className="print:hidden">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <h2 className="text-lg font-extrabold text-[#07152f]">Dossier permanent RH</h2>
+            <p className="mt-1 text-sm font-medium text-slate-600">
+              Identité, contrat, paie, documents, banque et taux sociaux sont regroupés sans changer les données existantes.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <CorporateStatusBadge tone="info">CIN</CorporateStatusBadge>
+            <CorporateStatusBadge tone="info">Contrat</CorporateStatusBadge>
+            <CorporateStatusBadge tone="info">CNaPS / SMIE</CorporateStatusBadge>
+            <CorporateStatusBadge tone="success">Ariary</CorporateStatusBadge>
+          </div>
+        </div>
+      </CorporatePanel>
+
       {/* Employer Filter */}
       <div className="siirh-panel print:hidden">
         <div className="siirh-section-header">
@@ -1356,7 +1409,7 @@ export default function Workers() {
                   onClick={() => setBankModalOpen(true)}
                   className="w-full flex items-center justify-center gap-3 py-4 bg-white border-2 border-dashed border-blue-200 text-blue-600 rounded-2xl font-bold hover:bg-blue-50 hover:border-blue-400 transition-all group"
                 >
-                  <CurrencyDollarIcon className="h-6 w-6" />
+                  <BanknotesIcon className="h-6 w-6" />
                   <span>COORDONNÉES BANCAIRES</span>
                 </button>
 
@@ -1482,7 +1535,7 @@ export default function Workers() {
                   <div className="bg-slate-50 px-8 py-6 border-b border-slate-100 flex items-center justify-between">
                     <div className="flex items-center gap-3">
                       <div className="p-2 bg-blue-600 rounded-xl">
-                        <CurrencyDollarIcon className="h-6 w-6 text-white" />
+                        <BanknotesIcon className="h-6 w-6 text-white" />
                       </div>
                       <div>
                         <Dialog.Title className="text-xl font-black text-slate-800 uppercase tracking-tight">Banque Salarié</Dialog.Title>
@@ -1689,7 +1742,7 @@ export default function Workers() {
 
                       <div className="flex flex-wrap gap-4 text-sm text-gray-600">
                         <div className="flex items-center gap-1">
-                          <CurrencyDollarIcon className="h-4 w-4" />
+                          <BanknotesIcon className="h-4 w-4" />
                           <span>Base: {formatCurrency(Number(worker.salaire_base || 0))}</span>
                         </div>
                         <div className="flex items-center gap-1">

@@ -9,7 +9,7 @@ import {
   ChevronRightIcon,
   DocumentTextIcon,
   CalendarIcon,
-  CurrencyDollarIcon,
+  BanknotesIcon,
   BuildingOfficeIcon,
   UserIcon
 } from '@heroicons/react/24/outline';
@@ -61,7 +61,7 @@ export const ConstantsPalette: React.FC<ConstantsPaletteProps> = ({
       case 'Employeur': return <BuildingOfficeIcon className="w-4 h-4" />;
       case 'Travailleur': return <UserIcon className="w-4 h-4" />;
       case 'Structure Organisationnelle': return <BuildingOfficeIcon className="w-4 h-4" />;
-      case 'Paie': return <CurrencyDollarIcon className="w-4 h-4" />;
+      case 'Paie': return <BanknotesIcon className="w-4 h-4" />;
       case 'Système': return <CalendarIcon className="w-4 h-4" />;
       default: return <DocumentTextIcon className="w-4 h-4" />;
     }

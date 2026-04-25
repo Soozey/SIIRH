@@ -23,10 +23,16 @@ import HsHmManagerModal from "../components/HsHmManagerModal";
 import ResetPrimesDialog from "../components/ResetPrimesDialog";
 import PayslipDocument, { type PayslipData } from "../components/PayslipDocument";
 import ErrorBoundary from "../components/ErrorBoundary";
-import { CurrencyDollarIcon } from "@heroicons/react/24/outline";
+import { BanknotesIcon, CheckCircleIcon, ExclamationTriangleIcon, UserGroupIcon } from "@heroicons/react/24/outline";
 import WorkerSearchSelect from "../components/WorkerSearchSelect";
 import { OrganizationalFilterModalOptimized, type OrganizationalFilters } from "../components/OrganizationalFilterModalOptimized";
 import { getContextHelp } from "../help/helpContent";
+import {
+  CorporatePageHeader,
+  CorporateStatCard,
+  CorporateStatusBadge,
+} from "../components/corporate/CorporateUI";
+import { formatAriary } from "../utils/ariary";
 
 type Worker = {
   id: number;
@@ -232,9 +238,9 @@ export default function PayrollRun() {
       setCurrentPayrollRunId(run.data.id);
       return run.data;
     } catch (e) {
-      console.error("Erreur rÃ©cupÃ©ration PayrollRun:", e);
+      console.error("Erreur récupération PayrollRun:", e);
       if (showAlerts) {
-        alert("Impossible de rÃ©cupÃ©rer le run de paie.");
+        alert("Impossible de récupérer le run de paie.");
       }
       return null;
     }
@@ -247,7 +253,7 @@ export default function PayrollRun() {
 
   const handlePreparePeriodRun = async () => {
     if (!period) {
-      alert("Veuillez sÃ©lectionner une pÃ©riode.");
+      alert("Veuillez sélectionner une période.");
       return;
     }
 
@@ -256,10 +262,10 @@ export default function PayrollRun() {
     try {
       const run = await ensurePayrollRun(false);
       if (!run) {
-        alert("Impossible de prÃ©parer la pÃ©riode de paie.");
+        alert("Impossible de préparer la période de paie.");
         return;
       }
-      setPeriodRunMessage(`PÃ©riode prÃªte : run #${run.id} (${run.period}).`);
+      setPeriodRunMessage(`Période prête : run #${run.id} (${run.period}).`);
     } finally {
       setIsPreparingPeriodRun(false);
     }
@@ -552,10 +558,68 @@ export default function PayrollRun() {
 
   const selectedEmployerLabel = employers.find((item) => item.id === selectedEmployerId)?.raison_sociale || null;
   const activeOrganizationFilterEntries = Object.entries(organizationFilters || {}).filter(([, value]) => Boolean(value));
+  const estimatedPayrollBase = workersList.reduce((sum, item) => sum + (Number(item.salaire_base) || 0), 0);
+  const journalNetTotal = journalColumns.includes("net_a_payer") ? getJournalColumnTotal("net_a_payer") : null;
+  const journalGrossTotal = journalColumns.includes("brut_total") ? getJournalColumnTotal("brut_total") : null;
 
   return (
     <div className="siirh-page min-h-screen w-full flex flex-col">
       <div className="flex-1 w-full max-w-7xl mx-auto p-6 md:p-10 space-y-8 animate-fade-in">
+      <CorporatePageHeader
+        eyebrow="Paie Madagascar"
+        title="Tableau de bord de paie"
+        subtitle={`${formatPeriod(period)} · ${selectedEmployerLabel || "Aucun employeur sélectionné"} · montants affichés en Ariary lorsque les données sont disponibles.`}
+        actions={
+          <>
+            <button type="button" onClick={handlePreviewJournal} disabled={!selectedEmployerId || !period || isGeneratingJournal} className="siirh-btn-secondary">
+              Aperçu état de paie
+            </button>
+            <button type="button" onClick={handleDownloadJournal} disabled={!selectedEmployerId || !period || isDownloadingJournal} className="siirh-btn-primary">
+              Exporter Excel
+            </button>
+          </>
+        }
+      />
+
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <CorporateStatCard
+          label="Masse salariale"
+          value={journalGrossTotal !== null ? `${formatJournalAmount(journalGrossTotal)} Ar` : formatAriary(estimatedPayrollBase)}
+          hint={journalGrossTotal !== null ? "Total brut de l'état de paie" : "Base estimée depuis les salariés chargés"}
+          icon={BanknotesIcon}
+          tone="emerald"
+        />
+        <CorporateStatCard
+          label="Effectif paie"
+          value={workersList.length}
+          hint="Salariés de l'employeur courant"
+          icon={UserGroupIcon}
+          tone="navy"
+        />
+        <CorporateStatCard
+          label="Net à payer"
+          value={journalNetTotal !== null ? `${formatJournalAmount(journalNetTotal)} Ar` : "À générer"}
+          hint="Disponible après aperçu de l'état de paie"
+          icon={CheckCircleIcon}
+          tone={journalNetTotal !== null ? "blue" : "slate"}
+        />
+        <CorporateStatCard
+          label="Période"
+          value={period || "-"}
+          hint={currentPayrollRunId ? `Run #${currentPayrollRunId}` : "Run non préparé"}
+          icon={ExclamationTriangleIcon}
+          tone={currentPayrollRunId ? "emerald" : "amber"}
+        />
+      </section>
+
+      <div className="flex flex-wrap gap-2">
+        <CorporateStatusBadge tone="info">IRSA</CorporateStatusBadge>
+        <CorporateStatusBadge tone="info">CNaPS</CorporateStatusBadge>
+        <CorporateStatusBadge tone="info">OSTIE / SMIE</CorporateStatusBadge>
+        <CorporateStatusBadge tone="info">FMFP</CorporateStatusBadge>
+        <CorporateStatusBadge tone="success">Ariary</CorporateStatusBadge>
+      </div>
+
       {/* Header */}
       <div className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-slate-900 via-blue-900 to-cyan-900 p-8 shadow-xl shadow-slate-900/20">
         <div className="relative z-10 flex flex-col md:flex-row md:items-center md:justify-between gap-6">
@@ -745,7 +809,7 @@ export default function PayrollRun() {
                 }}
                 disabled={!worker || !period}
                 className="w-full py-3 bg-teal-500 text-white font-bold rounded-xl hover:bg-teal-600 transition-colors flex items-center justify-center gap-2 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
-                title={!worker ? "SÃ©lectionnez un salariÃ©" : !period ? "SÃ©lectionnez une pÃ©riode" : "Calculer le salaire de base Ã  partir du net souhaitÃ©"}
+                title={!worker ? "Sélectionnez un salarié" : !period ? "Sélectionnez une période" : "Calculer le salaire de base à partir du net souhaité"}
               >
                 <CalculatorIcon className="h-5 w-5" />
                 Simulateur de Salaire
@@ -802,7 +866,7 @@ export default function PayrollRun() {
                   }}
                   className="w-full py-3 bg-fuchsia-50 border border-fuchsia-200 text-fuchsia-700 font-semibold rounded-xl hover:bg-fuchsia-100 transition-colors flex items-center justify-center gap-2 mb-2"
                 >
-                  <CurrencyDollarIcon className="h-5 w-5" />
+                  <BanknotesIcon className="h-5 w-5" />
                   Import Variables Primes
                 </button>
                 <button

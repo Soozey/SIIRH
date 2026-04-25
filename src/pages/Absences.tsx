@@ -530,7 +530,7 @@ const Absences: React.FC = () => {
 
         <div className={activeTab === "new" ? "" : "hidden"}>
         <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-          Les absences enregistrÃ©es ici sont reprises automatiquement par le moteur de paie sur la mÃªme pÃ©riode.
+          Les absences enregistrées ici sont reprises automatiquement par le moteur de paie sur la même période.
         </div>
 
         <div className="mb-6 rounded-xl border border-blue-200 bg-blue-50 p-4">

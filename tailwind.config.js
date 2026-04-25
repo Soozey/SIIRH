@@ -8,11 +8,19 @@ export default {
   theme: {
     extend: {
       fontFamily: {
-        sans: ['"Outfit"', 'sans-serif'],
-        display: ['"Outfit"', 'sans-serif'],
-        body: ['"Inter"', 'sans-serif'],
+        sans: ['"Inter"', 'system-ui', '-apple-system', 'BlinkMacSystemFont', '"Segoe UI"', 'sans-serif'],
+        display: ['"Inter"', 'system-ui', '-apple-system', 'BlinkMacSystemFont', '"Segoe UI"', 'sans-serif'],
+        body: ['"Inter"', 'system-ui', '-apple-system', 'BlinkMacSystemFont', '"Segoe UI"', 'sans-serif'],
       },
       colors: {
+        corporate: {
+          navy: '#002147',
+          emerald: '#50C878',
+          surface: '#f7f8fb',
+          ink: '#07152f',
+          muted: '#64748b',
+          border: '#d7dde8',
+        },
         primary: {
           50: '#eff6ff',
           100: '#dbeafe',

@@ -830,7 +830,7 @@ export default function Recruitment() {
         prefilled,
       });
     } catch (error) {
-      toast.error("TÃ©lÃ©chargement impossible", error instanceof Error ? error.message : "Erreur inattendue.");
+      toast.error("Téléchargement impossible", error instanceof Error ? error.message : "Erreur inattendue.");
     }
   };
 
@@ -843,7 +843,7 @@ export default function Recruitment() {
       setImportReport(report);
       await invalidateRecruitment();
       toast.success(
-        "Import recrutement terminÃ©",
+        "Import recrutement terminé",
         `${report.created} création(s), ${report.updated} mise(s) à jour, ${report.failed} échec(s).`
       );
     } catch (error) {

@@ -13,7 +13,7 @@ import {
   BuildingStorefrontIcon,
   PencilIcon,
   TrashIcon,
-  CurrencyDollarIcon,
+  BanknotesIcon,
   ChartBarIcon,
   IdentificationIcon
 } from "@heroicons/react/24/outline";
@@ -620,7 +620,7 @@ export default function Employers() {
                   </label>
                   <div className="relative">
                     <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                      <CurrencyDollarIcon className="h-5 w-5 text-gray-400" />
+                      <BanknotesIcon className="h-5 w-5 text-gray-400" />
                     </div>
                     <input
                       type="number"
@@ -645,7 +645,7 @@ export default function Employers() {
                       </label>
                       <div className="relative">
                         <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                          <CurrencyDollarIcon className="h-5 w-5 text-gray-400" />
+                          <BanknotesIcon className="h-5 w-5 text-gray-400" />
                         </div>
                         <input
                           type="number"
@@ -666,7 +666,7 @@ export default function Employers() {
                       </label>
                       <div className="relative">
                         <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                          <CurrencyDollarIcon className="h-5 w-5 text-gray-400" />
+                          <BanknotesIcon className="h-5 w-5 text-gray-400" />
                         </div>
                         <input
                           type="number"
@@ -684,7 +684,7 @@ export default function Employers() {
                       </label>
                       <div className="relative">
                         <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                          <CurrencyDollarIcon className="h-5 w-5 text-gray-400" />
+                          <BanknotesIcon className="h-5 w-5 text-gray-400" />
                         </div>
                         <input
                           type="number"
@@ -708,7 +708,7 @@ export default function Employers() {
                   </label>
                   <div className="relative">
                     <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                      <CurrencyDollarIcon className="h-5 w-5 text-gray-400" />
+                      <BanknotesIcon className="h-5 w-5 text-gray-400" />
                     </div>
                     <input
                       type="number"
@@ -787,7 +787,7 @@ export default function Employers() {
                         className="w-full px-4 py-3 bg-white border border-blue-300 rounded-xl text-blue-600 font-semibold text-lg text-center"
                       />
                       <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
-                        <CurrencyDollarIcon className="h-5 w-5 text-blue-500" />
+                        <BanknotesIcon className="h-5 w-5 text-blue-500" />
                       </div>
                     </div>
                   </div>
@@ -884,7 +884,7 @@ export default function Employers() {
                               className="p-2 text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
                               title="Gérer les Primes"
                             >
-                              <CurrencyDollarIcon className="h-4 w-4" />
+                              <BanknotesIcon className="h-4 w-4" />
                             </a>
 
                             {canWriteWorkforce ? (
@@ -916,7 +916,7 @@ export default function Employers() {
                           </div>
                           {((employer.taux_sal_smie || 0) > 0 || employer.taux_pat_smie > 0) && (
                             <div className="flex items-center gap-2 text-gray-600">
-                              <CurrencyDollarIcon className="h-4 w-4" />
+                              <BanknotesIcon className="h-4 w-4" />
                               <span><strong>SMIE:</strong> Sal. {employer.taux_sal_smie || 0}% / Pat. {employer.taux_pat_smie}%</span>
                             </div>
                           )}

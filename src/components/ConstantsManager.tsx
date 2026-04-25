@@ -5,7 +5,7 @@ import { useState } from 'react';
 import {
   Cog6ToothIcon,
   DocumentTextIcon,
-  CurrencyDollarIcon,
+  BanknotesIcon,
   BuildingOfficeIcon,
   UserGroupIcon,
   ListBulletIcon,
@@ -120,7 +120,7 @@ export const ConstantsManager: React.FC<ConstantsManagerProps> = ({ onClose }) =
     {
       id: 'payroll' as const,
       label: 'Paie',
-      icon: <CurrencyDollarIcon className="w-5 h-5" />,
+      icon: <BanknotesIcon className="w-5 h-5" />,
       description: 'Constantes de calcul de paie'
     },
     {
@@ -224,7 +224,7 @@ export const ConstantsManager: React.FC<ConstantsManagerProps> = ({ onClose }) =
             />
             <ConstantsSection
               title="Modes de paiement"
-              icon={<CurrencyDollarIcon className="w-5 h-5" />}
+              icon={<BanknotesIcon className="w-5 h-5" />}
               data={business.data?.paiements || {}}
               type="object"
             />

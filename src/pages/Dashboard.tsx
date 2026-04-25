@@ -2,7 +2,7 @@ import type { ComponentType } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
-  AcademicCapIcon,
+  BanknotesIcon,
   BriefcaseIcon,
   BuildingOfficeIcon,
   ChartBarIcon,
@@ -14,13 +14,20 @@ import {
 } from "@heroicons/react/24/outline";
 
 import { api } from "../api";
+import {
+  CorporatePanel,
+  CorporatePageHeader,
+  CorporateSectionHeader,
+  CorporateStatCard,
+  CorporateStatusBadge,
+} from "../components/corporate/CorporateUI";
 import { useAuth } from "../contexts/AuthContext";
 import { sessionHasRole } from "../rbac";
 import { formatCount } from "../utils/format";
 
-
 interface Employer {
   id: number;
+  raison_sociale?: string;
 }
 
 interface WorkerPagination {
@@ -32,14 +39,6 @@ interface JobPosting {
 }
 
 interface ContractSummary {
-  id: number;
-}
-
-interface Training {
-  id: number;
-}
-
-interface Incident {
   id: number;
 }
 
@@ -82,10 +81,6 @@ interface DebugExecutionPanel {
   modules_created: DebugExecutionItem[];
 }
 
-const shellCardClassName =
-  "siirh-panel";
-
-
 export default function Dashboard() {
   const { session } = useAuth();
   const canSeeDebugPanel = sessionHasRole(session, ["admin", "system_admin", "super_administrateur_systeme"]);
@@ -114,16 +109,6 @@ export default function Dashboard() {
     queryFn: async () => (await api.get<ContractSummary[]>("/custom-contracts")).data,
   });
 
-  const { data: trainings = [] } = useQuery({
-    queryKey: ["dashboard", "talent-trainings"],
-    queryFn: async () => (await api.get<Training[]>("/talents/trainings")).data,
-  });
-
-  const { data: incidents = [] } = useQuery({
-    queryKey: ["dashboard", "sst-incidents"],
-    queryFn: async () => (await api.get<Incident[]>("/sst/incidents")).data,
-  });
-
   const { data: legalStatus } = useQuery({
     queryKey: ["dashboard", "legal-modules-status"],
     queryFn: async () => (await api.get<LegalModulesStatus>("/compliance/legal-modules-status")).data,
@@ -135,332 +120,201 @@ export default function Dashboard() {
     queryFn: async () => (await api.get<DebugExecutionPanel>("/system-update/debug-execution-panel")).data,
   });
 
+  const totalWorkers = workersSummary?.total ?? 0;
   const modules: ModuleCard[] = [
+    {
+      title: "Employés",
+      path: "/workers",
+      description: "Dossiers salariés, documents, contrat actif et données de paie.",
+      status: "Actif",
+      icon: UserGroupIcon,
+      metric: `${formatCount(totalWorkers)} dossier${totalWorkers > 1 ? "s" : ""}`,
+    },
+    {
+      title: "Paie Madagascar",
+      path: "/payroll",
+      description: "Bulletins, variables, état de paie, exports et contrôle Ariary.",
+      status: "Actif",
+      icon: BanknotesIcon,
+      metric: "IRSA, CNaPS, OSTIE, FMFP selon données existantes",
+    },
     {
       title: "Recrutement",
       path: "/recruitment",
-      description: "Fiches de poste, candidats, candidatures et pipeline de selection.",
+      description: "Fiches de poste, candidats et pipeline de sélection.",
       status: "Actif",
       icon: BriefcaseIcon,
-      metric: `${jobs.length} postes ouverts`,
+      metric: `${formatCount(jobs.length)} poste${jobs.length > 1 ? "s" : ""}`,
     },
     {
       title: "Contrats",
       path: "/contracts",
-      description: "Contrats, attestations et certificats de travail prets a imprimer.",
+      description: "Contrats, attestations et certificats prêts à imprimer.",
       status: "Actif",
       icon: ClipboardDocumentListIcon,
-      metric: `${formatCount(contracts.length)} contrat${contracts.length > 1 ? "s" : ""} enregistres`,
+      metric: `${formatCount(contracts.length)} contrat${contracts.length > 1 ? "s" : ""}`,
     },
     {
-      title: "Employeurs",
-      path: "/employers",
-      description: "Base employeurs, etablissements et parametres RH / paie.",
-      status: "Actif",
-      icon: BuildingOfficeIcon,
-      metric: `${formatCount(employers.length)} employeur${employers.length > 1 ? "s" : ""}`,
-    },
-    {
-      title: "Talents",
-      path: "/talents",
-      description: "Competences, affectations et plan de formation.",
-      status: "Actif",
-      icon: AcademicCapIcon,
-      metric: `${formatCount(trainings.length)} formation${trainings.length > 1 ? "s" : ""}`,
-    },
-    {
-      title: "SST / AT-MP",
-      path: "/sst",
-      description: "Incidents, accidents, mesures prises et suivi de traitement.",
+      title: "Inspection du travail",
+      path: "/inspection",
+      description: "Dossiers, plaintes, échanges, conformité et pièces à examiner.",
       status: "Actif",
       icon: ShieldCheckIcon,
-      metric: `${formatCount(incidents.length)} incident${incidents.length > 1 ? "s" : ""}`,
-    },
-    {
-      title: "Declarations",
-      path: "/declarations",
-      description: "Pilotage mensuel des obligations sociales et pieces a produire.",
-      status: "Actif",
-      icon: ExclamationTriangleIcon,
-    },
-    {
-      title: "Organisation",
-      path: "/organization",
-      description: "Structure classique et hierarchique par employeur.",
-      status: "Actif",
-      icon: Squares2X2Icon,
+      metric: `${formatCount(legalStatus?.procedures_created ?? 0)} procédure${(legalStatus?.procedures_created ?? 0) > 1 ? "s" : ""}`,
     },
     {
       title: "Reporting",
       path: "/reporting",
-      description: "Exports et controles croises RH / paie.",
+      description: "Exports, contrôles croisés RH / paie et tableaux de suivi.",
       status: "Actif",
       icon: ChartBarIcon,
-    },
-    {
-      title: "Salarie 360",
-      path: "/employee-360",
-      description: "Source canonique intermodules pour verifier que les donnees deja saisies alimentent bien RH, contrats, recrutement et conformite.",
-      status: "Actif",
-      icon: UserGroupIcon,
-      metric: `${formatCount(workersSummary?.total ?? 0)} dossiers synchronisables`,
     },
   ];
 
   return (
     <div className="siirh-page">
-      <section className="siirh-hero-dark">
-        <div className="siirh-section-header">
-          <div className="max-w-3xl">
-            <div className="inline-flex items-center gap-2 rounded-full border border-cyan-400/25 bg-cyan-400/10 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-cyan-100">
-              SIIRH / SIHMADA
-            </div>
-            <h1 className="mt-5 text-3xl font-semibold tracking-tight text-white md:text-4xl">
-              Pilotage RH opérationnel
-            </h1>
-            <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-300 md:text-base">
-              Vue consolidée des modules actifs, reliée aux données backend existantes :
-              effectifs, employeurs, contrats, recrutement, conformité et reporting.
-            </p>
-          </div>
+      <CorporatePageHeader
+        eyebrow="SIIRH Madagascar"
+        title="Tableau de bord RH"
+        subtitle="Vue opérationnelle connectée aux données backend : effectifs, paie, contrats, recrutement, conformité et reporting."
+        actions={
+          <>
+            <Link to="/reporting" className="siirh-btn-secondary">Rapports</Link>
+            <Link to="/workers" className="siirh-btn-primary">Nouvel employé</Link>
+          </>
+        }
+      />
 
-          <div className="grid w-full gap-3 sm:grid-cols-3 lg:w-auto">
-            <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-3">
-              <div className="text-xs uppercase tracking-[0.18em] text-cyan-100/70">Employeurs</div>
-              <div className="mt-2 text-2xl font-semibold text-white">{formatCount(employers.length)}</div>
-            </div>
-            <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-3">
-              <div className="text-xs uppercase tracking-[0.18em] text-cyan-100/70">Salariés</div>
-              <div className="mt-2 text-2xl font-semibold text-white">{formatCount(workersSummary?.total ?? 0)}</div>
-            </div>
-            <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-3">
-              <div className="text-xs uppercase tracking-[0.18em] text-cyan-100/70">Postes</div>
-              <div className="mt-2 text-2xl font-semibold text-white">{formatCount(jobs.length)}</div>
-            </div>
-          </div>
-        </div>
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <CorporateStatCard label="Effectif total" value={formatCount(totalWorkers)} hint="Dossiers travailleurs" icon={UserGroupIcon} tone="navy" />
+        <CorporateStatCard label="Employeurs" value={formatCount(employers.length)} hint="Sociétés et établissements" icon={BuildingOfficeIcon} tone="emerald" />
+        <CorporateStatCard label="Contrats" value={formatCount(contracts.length)} hint="Documents contractuels" icon={ClipboardDocumentListIcon} tone="blue" />
+        <CorporateStatCard label="Conformité" value={formatCount(legalStatus?.modules_implemented ?? 0)} hint="Modules légaux activés" icon={ShieldCheckIcon} tone="amber" />
       </section>
 
-      <section className="grid gap-6 lg:grid-cols-[1.35fr_0.9fr]">
-        <div className={shellCardClassName}>
-          <div className="flex items-center gap-3">
-            <div className="rounded-2xl border border-cyan-400/20 bg-cyan-400/10 p-3">
-              <Squares2X2Icon className="h-6 w-6 text-cyan-300" />
-            </div>
-            <div>
-              <h2 className="text-xl font-semibold text-slate-900">Modules disponibles</h2>
-              <p className="text-sm text-slate-600">
-                Accès directs aux parcours RH prioritaires.
-              </p>
-            </div>
-          </div>
-
-          <div className="mt-6 grid gap-4 xl:grid-cols-2">
+      <section className="grid gap-5 xl:grid-cols-[1.35fr_0.85fr]">
+        <CorporatePanel>
+          <CorporateSectionHeader
+            title="Modules de production"
+            subtitle="Accès directs aux parcours RH les plus utilisés."
+            actions={<CorporateStatusBadge tone="success">Données réelles</CorporateStatusBadge>}
+          />
+          <div className="mt-5 grid gap-3 lg:grid-cols-2">
             {modules.map((module) => {
               const Icon = module.icon;
-
               return (
-                <Link
-                  key={module.path}
-                  to={module.path}
-                    className="siirh-action-card group"
-                  >
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="rounded-2xl border border-white/10 bg-slate-900/80 p-3">
-                      <Icon className="h-6 w-6 text-cyan-300" />
+                <Link key={module.path} to={module.path} className="rounded-lg border border-slate-200 bg-white p-4 transition hover:border-[#50C878] hover:shadow-sm">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-md bg-[#002147]/10 text-[#002147]">
+                      <Icon className="h-5 w-5" />
                     </div>
-                    <span className="status-success">
-                      {module.status}
-                    </span>
+                    <CorporateStatusBadge tone="success">{module.status}</CorporateStatusBadge>
                   </div>
-
-                  <div className="mt-5">
-                    <h3 className="text-lg font-semibold text-slate-900">{module.title}</h3>
-                    <p className="mt-2 text-[15px] leading-7 text-slate-600">{module.description}</p>
-                    {module.metric ? (
-                      <div className="mt-4 text-[15px] font-medium text-sky-700">{module.metric}</div>
-                    ) : null}
-                  </div>
+                  <h3 className="mt-4 text-base font-extrabold text-[#07152f]">{module.title}</h3>
+                  <p className="mt-2 min-h-12 text-sm font-medium leading-6 text-slate-600">{module.description}</p>
+                  {module.metric ? <div className="mt-3 text-sm font-bold text-[#002147]">{module.metric}</div> : null}
                 </Link>
               );
             })}
           </div>
-        </div>
+        </CorporatePanel>
 
-        <div className="space-y-6">
-          <section className={shellCardClassName}>
-            <div className="flex items-center gap-3">
-              <div className="rounded-2xl border border-amber-400/20 bg-amber-400/10 p-3">
-                <UserGroupIcon className="h-6 w-6 text-amber-200" />
-              </div>
-              <div>
-                <h2 className="text-xl font-semibold text-slate-900">Parcours RH exposés</h2>
-                <p className="text-sm text-slate-600">Vue immédiate des processus ouverts.</p>
-              </div>
-            </div>
-
-            <div className="mt-6 space-y-4">
-              <div className="rounded-xl border border-slate-200 bg-slate-50 px-5 py-4">
-                <div className="text-base font-semibold text-slate-900">Administration du personnel</div>
-                <div className="mt-2 text-sm text-slate-600">
-                  Employeurs, travailleurs, contrats et structure organisationnelle.
-                </div>
-              </div>
-              <div className="rounded-xl border border-slate-200 bg-slate-50 px-5 py-4">
-                <div className="text-base font-semibold text-slate-900">Cycle RH et talents</div>
-                <div className="mt-2 text-sm text-slate-600">
-                  Recrutement, compétences, formation, SST et suivi documentaire.
-                </div>
-              </div>
-              <div className="rounded-xl border border-slate-200 bg-slate-50 px-5 py-4">
-                <div className="text-base font-semibold text-slate-900">Paie et conformité</div>
-                <div className="mt-2 text-sm text-slate-600">
-                  Paie préservée, déclarations et reporting exposés sans toucher au moteur.
-                </div>
-              </div>
-            </div>
-          </section>
-
-          <section className={shellCardClassName}>
-            <h2 className="text-xl font-semibold text-slate-900">Accès rapide</h2>
-            <div className="mt-5 grid gap-3">
-              <Link
-                to="/workers"
-                className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-700 transition hover:border-cyan-300 hover:bg-white"
-              >
-                Ouvrir les dossiers salariés
-              </Link>
-              <Link
-                to="/payroll"
-                className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-700 transition hover:border-cyan-300 hover:bg-white"
-              >
-                Ouvrir la paie
-              </Link>
-              <Link
-                to="/reporting"
-                className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-700 transition hover:border-cyan-300 hover:bg-white"
-              >
-                Ouvrir le reporting
-              </Link>
-            </div>
-          </section>
-        </div>
+        <CorporatePanel>
+          <CorporateSectionHeader
+            title="Priorités du jour"
+            subtitle="Actions utiles sans inventer de données métier."
+          />
+          <div className="mt-5 space-y-3">
+            <Link to="/payroll" className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-[#07152f] hover:bg-white">
+              <span>Contrôler la paie en Ariary</span>
+              <CorporateStatusBadge tone="info">Paie</CorporateStatusBadge>
+            </Link>
+            <Link to="/workers" className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-[#07152f] hover:bg-white">
+              <span>Vérifier les dossiers salariés</span>
+              <CorporateStatusBadge tone="neutral">{formatCount(totalWorkers)}</CorporateStatusBadge>
+            </Link>
+            <Link to="/inspection" className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-[#07152f] hover:bg-white">
+              <span>Suivre les dossiers inspection</span>
+              <CorporateStatusBadge tone="warning">{formatCount(legalStatus?.procedures_created ?? 0)}</CorporateStatusBadge>
+            </Link>
+            <Link to="/reporting" className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-[#07152f] hover:bg-white">
+              <span>Exporter les rapports</span>
+              <CorporateStatusBadge tone="info">Excel / PDF</CorporateStatusBadge>
+            </Link>
+          </div>
+        </CorporatePanel>
       </section>
 
-      <section className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
-        <div className={shellCardClassName}>
-          <div className="flex items-center gap-3">
-            <div className="rounded-2xl border border-emerald-400/20 bg-emerald-400/10 p-3">
-              <ShieldCheckIcon className="h-6 w-6 text-emerald-300" />
-            </div>
-            <div>
-              <h2 className="text-xl font-semibold text-slate-900">Statut des modules légaux SIIRH</h2>
-              <p className="text-sm text-slate-600">État visible des workflows juridiques reliés au backend réel.</p>
-            </div>
+      <section className="grid gap-5 xl:grid-cols-[1.1fr_0.9fr]">
+        <CorporatePanel>
+          <CorporateSectionHeader
+            title="Conformité et inspection du travail"
+            subtitle="Synthèse des workflows légaux exposés par le backend."
+            actions={<Link to="/inspection" className="siirh-btn-secondary">Ouvrir l’inspection</Link>}
+          />
+          <div className="mt-5 grid gap-3 md:grid-cols-4">
+            <CorporateStatCard label="Modules" value={formatCount(legalStatus?.modules_implemented ?? 0)} icon={Squares2X2Icon} tone="navy" />
+            <CorporateStatCard label="Procédures" value={formatCount(legalStatus?.procedures_created ?? 0)} icon={ClipboardDocumentListIcon} tone="blue" />
+            <CorporateStatCard label="PV générés" value={formatCount(legalStatus?.pv_generated ?? 0)} icon={ShieldCheckIcon} tone="emerald" />
+            <CorporateStatCard label="Tests" value={formatCount(legalStatus?.test_cases ?? 0)} icon={ExclamationTriangleIcon} tone="amber" />
           </div>
-
-          <div className="mt-6 grid gap-4 md:grid-cols-4">
-            <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-4">
-              <div className="text-xs uppercase tracking-[0.16em] text-emerald-700">Modules</div>
-              <div className="mt-3 text-3xl font-semibold text-slate-900">{legalStatus?.modules_implemented ?? 0}</div>
-            </div>
-            <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-4">
-              <div className="text-xs uppercase tracking-[0.16em] text-emerald-700">Procédures</div>
-              <div className="mt-3 text-3xl font-semibold text-slate-900">{legalStatus?.procedures_created ?? 0}</div>
-            </div>
-            <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-4">
-              <div className="text-xs uppercase tracking-[0.16em] text-emerald-700">PV générés</div>
-              <div className="mt-3 text-3xl font-semibold text-slate-900">{legalStatus?.pv_generated ?? 0}</div>
-            </div>
-            <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-4">
-              <div className="text-xs uppercase tracking-[0.16em] text-emerald-700">Tests</div>
-              <div className="mt-3 text-3xl font-semibold text-slate-900">{legalStatus?.test_cases ?? 0}</div>
-            </div>
-          </div>
-
-          <div className="mt-6 grid gap-4 xl:grid-cols-2">
+          <div className="mt-5 grid gap-3 lg:grid-cols-2">
             {(legalStatus?.employers ?? []).map((item) => (
-              <div key={item.id} className="rounded-[1.5rem] border border-white/10 bg-white/5 p-5">
-                <div className="text-lg font-semibold text-white">{item.raison_sociale}</div>
-                <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
-                  <div className="rounded-2xl border border-white/10 bg-slate-900/70 px-4 py-3 text-slate-300">Salaries: <span className="font-semibold text-white">{item.workers}</span></div>
-                  <div className="rounded-2xl border border-white/10 bg-slate-900/70 px-4 py-3 text-slate-300">Dossiers: <span className="font-semibold text-white">{item.inspection_cases}</span></div>
-                  <div className="rounded-2xl border border-white/10 bg-slate-900/70 px-4 py-3 text-slate-300">PV: <span className="font-semibold text-white">{item.pv_generated}</span></div>
-                  <div className="rounded-2xl border border-white/10 bg-slate-900/70 px-4 py-3 text-slate-300">Ruptures: <span className="font-semibold text-white">{item.termination_workflows}</span></div>
+              <div key={item.id} className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+                <div className="font-extrabold text-[#07152f]">{item.raison_sociale}</div>
+                <div className="mt-3 grid grid-cols-2 gap-2 text-sm font-semibold text-slate-600">
+                  <span>Salariés : {formatCount(item.workers)}</span>
+                  <span>Dossiers : {formatCount(item.inspection_cases)}</span>
+                  <span>PV : {formatCount(item.pv_generated)}</span>
+                  <span>Ruptures : {formatCount(item.termination_workflows)}</span>
                 </div>
               </div>
             ))}
           </div>
+        </CorporatePanel>
 
-          {(legalStatus?.highlights?.length ?? 0) > 0 ? (
-            <div className="mt-6 grid gap-3 md:grid-cols-2">
-              {legalStatus?.highlights.map((item) => (
-                <div key={item.label} className="rounded-2xl border border-cyan-400/20 bg-cyan-400/10 px-4 py-3 text-sm text-cyan-50">
-                  {item.label}: <span className="font-semibold">{item.value}</span>
-                </div>
-              ))}
-            </div>
-          ) : null}
-        </div>
-
-        <div className={shellCardClassName}>
-          <h2 className="text-xl font-semibold text-slate-900">Couverture des accès légaux</h2>
-          <p className="mt-2 text-sm text-slate-600">Profils activés pour contrôle, contentieux et lecture externe.</p>
-          <div className="mt-6 flex flex-wrap gap-2">
-            {(legalStatus?.role_coverage ?? []).map((item) => (
-              <span key={item} className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-200">{item}</span>
-            ))}
+        <CorporatePanel>
+          <CorporateSectionHeader title="Couverture des rôles" subtitle="Profils disponibles pour les parcours de contrôle et de lecture." />
+          <div className="mt-5 flex flex-wrap gap-2">
+            {(legalStatus?.role_coverage ?? []).length ? (
+              legalStatus?.role_coverage.map((item) => <CorporateStatusBadge key={item} tone="info">{item}</CorporateStatusBadge>)
+            ) : (
+              <CorporateStatusBadge tone="neutral">Aucune donnée de couverture exposée</CorporateStatusBadge>
+            )}
           </div>
-          <div className="mt-6 grid gap-3">
-            <Link to="/inspection" className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-[15px] font-medium text-slate-200 transition hover:border-cyan-300/40 hover:text-white">
-              Ouvrir l&apos;inspection
-            </Link>
-            <Link to="/people-ops" className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-[15px] font-medium text-slate-200 transition hover:border-cyan-300/40 hover:text-white">
-              Ouvrir les workflows de rupture
-            </Link>
-            <Link to="/workers" className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-[15px] font-medium text-slate-200 transition hover:border-cyan-300/40 hover:text-white">
-              Ouvrir la liste des salaries
-            </Link>
+          <div className="mt-5 rounded-lg bg-[#002147] p-5 text-white">
+            <h3 className="font-extrabold">Paie et RH Madagascar</h3>
+            <p className="mt-2 text-sm font-medium leading-6 text-slate-200">
+              L’interface conserve les calculs existants et expose les contrôles IRSA, CNaPS, OSTIE et FMFP uniquement quand les données backend sont disponibles.
+            </p>
           </div>
-        </div>
+        </CorporatePanel>
       </section>
 
       {canSeeDebugPanel ? (
-        <section className={shellCardClassName}>
-          <div className="flex items-center gap-3">
-            <div className="rounded-2xl border border-amber-400/20 bg-amber-400/10 p-3">
-              <ClipboardDocumentListIcon className="h-6 w-6 text-amber-200" />
-            </div>
-            <div>
-              <h2 className="text-xl font-semibold text-white">DEBUG EXECUTION PANEL</h2>
-              <p className="text-base text-slate-400">Panneau temporaire de verification post-build et post-seed.</p>
-            </div>
-          </div>
-
-          <div className="mt-6 grid gap-6 xl:grid-cols-4">
+        <CorporatePanel>
+          <CorporateSectionHeader title="Panneau technique" subtitle="Contrôle post-build et post-seed réservé aux administrateurs." />
+          <div className="mt-5 grid gap-4 xl:grid-cols-4">
             {[
-              { title: "Last migrations executed", items: debugPanel?.last_migrations_executed ?? [] },
-              { title: "Last seed executed", items: debugPanel?.last_seed_executed ?? [] },
-              { title: "Last errors", items: debugPanel?.last_errors ?? [] },
-              { title: "Modules created", items: debugPanel?.modules_created ?? [] },
+              { title: "Migrations exécutées", items: debugPanel?.last_migrations_executed ?? [] },
+              { title: "Seed exécuté", items: debugPanel?.last_seed_executed ?? [] },
+              { title: "Erreurs", items: debugPanel?.last_errors ?? [] },
+              { title: "Modules créés", items: debugPanel?.modules_created ?? [] },
             ].map((section) => (
-              <div key={section.title} className="rounded-[1.5rem] border border-white/10 bg-white/5 p-4">
-                <div className="text-sm font-semibold uppercase tracking-[0.18em] text-amber-100">{section.title}</div>
-                <div className="mt-4 space-y-3">
+              <div key={section.title} className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+                <div className="text-xs font-extrabold uppercase tracking-wide text-slate-600">{section.title}</div>
+                <div className="mt-3 space-y-2">
                   {section.items.length ? section.items.map((item) => (
-                    <div key={`${section.title}:${item.label}:${item.value}`} className="rounded-2xl border border-white/10 bg-slate-900/70 px-3 py-3 text-sm text-slate-300">
-                      <div className="font-semibold text-white">{item.label}</div>
-                      <div className="mt-1 break-words">{item.value}</div>
-                      {item.at ? <div className="mt-2 text-xs text-slate-500">{new Date(item.at).toLocaleString()}</div> : null}
+                    <div key={`${section.title}:${item.label}:${item.value}`} className="rounded-md bg-white px-3 py-2 text-sm font-medium text-slate-700">
+                      <div className="font-bold text-[#07152f]">{item.label}</div>
+                      <div className="break-words">{item.value}</div>
                     </div>
-                  )) : (
-                    <div className="rounded-2xl border border-white/10 bg-slate-900/70 px-3 py-3 text-sm text-slate-500">Aucune donnee recente.</div>
-                  )}
+                  )) : <div className="text-sm font-medium text-slate-500">Aucune donnée récente.</div>}
                 </div>
               </div>
             ))}
           </div>
-        </section>
+        </CorporatePanel>
       ) : null}
     </div>
   );

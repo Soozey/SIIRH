@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Dialog, DialogPanel, DialogTitle } from "@headlessui/react";
 import {
   CloudArrowUpIcon,
-  CurrencyDollarIcon,
+  BanknotesIcon,
   DocumentArrowDownIcon,
   ExclamationCircleIcon,
   XMarkIcon,
@@ -142,7 +142,7 @@ export default function ImportPrimesDialog({
         <DialogPanel className="mx-auto w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl animate-fade-in">
           <div className="mb-6 flex items-center justify-between">
             <DialogTitle className="flex items-center gap-2 text-xl font-bold text-slate-900">
-              <CurrencyDollarIcon className="h-6 w-6 text-primary-600" />
+              <BanknotesIcon className="h-6 w-6 text-primary-600" />
               Importer Variables Primes
             </DialogTitle>
             <button
