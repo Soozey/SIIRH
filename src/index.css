@@ -7,6 +7,25 @@
 :root {
   color-scheme: light;
   font-size: 14px;
+  --background: #f7f8fb;
+  --foreground: #07152f;
+  --card: #ffffff;
+  --card-foreground: #07152f;
+  --popover: #ffffff;
+  --popover-foreground: #07152f;
+  --primary: #002147;
+  --primary-foreground: #ffffff;
+  --secondary: #eef4fb;
+  --secondary-foreground: #07152f;
+  --muted: #f1f5f9;
+  --muted-foreground: #475569;
+  --accent: #50c878;
+  --accent-foreground: #052e16;
+  --border: #d7dde8;
+  --input: #cbd5e1;
+  --ring: #2563eb;
+  --destructive: #dc2626;
+  --destructive-foreground: #ffffff;
   --siirh-navy: #002147;
   --siirh-emerald: #50c878;
   --siirh-bg: #f7f8fb;
@@ -35,6 +54,21 @@
   body[data-theme="light"] {
     color: var(--siirh-text);
     background: var(--siirh-bg);
+  }
+
+  body[data-theme="dark"] {
+    --background: #020617;
+    --foreground: #f8fafc;
+    --card: #0f172a;
+    --card-foreground: #f8fafc;
+    --popover: #0f172a;
+    --popover-foreground: #f8fafc;
+    --secondary: #1e293b;
+    --secondary-foreground: #f8fafc;
+    --muted: #1e293b;
+    --muted-foreground: #cbd5e1;
+    --border: #334155;
+    --input: #475569;
   }
 
   input,
@@ -91,11 +125,17 @@
   .siirh-panel {
     @apply rounded-lg border bg-white p-5 shadow-sm;
     border-color: rgba(148, 163, 184, 0.3);
+    color-scheme: light;
+    color: var(--card-foreground);
+    background: var(--card);
   }
 
   .siirh-panel-compact {
     @apply rounded-lg border bg-white p-4 shadow-sm;
     border-color: rgba(148, 163, 184, 0.28);
+    color-scheme: light;
+    color: var(--card-foreground);
+    background: var(--card);
   }
 
   .siirh-title {
@@ -281,6 +321,42 @@
 
   .glass-input {
     @apply siirh-input;
+  }
+
+  .theme-safe-surface {
+    color-scheme: light;
+    background: var(--card) !important;
+    color: var(--card-foreground) !important;
+    border-color: var(--border) !important;
+  }
+
+  .theme-safe-muted {
+    color-scheme: light;
+    background: var(--muted) !important;
+    color: var(--foreground) !important;
+    border-color: var(--border) !important;
+  }
+
+  .document-preview,
+  .contract-preview,
+  .print-surface,
+  .printable-content {
+    color-scheme: light !important;
+    background: #ffffff !important;
+    color: #111827 !important;
+    text-shadow: none !important;
+    filter: none !important;
+    opacity: 1 !important;
+    mix-blend-mode: normal !important;
+  }
+
+  .document-preview *,
+  .contract-preview *,
+  .print-surface *,
+  .printable-content * {
+    text-shadow: none !important;
+    filter: none !important;
+    mix-blend-mode: normal !important;
   }
 
   .btn-primary {

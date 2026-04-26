@@ -81,7 +81,7 @@ interface ContractGuidance {
 type DocumentMode = "contract" | "attestation" | "certificate";
 
 const shellCardClassName =
-  "siirh-panel";
+  "theme-safe-surface rounded-lg border border-slate-300 bg-white p-5 shadow-sm";
 const inputClassName =
   "siirh-input";
 
@@ -167,13 +167,13 @@ export default function Contracts() {
       });
     } catch (error) {
       console.error(error);
-      setImportError("Impossible de telecharger le modele de contrats.");
+      setImportError("Impossible de télécharger le modèle de contrats.");
     }
   };
 
   const handleImportContracts = async () => {
     if (!importFile) {
-      setImportError("Selectionnez un fichier de contrats a importer.");
+      setImportError("Sélectionnez un fichier de contrats à importer.");
       return;
     }
     setImporting(true);
@@ -200,34 +200,34 @@ export default function Contracts() {
   };
 
   return (
-    <div className="siirh-page">
-      <section className="rounded-[2rem] border border-sky-300/25 bg-[linear-gradient(135deg,rgba(15,23,42,0.95),rgba(30,58,138,0.90),rgba(12,74,110,0.90))] p-8 shadow-xl shadow-slate-900/20">
+    <div className="siirh-page contracts-readable-scope">
+      <section className="theme-safe-surface rounded-2xl border border-slate-300 bg-white p-6 shadow-sm">
         <div className="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
           <div className="max-w-3xl">
-            <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.28em] text-cyan-100">
+            <div className="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-4 py-2 text-xs font-bold uppercase tracking-wide text-blue-800">
               Module contrats
             </div>
-            <h1 className="mt-6 text-4xl font-semibold tracking-tight text-white">
+            <h1 className="mt-4 text-3xl font-extrabold tracking-tight text-[#07152f]">
               Contrats, attestations et certificats RH
             </h1>
-            <p className="mt-3 text-sm leading-7 text-cyan-50/90">
-              Reutilisation des generateurs documentaires deja presents pour sortir
-              rapidement les pieces RH attendues.
+            <p className="mt-3 text-sm font-semibold leading-6 text-slate-700">
+              Réutilisation des générateurs documentaires déjà présents pour sortir
+              rapidement les pièces RH attendues.
             </p>
           </div>
 
           <div className="grid gap-3 sm:grid-cols-3">
-            <div className="rounded-[1.5rem] border border-white/10 bg-slate-950/30 px-5 py-4">
-              <div className="text-xs uppercase tracking-[0.24em] text-cyan-100/70">Employeurs</div>
-              <div className="mt-3 text-3xl font-semibold text-white">{employers.length}</div>
+            <div className="rounded-xl border border-slate-200 bg-slate-50 px-5 py-4">
+              <div className="text-xs font-bold uppercase tracking-wide text-slate-700">Employeurs</div>
+              <div className="mt-3 text-3xl font-extrabold text-[#07152f]">{employers.length}</div>
             </div>
-            <div className="rounded-[1.5rem] border border-white/10 bg-slate-950/30 px-5 py-4">
-              <div className="text-xs uppercase tracking-[0.24em] text-cyan-100/70">Salaries</div>
-              <div className="mt-3 text-3xl font-semibold text-white">{workers.length}</div>
+            <div className="rounded-xl border border-slate-200 bg-slate-50 px-5 py-4">
+              <div className="text-xs font-bold uppercase tracking-wide text-slate-700">Salariés</div>
+              <div className="mt-3 text-3xl font-extrabold text-[#07152f]">{workers.length}</div>
             </div>
-            <div className="rounded-[1.5rem] border border-white/10 bg-slate-950/30 px-5 py-4">
-              <div className="text-xs uppercase tracking-[0.24em] text-cyan-100/70">Document</div>
-              <div className="mt-3 text-lg font-semibold text-white">{documentLabel}</div>
+            <div className="rounded-xl border border-slate-200 bg-slate-50 px-5 py-4">
+              <div className="text-xs font-bold uppercase tracking-wide text-slate-700">Document</div>
+              <div className="mt-3 text-lg font-extrabold text-[#07152f]">{documentLabel}</div>
             </div>
           </div>
         </div>
@@ -236,48 +236,48 @@ export default function Contracts() {
       <section className="grid gap-6 xl:grid-cols-[0.95fr_1.55fr]">
         <div className={shellCardClassName}>
           <div className="flex items-center gap-3">
-            <div className="rounded-2xl border border-cyan-400/20 bg-cyan-400/10 p-3">
-              <ClipboardDocumentListIcon className="h-6 w-6 text-cyan-300" />
+            <div className="rounded-xl border border-blue-200 bg-blue-50 p-3">
+              <ClipboardDocumentListIcon className="h-6 w-6 text-blue-700" />
             </div>
             <div>
-              <h2 className="text-xl font-semibold text-white">Selection du dossier</h2>
-              <p className="text-sm text-slate-400">Employeur, salarie et type de document.</p>
+              <h2 className="text-xl font-extrabold text-[#07152f]">Sélection du dossier</h2>
+              <p className="text-sm font-semibold text-slate-700">Employeur, salarié et type de document.</p>
             </div>
           </div>
 
           <div className="mt-6 grid gap-4">
             {latestContract ? (
-              <div className="rounded-2xl border border-cyan-400/20 bg-cyan-400/10 p-4 text-sm text-cyan-50">
-                <div className="text-xs uppercase tracking-[0.22em] text-cyan-100/70">Controle inspection</div>
-                <div className="mt-2 font-semibold text-white">{latestContract.title}</div>
+              <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm text-slate-800">
+                <div className="text-xs font-bold uppercase tracking-wide text-blue-800">Contrôle inspection</div>
+                <div className="mt-2 font-bold text-[#07152f]">{latestContract.title}</div>
                 <div className="mt-2 flex flex-wrap gap-2 text-xs">
-                  <span className="rounded-full border border-white/10 px-3 py-1 text-white">{latestContract.validation_status}</span>
-                  <span className="rounded-full border border-white/10 px-3 py-1 text-white">{latestContract.inspection_status}</span>
-                  <span className="rounded-full border border-white/10 px-3 py-1 text-white">Version {latestContract.active_version_number ?? 1}</span>
+                  <span className="rounded-full border border-blue-200 bg-white px-3 py-1 font-semibold text-blue-800">{latestContract.validation_status}</span>
+                  <span className="rounded-full border border-blue-200 bg-white px-3 py-1 font-semibold text-blue-800">{latestContract.inspection_status}</span>
+                  <span className="rounded-full border border-blue-200 bg-white px-3 py-1 font-semibold text-blue-800">Version {latestContract.active_version_number ?? 1}</span>
                 </div>
-                {latestContract.inspection_comment ? <p className="mt-3 text-slate-200">{latestContract.inspection_comment}</p> : <p className="mt-3 text-slate-300">Contrat actif immediate, controle inspection a posteriori conserve.</p>}
+                {latestContract.inspection_comment ? <p className="mt-3 text-slate-700">{latestContract.inspection_comment}</p> : <p className="mt-3 text-slate-700">Contrat actif immédiat, contrôle inspection a posteriori conservé.</p>}
               </div>
             ) : null}
             {contractGuidance ? (
-              <div className="rounded-2xl border border-amber-400/20 bg-amber-400/10 p-4 text-sm text-amber-50">
-                <div className="flex items-center gap-2 text-xs uppercase tracking-[0.22em] text-amber-100/70">
+              <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-slate-800">
+                <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-amber-800">
                   <span>Assistant contrat Madagascar</span>
                   <HelpTooltip item={contractsGuidanceHelp} role={session?.effective_role_code || session?.role_code} compact />
                 </div>
-                <div className="mt-2 font-semibold text-white">Type suggere: {contractGuidance.suggested_primary_type}</div>
+                <div className="mt-2 font-bold text-[#07152f]">Type suggéré: {contractGuidance.suggested_primary_type}</div>
                 <div className="mt-3 flex flex-wrap gap-2">
                   {contractGuidance.available_types.map((item) => (
-                    <span key={item} className={`rounded-full border px-3 py-1 text-xs ${item === contractGuidance.suggested_primary_type ? "border-amber-200/60 bg-amber-200/10 text-white" : "border-white/10 text-slate-100"}`}>
+                    <span key={item} className={`rounded-full border px-3 py-1 text-xs ${item === contractGuidance.suggested_primary_type ? "border-amber-300 bg-white text-amber-900" : "border-slate-300 bg-white text-slate-700"}`}>
                       {item}
                     </span>
                   ))}
                 </div>
-                <div className="mt-2 text-slate-200">Langues: {contractGuidance.language_options.join(" / ")}</div>
-                <div className="mt-2 text-slate-200">Champs a verifier: {contractGuidance.required_fields.join(", ")}</div>
+                <div className="mt-2 text-slate-700">Langues: {contractGuidance.language_options.join(" / ")}</div>
+                <div className="mt-2 text-slate-700">Champs à vérifier: {contractGuidance.required_fields.join(", ")}</div>
                 {suggestedDefaults.length ? (
-                  <div className="mt-3 rounded-xl border border-white/10 bg-slate-950/20 p-3">
-                    <div className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-100/80">Valeurs pre-remplies conseillees</div>
-                    <div className="mt-2 grid gap-2 text-xs text-slate-100">
+                  <div className="mt-3 rounded-xl border border-amber-200 bg-white p-3">
+                    <div className="text-xs font-bold uppercase tracking-wide text-amber-800">Valeurs pré-remplies conseillées</div>
+                    <div className="mt-2 grid gap-2 text-xs text-slate-800">
                       {suggestedDefaults.map(([key, value]) => (
                         <div key={key}>
                           <span className="font-semibold">{key}</span>: {String(value)}
@@ -286,12 +286,12 @@ export default function Contracts() {
                     </div>
                   </div>
                 ) : null}
-                {contractGuidance.recommendations.map((item) => <div key={item} className="mt-2 text-slate-100">{item}</div>)}
-                {contractGuidance.alerts.map((item) => <div key={item.code} className="mt-2 text-amber-100">{item.message}</div>)}
+                {contractGuidance.recommendations.map((item) => <div key={item} className="mt-2 text-slate-700">{item}</div>)}
+                {contractGuidance.alerts.map((item) => <div key={item.code} className="mt-2 font-semibold text-amber-900">{item.message}</div>)}
               </div>
             ) : null}
             <div>
-              <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">
+              <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.22em] text-slate-700">
                 Employeur
               </label>
               <select
@@ -308,8 +308,8 @@ export default function Contracts() {
             </div>
 
             <div>
-              <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">
-                Salarie
+              <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.22em] text-slate-700">
+                Salarié
               </label>
               <select
                 value={effectiveWorkerId ?? ""}
@@ -337,7 +337,7 @@ export default function Contracts() {
                   className={`rounded-2xl px-4 py-3 text-sm font-semibold transition ${
                     documentMode === mode.id
                       ? "bg-cyan-400 text-slate-950"
-                      : "border border-white/10 bg-white/5 text-slate-200 hover:border-cyan-300/40"
+                      : "border border-slate-300 bg-white text-slate-800 hover:border-blue-400 hover:bg-blue-50"
                   }`}
                 >
                   {mode.label}
@@ -347,25 +347,25 @@ export default function Contracts() {
           </div>
 
           {canManageContractImport ? (
-            <div className="mt-6 rounded-2xl border border-cyan-400/20 bg-cyan-400/5 p-4">
+            <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-4">
               <div className="flex flex-col gap-2">
-                <div className="text-sm font-semibold text-cyan-200">Import / Export Contrats (template)</div>
-                <p className="text-xs text-slate-400">
-                  Telechargez un modele puis importez les contrats en creation ou mise a jour de masse.
+                <div className="text-sm font-bold text-[#07152f]">Import / Export Contrats (template)</div>
+                <p className="text-xs text-slate-700">
+                  Téléchargez un modèle puis importez les contrats en création ou mise à jour de masse.
                 </p>
               </div>
               <div className="mt-3 flex flex-wrap gap-2">
                 <button
                   type="button"
                   onClick={() => handleDownloadTemplate(false)}
-                  className="rounded-lg border border-cyan-300/30 bg-slate-900 px-3 py-2 text-xs font-medium text-cyan-200 hover:bg-slate-800"
+                  className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-bold text-slate-800 hover:bg-slate-100"
                 >
-                  Telecharger modele
+                  Télécharger modèle
                 </button>
                 <button
                   type="button"
                   onClick={() => handleDownloadTemplate(true)}
-                  className="rounded-lg border border-cyan-300/30 bg-slate-900 px-3 py-2 text-xs font-medium text-cyan-200 hover:bg-slate-800"
+                  className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-bold text-slate-800 hover:bg-slate-100"
                 >
                   Export existants
                 </button>
@@ -375,21 +375,21 @@ export default function Contracts() {
                   type="file"
                   accept=".xlsx,.xls,.csv"
                   onChange={(event) => setImportFile(event.target.files?.[0] ?? null)}
-                  className="w-full rounded-lg border border-white/20 bg-slate-900 px-3 py-2 text-xs text-slate-200"
+                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-800"
                 />
-                <label className="flex items-center gap-2 text-xs text-slate-300">
+                <label className="flex items-center gap-2 text-xs font-semibold text-slate-800">
                   <input
                     type="checkbox"
                     checked={importUpdateExisting}
                     onChange={(event) => setImportUpdateExisting(event.target.checked)}
                   />
-                  Mettre a jour
+                  Mettre à jour
                 </label>
                 <button
                   type="button"
                   onClick={handleImportContracts}
                   disabled={!importFile || importing}
-                  className="rounded-lg bg-cyan-400 px-4 py-2 text-xs font-semibold text-slate-900 hover:bg-cyan-300 disabled:opacity-50"
+                  className="rounded-lg bg-[#002147] px-4 py-2 text-xs font-bold text-white hover:bg-[#07315f] disabled:opacity-60"
                 >
                   {importing ? "Import..." : "Importer"}
                 </button>
@@ -397,8 +397,8 @@ export default function Contracts() {
 
               {importError ? <p className="mt-2 text-xs text-rose-300">{importError}</p> : null}
               {importReport ? (
-                <div className="mt-2 rounded-lg border border-white/10 bg-slate-900/50 px-3 py-2 text-xs text-slate-300">
-                  Creees: {importReport.created} | Maj: {importReport.updated} | Ignorees: {importReport.skipped} | Echec: {importReport.failed}
+                <div className="mt-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-800">
+                  Créés: {importReport.created} | Maj: {importReport.updated} | Ignorés: {importReport.skipped} | Échec: {importReport.failed}
                   {importReport.error_report_csv ? (
                     <div className="mt-2">
                       <button
@@ -414,9 +414,9 @@ export default function Contracts() {
                           document.body.removeChild(anchor);
                           URL.revokeObjectURL(url);
                         }}
-                        className="rounded border border-cyan-300/30 px-3 py-1 text-xs text-cyan-200 hover:bg-cyan-400/10"
+                        className="rounded border border-slate-300 px-3 py-1 text-xs font-semibold text-slate-800 hover:bg-slate-100"
                       >
-                        Telecharger erreurs CSV
+                        Télécharger erreurs CSV
                       </button>
                     </div>
                   ) : null}
@@ -426,38 +426,38 @@ export default function Contracts() {
           ) : null}
 
           {displayWorker ? (
-            <div className="mt-8 rounded-[1.5rem] border border-white/10 bg-white/5 p-5">
+            <div className="mt-8 rounded-2xl border border-slate-200 bg-slate-50 p-5">
               <div className="flex items-center gap-3">
-                <IdentificationIcon className="h-5 w-5 text-cyan-300" />
-                <div className="text-sm font-semibold text-white">
+                <IdentificationIcon className="h-5 w-5 text-blue-700" />
+                <div className="text-sm font-semibold text-[#07152f]">
                   {displayWorker.nom} {displayWorker.prenom}
                 </div>
               </div>
-              <div className="mt-4 space-y-2 text-sm text-slate-400">
-                <div>Poste: {displayWorker.poste || "Non renseigne"}</div>
-                <div>Contrat: {displayWorker.nature_contrat || "Non renseigne"}</div>
-                <div>Catégorie: {displayWorker.categorie_prof || "Non renseigne"}</div>
-                <div>Matricule: {displayWorker.matricule || "Non renseigne"}</div>
-                {workerData?.departement ? <div>Departement canonique: {workerData.departement}</div> : null}
+              <div className="mt-4 space-y-2 text-sm font-semibold text-slate-700">
+                <div>Poste: {displayWorker.poste || "Non renseigné"}</div>
+                <div>Contrat: {displayWorker.nature_contrat || "Non renseigné"}</div>
+                <div>Catégorie: {displayWorker.categorie_prof || "Non renseigné"}</div>
+                <div>Matricule: {displayWorker.matricule || "Non renseigné"}</div>
+                {workerData?.departement ? <div>Département canonique: {workerData.departement}</div> : null}
               </div>
             </div>
           ) : null}
         </div>
 
         <div className={`${shellCardClassName} overflow-hidden p-0`}>
-          <div className="border-b border-white/10 px-6 py-5">
+          <div className="border-b border-slate-200 px-6 py-5">
             <div className="flex items-center gap-3">
-              <DocumentTextIcon className="h-6 w-6 text-cyan-300" />
+              <DocumentTextIcon className="h-6 w-6 text-blue-700" />
               <div>
-                <h2 className="text-xl font-semibold text-white">Document RH</h2>
-                <p className="text-sm text-slate-400">
-                  Previsualisation directe avant impression.
+                <h2 className="text-xl font-extrabold text-[#07152f]">Document RH</h2>
+                <p className="text-sm font-semibold text-slate-700">
+                  Prévisualisation directe avant impression.
                 </p>
               </div>
             </div>
           </div>
 
-          <div className="max-h-[78vh] overflow-auto bg-slate-900/60">
+          <div className="document-preview contract-preview max-h-[78vh] overflow-auto bg-white p-4">
             {employer && worker ? (
               documentMode === "contract" ? (
                 <EmploymentContract worker={worker} employer={employer} />
@@ -467,8 +467,8 @@ export default function Contracts() {
                 <WorkCertificate worker={worker} employer={employer} />
               )
             ) : (
-              <div className="flex min-h-[480px] items-center justify-center px-6 text-center text-sm text-slate-400">
-                Selectionnez un employeur et un salarie pour afficher le document.
+              <div className="flex min-h-[480px] items-center justify-center px-6 text-center text-sm font-semibold text-slate-700">
+                Sélectionnez un employeur et un salarié pour afficher le document.
               </div>
             )}
           </div>
@@ -477,3 +477,6 @@ export default function Contracts() {
     </div>
   );
 }
+
+
+
