@@ -141,6 +141,7 @@
 
   .corporate-page-header {
     @apply flex flex-col gap-4 border-b border-slate-200 bg-[#fbfbfd] px-1 pb-4 md:flex-row md:items-end md:justify-between;
+    color-scheme: light;
   }
 
   .corporate-page-header h1 {
@@ -148,11 +149,11 @@
   }
 
   .corporate-page-header p {
-    @apply mt-1 max-w-3xl text-sm font-medium leading-6 text-slate-600;
+    @apply mt-1 max-w-3xl text-sm font-semibold leading-6 text-slate-700;
   }
 
   .corporate-eyebrow {
-    @apply text-xs font-bold uppercase tracking-[0.18em] text-slate-500;
+    @apply text-xs font-bold uppercase tracking-[0.18em] text-slate-600;
   }
 
   .corporate-page-actions {
@@ -161,6 +162,9 @@
 
   .corporate-stat-card {
     @apply rounded-lg border border-slate-300 bg-white p-5 shadow-sm;
+    color-scheme: light;
+    background: #ffffff !important;
+    color: #07152f !important;
   }
 
   .corporate-stat-label {
@@ -172,7 +176,7 @@
   }
 
   .corporate-stat-hint {
-    @apply mt-3 text-xs font-semibold uppercase tracking-wide text-slate-500;
+    @apply mt-3 text-xs font-bold uppercase tracking-wide text-slate-600;
   }
 
   .corporate-stat-icon {
@@ -181,6 +185,9 @@
 
   .corporate-panel {
     @apply rounded-lg border border-slate-300 bg-white p-5 shadow-sm;
+    color-scheme: light;
+    background: #ffffff !important;
+    color: #07152f !important;
   }
 
   .corporate-section-header {
@@ -197,6 +204,7 @@
 
   .corporate-badge {
     @apply inline-flex items-center rounded-md border px-2.5 py-1 text-xs font-bold;
+    color-scheme: light;
   }
 
   .corporate-empty-state {
@@ -205,6 +213,48 @@
 
   .corporate-empty-state p {
     @apply mt-2 text-sm font-medium text-slate-600;
+  }
+
+  .payroll-light-scope {
+    color-scheme: light;
+    background: #f8fafc !important;
+    color: #0f172a !important;
+  }
+
+  body[data-theme="dark"] .layout-main-content .payroll-light-scope,
+  body[data-theme="dark"] .layout-main-content .payroll-light-scope .bg-white,
+  body[data-theme="dark"] .layout-main-content .payroll-light-scope .bg-slate-50,
+  body[data-theme="dark"] .layout-main-content .payroll-light-scope .corporate-stat-card,
+  body[data-theme="dark"] .layout-main-content .payroll-light-scope .corporate-panel {
+    background-color: #ffffff !important;
+    color: #0f172a !important;
+  }
+
+  body[data-theme="dark"] .layout-main-content .payroll-light-scope .text-slate-950,
+  body[data-theme="dark"] .layout-main-content .payroll-light-scope .text-slate-900,
+  body[data-theme="dark"] .layout-main-content .payroll-light-scope .text-slate-800,
+  body[data-theme="dark"] .layout-main-content .payroll-light-scope .text-slate-700,
+  body[data-theme="dark"] .layout-main-content .payroll-light-scope .text-slate-600 {
+    color: #0f172a !important;
+  }
+
+  body[data-theme="dark"] .layout-main-content .payroll-light-scope .text-slate-500,
+  body[data-theme="dark"] .layout-main-content .payroll-light-scope .text-slate-400 {
+    color: #475569 !important;
+  }
+
+  body[data-theme="dark"] .layout-main-content .payroll-light-scope input,
+  body[data-theme="dark"] .layout-main-content .payroll-light-scope select,
+  body[data-theme="dark"] .layout-main-content .payroll-light-scope textarea {
+    background-color: #ffffff !important;
+    border-color: #cbd5e1 !important;
+    color: #0f172a !important;
+  }
+
+  body[data-theme="dark"] .layout-main-content .payroll-light-scope .siirh-btn-primary,
+  body[data-theme="dark"] .layout-main-content .payroll-light-scope [class*="bg-emerald-700"],
+  body[data-theme="dark"] .layout-main-content .payroll-light-scope [class*="bg-[#002147]"] {
+    color: #ffffff !important;
   }
 
   .status-success {

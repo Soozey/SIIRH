@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+﻿import { useState, useEffect } from "react";
 import { api } from "../api";
 import { Link, useNavigate } from "react-router-dom";
 import {
@@ -78,6 +78,15 @@ type EmployerOption = {
   raison_sociale: string;
   numero_contribuable?: string | null;
 };
+
+const payrollPanelClass =
+  "rounded-2xl border border-slate-200 bg-white p-6 shadow-sm";
+const payrollInputClass =
+  "w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-[15px] font-medium text-slate-950 outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-100";
+const payrollPrimaryButtonClass =
+  "w-full rounded-xl bg-[#002147] px-4 py-3 text-[15px] font-semibold text-white shadow-sm transition hover:bg-[#07315f] disabled:cursor-not-allowed disabled:opacity-55";
+const payrollSecondaryButtonClass =
+  "w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-[15px] font-semibold text-slate-800 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-55";
 
 const JOURNAL_NUMERIC_COLUMNS = [
   "salaire_base", "Salaire de base", "brut_total",
@@ -422,22 +431,22 @@ export default function PayrollRun() {
     
     if (numericColumns.includes(columnId) || isJournalNumericColumn(columnId)) {
       if (columnId === 'net_a_payer') {
-        return 'px-4 py-3 whitespace-nowrap text-xs font-bold text-indigo-600 text-right';
+        return 'px-4 py-3 whitespace-nowrap text-[13px] font-bold text-indigo-700 text-right';
       } else if (columnId === 'brut_total') {
-        return 'px-4 py-3 whitespace-nowrap text-xs font-bold text-emerald-600 text-right';
+        return 'px-4 py-3 whitespace-nowrap text-[13px] font-bold text-emerald-700 text-right';
       } else if (columnId.includes('CNaPS') || columnId.includes('SMIE') || columnId.includes('IRSA') || columnId.includes('Avance') || columnId.includes('Charges')) {
-        return 'px-4 py-3 whitespace-nowrap text-xs text-red-500 text-right';
+        return 'px-4 py-3 whitespace-nowrap text-[13px] font-bold text-red-700 text-right';
       } else {
-        return 'px-4 py-3 whitespace-nowrap text-xs text-slate-600 text-right';
+        return 'px-4 py-3 whitespace-nowrap text-[13px] font-semibold text-slate-900 text-right';
       }
     }
     
     if (columnId === 'matricule') {
-      return 'px-4 py-3 whitespace-nowrap text-xs font-bold text-slate-900';
+      return 'px-4 py-3 whitespace-nowrap text-[13px] font-bold text-slate-950';
     } else if (columnId === 'nombre_enfant') {
-      return 'px-4 py-3 whitespace-nowrap text-xs text-slate-600 text-center';
+      return 'px-4 py-3 whitespace-nowrap text-[13px] font-medium text-slate-800 text-center';
     } else {
-      return 'px-4 py-3 whitespace-nowrap text-xs text-slate-600';
+      return 'px-4 py-3 whitespace-nowrap text-[13px] font-medium text-slate-800';
     }
   };
 
@@ -563,8 +572,8 @@ export default function PayrollRun() {
   const journalGrossTotal = journalColumns.includes("brut_total") ? getJournalColumnTotal("brut_total") : null;
 
   return (
-    <div className="siirh-page min-h-screen w-full flex flex-col">
-      <div className="flex-1 w-full max-w-7xl mx-auto p-6 md:p-10 space-y-8 animate-fade-in">
+    <div className="payroll-light-scope min-h-screen w-full bg-slate-50 text-slate-950">
+      <div className="mx-auto w-full max-w-7xl space-y-6 p-5 md:p-8">
       <CorporatePageHeader
         eyebrow="Paie Madagascar"
         title="Tableau de bord de paie"
@@ -619,32 +628,12 @@ export default function PayrollRun() {
         <CorporateStatusBadge tone="info">FMFP</CorporateStatusBadge>
         <CorporateStatusBadge tone="success">Ariary</CorporateStatusBadge>
       </div>
-
-      {/* Header */}
-      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-slate-900 via-blue-900 to-cyan-900 p-8 shadow-xl shadow-slate-900/20">
-        <div className="relative z-10 flex flex-col md:flex-row md:items-center md:justify-between gap-6">
-          <div className="flex items-center gap-6">
-            <div className="p-4 bg-white/20 backdrop-blur-md rounded-2xl shadow-inner border border-white/10">
-              <DocumentTextIcon className="h-10 w-10 text-white" />
-            </div>
-            <div>
-              <h1 className="text-3xl md:text-4xl font-bold text-white tracking-tight">
-                Gestion des Bulletins
-              </h1>
-              <p className="text-primary-100 mt-2 text-lg font-medium">
-                Prévisualisation, édition et impression en masse
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[360px_minmax(0,1fr)]">
         {/* Formulaire de configuration */}
         <div className="lg:col-span-1">
-          <div className="glass-card p-6 sticky top-6 max-h-[calc(100vh-2rem)] overflow-y-auto custom-scrollbar">
-            <h2 className="text-xl font-bold text-slate-800 mb-6 flex items-center gap-2">
-              <SparklesIcon className="h-6 w-6 text-primary-500" />
+          <div className={`${payrollPanelClass} sticky top-4 max-h-[calc(100vh-2rem)] overflow-y-auto`}>
+            <h2 className="mb-5 flex items-center gap-2 text-xl font-bold text-slate-950">
+              <SparklesIcon className="h-6 w-6 text-sky-600" />
               Paramètres
             </h2>
 
@@ -652,7 +641,7 @@ export default function PayrollRun() {
               <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                 <div className="mb-4">
                   <h3 className="text-sm font-bold text-slate-700">Périmètre centralisé</h3>
-                  <p className="mt-1 text-xs text-slate-500">
+                  <p className="mt-1 text-sm text-slate-600">
                     Tous les boutons de paie utilisent cet employeur et ce filtre organisationnel.
                   </p>
                 </div>
@@ -667,7 +656,7 @@ export default function PayrollRun() {
                         setPreview(null);
                         setWorkerError(null);
                       }}
-                      className="glass-input w-full px-4 py-3 text-slate-700"
+                      className={payrollInputClass}
                     >
                       <option value="">Choisir un employeur</option>
                       {employers.map((item) => (
@@ -682,7 +671,7 @@ export default function PayrollRun() {
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <div className="text-sm font-semibold text-slate-700">Filtre organisationnel</div>
-                        <div className="mt-1 text-xs text-slate-500">
+                        <div className="mt-1 text-sm text-slate-600">
                           {activeOrganizationFilterEntries.length > 0
                             ? activeOrganizationFilterEntries.map(([key, value]) => `${key}: ${value}`).join(" | ")
                             : "Aucun filtre actif. Toutes les structures de l'employeur sont prises en compte."}
@@ -692,7 +681,7 @@ export default function PayrollRun() {
                         type="button"
                         onClick={() => setIsPayrollFilterModalOpen(true)}
                         disabled={!selectedEmployerId}
-                        className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                        className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-50"
                       >
                         {activeOrganizationFilterEntries.length > 0 ? "Modifier filtre" : "Définir filtre"}
                       </button>
@@ -729,28 +718,28 @@ export default function PayrollRun() {
                     type="month"
                     value={period}
                     onChange={(e) => setPeriod(e.target.value)}
-                    className="glass-input w-full pl-10 pr-4 py-3 text-slate-700"
+                    className={`${payrollInputClass} pl-10`}
                   />
                 </div>
                 {period && (
-                  <p className="text-xs text-primary-600 mt-2 font-medium text-right capitalize">
+                  <p className="mt-2 text-right text-sm font-semibold capitalize text-sky-700">
                     {formatPeriod(period)}
                   </p>
                 )}
                 <button
                   onClick={handlePreparePeriodRun}
                   disabled={!selectedEmployerId || !period || isPreparingPeriodRun}
-                  className="mt-3 w-full flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-blue-500 to-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:from-blue-600 hover:to-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  className={`${payrollSecondaryButtonClass} mt-3 flex items-center justify-center gap-2`}
                 >
                   {isPreparingPeriodRun ? (
                     <>
                       <ArrowPathIcon className="h-4 w-4 animate-spin" />
-                      Preparation...
+                      Préparation...
                     </>
                   ) : (
                     <>
                       <CalendarDaysIcon className="h-4 w-4" />
-                      Nouvelle periode
+                      Nouvelle période
                     </>
                   )}
                 </button>
@@ -765,10 +754,10 @@ export default function PayrollRun() {
               {selectedEmployerId > 0 && (
                 <button
                   onClick={() => setIsCalendarOpen(true)}
-                  className="w-full flex justify-center items-center gap-2 py-3 px-4 bg-white border border-slate-200 text-slate-700 font-semibold rounded-xl hover:bg-slate-50 hover:border-slate-300 transition-all shadow-sm group"
+                  className={`${payrollSecondaryButtonClass} flex items-center justify-center gap-2`}
                 >
                   <CalendarDaysIcon className="h-5 w-5 text-slate-400 group-hover:text-primary-500 transition-colors" />
-                  Calendrier de Travail
+                  Calendrier de travail
                 </button>
               )}
 
@@ -776,7 +765,7 @@ export default function PayrollRun() {
               <button
                 onClick={load}
                 disabled={isLoading || !workerId || !period}
-                className="w-full btn-primary py-3.5 rounded-xl font-semibold text-lg flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
+                className={`${payrollPrimaryButtonClass} flex items-center justify-center gap-2`}
               >
                 {isLoading ? (
                   <>
@@ -795,7 +784,7 @@ export default function PayrollRun() {
               <button
                 onClick={handleViewBulk}
                 disabled={!selectedEmployerId || !period}
-                className="w-full py-3 bg-slate-800 text-white font-semibold rounded-xl hover:bg-slate-700 transition-colors flex items-center justify-center gap-2 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                className={`${payrollSecondaryButtonClass} flex items-center justify-center gap-2`}
                 title={!selectedEmployerId ? "Sélectionnez un employeur" : !period ? "Sélectionnez une période" : "Imprimer les bulletins de paie"}
               >
                 <PrinterIcon className="h-5 w-5" />
@@ -808,17 +797,17 @@ export default function PayrollRun() {
                   setSimulationResult(null);
                 }}
                 disabled={!worker || !period}
-                className="w-full py-3 bg-teal-500 text-white font-bold rounded-xl hover:bg-teal-600 transition-colors flex items-center justify-center gap-2 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                className={`${payrollSecondaryButtonClass} flex items-center justify-center gap-2`}
                 title={!worker ? "Sélectionnez un salarié" : !period ? "Sélectionnez une période" : "Calculer le salaire de base à partir du net souhaité"}
               >
                 <CalculatorIcon className="h-5 w-5" />
-                Simulateur de Salaire
+                Simulateur de salaire
               </button>
 
               <button
                 onClick={handlePreviewJournal}
                 disabled={isGeneratingJournal || !selectedEmployerId || !period}
-                className="w-full py-3 bg-white border-2 border-emerald-500 text-emerald-600 font-bold rounded-xl hover:bg-emerald-50 transition-colors flex items-center justify-center gap-2 shadow-sm disabled:opacity-50"
+                className={`${payrollSecondaryButtonClass} flex items-center justify-center gap-2 border-emerald-500 text-emerald-700 hover:bg-emerald-50`}
                 title={!selectedEmployerId ? "Sélectionnez un employeur" : "Aperçu de l'état de paie"}
               >
                 {isGeneratingJournal ? (
@@ -826,13 +815,13 @@ export default function PayrollRun() {
                 ) : (
                   <EyeIcon className="h-5 w-5" />
                 )}
-                Aperçu de l'État de Paie
+                Aperçu de l'état de paie
               </button>
 
               <button
                 onClick={handleDownloadJournal}
                 disabled={isDownloadingJournal || !selectedEmployerId || !period}
-                className="w-full py-3 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 transition-colors flex items-center justify-center gap-2 shadow-lg disabled:opacity-50"
+                className={`${payrollPrimaryButtonClass} flex items-center justify-center gap-2 bg-emerald-700 hover:bg-emerald-800`}
                 title={!selectedEmployerId ? "Sélectionnez un employeur" : "Exporter l'état de paie en Excel"}
               >
                 {isDownloadingJournal ? (
@@ -840,7 +829,7 @@ export default function PayrollRun() {
                 ) : (
                   <TableCellsIcon className="h-5 w-5" />
                 )}
-                Exporter l'État de paie
+                Exporter l'état de paie
               </button>
 
               {/* Erreur worker */}
@@ -919,7 +908,7 @@ export default function PayrollRun() {
             </div>
           ) : (
             /* État vide */
-            <div className="glass-card p-12 text-center flex flex-col items-center justify-center h-full min-h-[400px]">
+            <div className="flex min-h-[420px] flex-col items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-white p-12 text-center shadow-sm">
               <div className="w-24 h-24 bg-slate-50 rounded-full flex items-center justify-center mb-6 shadow-inner">
                 <DocumentTextIcon className="h-10 w-10 text-slate-300" />
               </div>
@@ -1008,7 +997,7 @@ export default function PayrollRun() {
                   <TableCellsIcon className="h-7 w-7 text-emerald-500" />
                   Aperçu de l'État de Paie - {formatPeriod(period)}
                 </h2>
-                <p className="text-slate-500 text-sm mt-1">
+                <p className="mt-1 text-sm font-medium text-slate-700">
                   Vérifiez les montants globaux avant l'export Excel. L'aperçu affiche toutes les colonnes disponibles, identique au contenu de l'export Excel.
                 </p>
               </div>
@@ -1033,7 +1022,7 @@ export default function PayrollRun() {
                     const total = getJournalColumnTotal(item.columnId) ?? 0;
                     return (
                       <div key={item.columnId} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                        <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">{item.label}</div>
+                        <div className="text-[12px] font-bold uppercase tracking-wide text-slate-700">{item.label}</div>
                         <div className="mt-2 text-lg font-black text-slate-900">{formatJournalAmount(total)} Ar</div>
                       </div>
                     );
@@ -1046,7 +1035,7 @@ export default function PayrollRun() {
                     <thead className="bg-slate-50 sticky top-0">
                       <tr>
                         {journalColumns.map((columnId) => (
-                          <th key={columnId} className="px-4 py-3 text-left text-[10px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap">
+                          <th key={columnId} className="px-4 py-3 text-left text-[12px] font-bold text-slate-800 uppercase tracking-wide whitespace-nowrap">
                             {formatColumnName(columnId)}
                           </th>
                         ))}
@@ -1065,7 +1054,7 @@ export default function PayrollRun() {
                         ))
                       ) : (
                         <tr>
-                          <td colSpan={journalColumns.length} className="px-6 py-12 text-center text-slate-400 italic">
+                          <td colSpan={journalColumns.length} className="px-6 py-12 text-center text-sm font-medium text-slate-700">
                             Aucune donnée disponible pour cette période.
                           </td>
                         </tr>
@@ -1077,7 +1066,7 @@ export default function PayrollRun() {
                           {journalColumns.map((columnId, index) => {
                             const total = getJournalColumnTotal(columnId);
                             return (
-                              <td key={columnId} className={`px-4 py-3 whitespace-nowrap text-xs font-bold ${total !== null ? "text-right" : "text-left"}`}>
+                              <td key={columnId} className={`px-4 py-3 whitespace-nowrap text-[13px] font-bold ${total !== null ? "text-right" : "text-left"}`}>
                                 {total !== null ? formatJournalAmount(total) : index === 0 ? `TOTAL (${journalData.length})` : ""}
                               </td>
                             );
@@ -1094,7 +1083,7 @@ export default function PayrollRun() {
             <div className="p-6 bg-slate-50 border-t border-slate-100 flex justify-end gap-4">
               <button
                 onClick={() => setIsJournalModalOpen(false)}
-                className="px-6 py-2.5 text-slate-600 font-semibold hover:bg-white rounded-xl transition-all"
+                className="rounded-xl px-6 py-2.5 font-semibold text-slate-800 transition-all hover:bg-white"
               >
                 Fermer
               </button>
@@ -1104,7 +1093,7 @@ export default function PayrollRun() {
                   handleDownloadJournal();
                 }}
                 disabled={journalData.length === 0}
-                className="px-8 py-2.5 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-200 flex items-center gap-2"
+                className="flex items-center gap-2 rounded-xl bg-emerald-700 px-8 py-2.5 font-bold text-white transition-all hover:bg-emerald-800 disabled:opacity-50"
               >
                 <TableCellsIcon className="h-5 w-5" />
                 Confirmer l'Export Excel
@@ -1117,12 +1106,12 @@ export default function PayrollRun() {
       {isSimulatorOpen && (
         <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
           <div className="w-full max-w-2xl overflow-hidden rounded-2xl bg-white shadow-2xl">
-            <div className="flex items-center justify-between bg-gradient-to-r from-purple-600 to-indigo-600 px-6 py-4 text-white">
+            <div className="flex items-center justify-between bg-[#002147] px-6 py-4 text-white">
               <div className="flex items-center gap-3">
                 <CalculatorIcon className="h-6 w-6" />
                 <div>
                   <h2 className="text-xl font-bold">Simulateur de Salaire</h2>
-                  <p className="text-sm text-purple-100">Calcul inverse : du net vers le brut</p>
+                  <p className="text-sm text-slate-200">Calcul inverse : du net vers le brut</p>
                 </div>
               </div>
               <button
@@ -1163,14 +1152,14 @@ export default function PayrollRun() {
               <button
                 onClick={handleReverseCalculation}
                 disabled={isCalculating || !targetNet}
-                className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 py-3 font-bold text-white transition hover:from-purple-700 hover:to-indigo-700 disabled:opacity-50"
+                className={`${payrollPrimaryButtonClass} flex items-center justify-center gap-2`}
               >
                 {isCalculating ? <ArrowPathIcon className="h-5 w-5 animate-spin" /> : <CalculatorIcon className="h-5 w-5" />}
                 {isCalculating ? "Calcul en cours..." : "Calculer le Salaire de Base"}
               </button>
 
               {simulationResult && (
-                <div className="rounded-xl border border-green-200 bg-gradient-to-r from-green-50 to-emerald-50 p-4">
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
                   <h3 className="mb-3 flex items-center gap-2 font-bold text-green-800">
                     <SparklesIcon className="h-5 w-5" />
                     Resultats de la Simulation
@@ -1244,3 +1233,6 @@ export default function PayrollRun() {
     </div>
   );
 }
+
+
+
