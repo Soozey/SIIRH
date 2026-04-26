@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+﻿import { useState, useEffect, useMemo } from "react";
 import { api } from "../api";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Dialog } from "@headlessui/react";
@@ -906,7 +906,7 @@ export default function Workers() {
           <div className="grid w-full gap-3 lg:w-auto lg:grid-cols-[minmax(280px,420px)_auto]">
             <div className="relative group">
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <MagnifyingGlassIcon className="h-5 w-5 text-slate-400 group-focus-within:text-sky-600 transition-colors" />
+                <MagnifyingGlassIcon className="h-5 w-5 text-slate-600 group-focus-within:text-sky-600 transition-colors" />
               </div>
               <input
                 type="text"
@@ -1419,19 +1419,19 @@ export default function Workers() {
                     <h4 className="text-sm font-black text-amber-800 uppercase tracking-widest flex items-center gap-2">Avantages en Nature</h4>
                     <div className="grid grid-cols-2 gap-4">
                       <div>
-                        <label className="block text-[10px] font-black text-amber-600 uppercase mb-1">Véhicule</label>
+                        <label className="block text-xs font-black text-amber-600 uppercase mb-1">Véhicule</label>
                         <input type="number" value={form.avantage_vehicule} onChange={e => setForm(f => ({ ...f, avantage_vehicule: +e.target.value }))} className="w-full px-3 py-2 bg-white border border-amber-200 rounded-xl text-sm" />
                       </div>
                       <div>
-                        <label className="block text-[10px] font-black text-amber-600 uppercase mb-1">Logement</label>
+                        <label className="block text-xs font-black text-amber-600 uppercase mb-1">Logement</label>
                         <input type="number" value={form.avantage_logement} onChange={e => setForm(f => ({ ...f, avantage_logement: +e.target.value }))} className="w-full px-3 py-2 bg-white border border-amber-200 rounded-xl text-sm" />
                       </div>
                       <div>
-                        <label className="block text-[10px] font-black text-amber-600 uppercase mb-1">Téléphone</label>
+                        <label className="block text-xs font-black text-amber-600 uppercase mb-1">Téléphone</label>
                         <input type="number" value={form.avantage_telephone} onChange={e => setForm(f => ({ ...f, avantage_telephone: +e.target.value }))} className="w-full px-3 py-2 bg-white border border-amber-200 rounded-xl text-sm" />
                       </div>
                       <div>
-                        <label className="block text-[10px] font-black text-amber-600 uppercase mb-1">Autres</label>
+                        <label className="block text-xs font-black text-amber-600 uppercase mb-1">Autres</label>
                         <input type="number" value={form.avantage_autres} onChange={e => setForm(f => ({ ...f, avantage_autres: +e.target.value }))} className="w-full px-3 py-2 bg-white border border-amber-200 rounded-xl text-sm" />
                       </div>
                     </div>
@@ -1440,23 +1440,23 @@ export default function Workers() {
                     <h4 className="text-sm font-black text-indigo-800 uppercase tracking-widest">Surcharges de Taux</h4>
                     <div className="grid grid-cols-2 gap-4">
                       <div>
-                        <label className="block text-[10px] font-black text-indigo-400 uppercase mb-1">CNaPS Sal. (%)</label>
+                        <label className="block text-xs font-black text-indigo-700 uppercase mb-1">CNaPS Sal. (%)</label>
                         <input type="number" step="0.1" value={form.taux_sal_cnaps_override ?? ""} onChange={e => setForm(f => ({ ...f, taux_sal_cnaps_override: e.target.value === "" ? null : +e.target.value }))} className="w-full px-3 py-2 bg-white border border-indigo-200 rounded-xl text-sm" />
                       </div>
                       <div>
-                        <label className="block text-[10px] font-black text-indigo-400 uppercase mb-1">SMIE Sal. (%)</label>
+                        <label className="block text-xs font-black text-indigo-700 uppercase mb-1">SMIE Sal. (%)</label>
                         <input type="number" step="0.1" value={form.taux_sal_smie_override ?? ""} onChange={e => setForm(f => ({ ...f, taux_sal_smie_override: e.target.value === "" ? null : +e.target.value }))} className="w-full px-3 py-2 bg-white border border-indigo-200 rounded-xl text-sm" />
                       </div>
                       <div>
-                        <label className="block text-[10px] font-black text-indigo-400 uppercase mb-1">CNaPS Pat. (%)</label>
+                        <label className="block text-xs font-black text-indigo-700 uppercase mb-1">CNaPS Pat. (%)</label>
                         <input type="number" step="0.1" value={form.taux_pat_cnaps_override ?? ""} onChange={e => setForm(f => ({ ...f, taux_pat_cnaps_override: e.target.value === "" ? null : +e.target.value }))} className="w-full px-3 py-2 bg-white border border-indigo-200 rounded-xl text-sm" />
                       </div>
                       <div>
-                        <label className="block text-[10px] font-black text-indigo-400 uppercase mb-1">SMIE Pat. (%)</label>
+                        <label className="block text-xs font-black text-indigo-700 uppercase mb-1">SMIE Pat. (%)</label>
                         <input type="number" step="0.1" value={form.taux_pat_smie_override ?? ""} onChange={e => setForm(f => ({ ...f, taux_pat_smie_override: e.target.value === "" ? null : +e.target.value }))} className="w-full px-3 py-2 bg-white border border-indigo-200 rounded-xl text-sm" />
                       </div>
                       <div>
-                        <label className="block text-[10px] font-black text-indigo-400 uppercase mb-1">FMFP Pat. (%)</label>
+                        <label className="block text-xs font-black text-indigo-700 uppercase mb-1">FMFP Pat. (%)</label>
                         <input type="number" step="0.1" value={form.taux_pat_fmfp_override ?? ""} onChange={e => setForm(f => ({ ...f, taux_pat_fmfp_override: e.target.value === "" ? null : +e.target.value }))} className="w-full px-3 py-2 bg-white border border-indigo-200 rounded-xl text-sm" />
                       </div>
                     </div>
@@ -1473,7 +1473,7 @@ export default function Workers() {
                           <div key={h.id} className="p-4 bg-white rounded-2xl border border-slate-100 flex justify-between items-center group">
                             <div>
                               <p className="font-bold text-slate-700">{h.poste}</p>
-                              <p className="text-xs text-slate-400 font-medium">
+                              <p className="text-xs text-slate-600 font-medium">
                                 {h.start_date ? new Date(h.start_date).toLocaleDateString() : "-"}
                               </p>
                             </div>
@@ -1485,11 +1485,11 @@ export default function Workers() {
                       <h3 className="text-lg font-black text-red-800">Clôture de Contrat</h3>
                       <div className="grid grid-cols-2 gap-4">
                         <div>
-                          <label className="block text-[10px] font-black text-red-400 uppercase mb-1">Date Débauche</label>
+                          <label className="block text-xs font-black text-red-700 uppercase mb-1">Date Débauche</label>
                           <input type="date" value={form.date_debauche} onChange={e => setForm(f => ({ ...f, date_debauche: e.target.value }))} className="w-full px-3 py-2 bg-white border border-red-100 rounded-xl" />
                         </div>
                         <div>
-                          <label className="block text-[10px] font-black text-red-400 uppercase mb-1">Type de rupture</label>
+                          <label className="block text-xs font-black text-red-700 uppercase mb-1">Type de rupture</label>
                           <select value={form.type_sortie} onChange={e => setForm(f => ({ ...f, type_sortie: e.target.value }))} className="w-full px-3 py-2 bg-white border border-red-100 rounded-xl">
                             <option value="L">Licenciement</option>
                             <option value="D">Démission</option>
@@ -1498,7 +1498,7 @@ export default function Workers() {
                         </div>
                       </div>
                       <div>
-                        <label className="block text-[10px] font-black text-red-400 uppercase mb-1">Groupe de Préavis (1-5)</label>
+                        <label className="block text-xs font-black text-red-700 uppercase mb-1">Groupe de Préavis (1-5)</label>
                         <select value={form.groupe_preavis} onChange={e => setForm(f => ({ ...f, groupe_preavis: +e.target.value }))} className="w-full px-3 py-2 bg-white border border-red-100 rounded-xl">
                           <option value={1}>Groupe 1</option>
                           <option value={2}>Groupe 2</option>
@@ -1509,11 +1509,11 @@ export default function Workers() {
                       </div>
                       <div className="p-4 bg-white/60 rounded-2xl border border-red-100 flex flex-col gap-2">
                         <div className="flex justify-between items-center text-xs">
-                          <span className="text-slate-400 font-black uppercase">Préavis Légal :</span>
+                          <span className="text-slate-600 font-black uppercase">Préavis Légal :</span>
                           <span className="text-red-600 font-black italic">{legalNotice} Jours</span>
                         </div>
                         <div className="flex justify-between items-center">
-                          <span className="text-slate-400 text-xs font-black uppercase">Solde Préavis :</span>
+                          <span className="text-slate-600 text-xs font-black uppercase">Solde Préavis :</span>
                           <span className="text-red-700 text-lg font-black">{noticeBalance} Jours</span>
                         </div>
                       </div>
@@ -1542,7 +1542,7 @@ export default function Workers() {
                         <p className="text-slate-500 text-xs font-medium">Coordonnées bancaires et RIB du travailleur</p>
                       </div>
                     </div>
-                    <button onClick={() => setBankModalOpen(false)} className="text-slate-400 hover:text-slate-600">
+                    <button onClick={() => setBankModalOpen(false)} className="text-slate-600 hover:text-slate-600">
                       <XMarkIcon className="h-6 w-6" />
                     </button>
                   </div>
@@ -1550,11 +1550,11 @@ export default function Workers() {
                   <div className="p-8 space-y-8">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                       <div>
-                        <label className="block text-[10px] font-black text-blue-600 uppercase tracking-widest mb-2">Nom de la Banque</label>
+                        <label className="block text-xs font-black text-blue-600 uppercase tracking-widest mb-2">Nom de la Banque</label>
                         <input type="text" value={form.banque} onChange={e => setForm(f => ({ ...f, banque: e.target.value }))} className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl focus:ring-2 focus:ring-blue-500 transition-all font-semibold" placeholder="ex: BNI, BTM..." />
                       </div>
                       <div>
-                        <label className="block text-[10px] font-black text-blue-600 uppercase tracking-widest mb-2">BIC / SWIFT</label>
+                        <label className="block text-xs font-black text-blue-600 uppercase tracking-widest mb-2">BIC / SWIFT</label>
                         <input type="text" value={form.bic} onChange={e => setForm(f => ({ ...f, bic: e.target.value.toUpperCase() }))} className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl focus:ring-2 focus:ring-blue-500 transition-all font-mono font-bold" placeholder="XXXXXXXX" />
                       </div>
                     </div>
@@ -1562,23 +1562,23 @@ export default function Workers() {
                     <div className="bg-slate-50 p-6 rounded-3xl border border-slate-100">
                       <div className="flex items-center gap-2 mb-6">
                         <span className="h-1.5 w-1.5 rounded-full bg-blue-600 animate-pulse"></span>
-                        <h4 className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Détails du RIB (Calcul Automatique)</h4>
+                        <h4 className="text-[11px] font-black text-slate-600 uppercase tracking-widest">Détails du RIB (Calcul Automatique)</h4>
                       </div>
                       <div className="grid grid-cols-4 gap-4">
                         <div className="col-span-1">
-                          <label className="block text-[9px] font-black text-slate-400 uppercase mb-2 text-center">Banque</label>
+                          <label className="block text-xs font-black text-slate-600 uppercase mb-2 text-center">Banque</label>
                           <input type="text" maxLength={5} value={form.code_banque} onChange={e => setForm(f => ({ ...f, code_banque: e.target.value.replace(/\D/g, '') }))} className="w-full text-center py-3 bg-white border border-slate-100 rounded-xl font-mono font-black text-blue-600 text-lg shadow-sm" placeholder="00000" />
                         </div>
                         <div className="col-span-1">
-                          <label className="block text-[9px] font-black text-slate-400 uppercase mb-2 text-center">Guichet</label>
+                          <label className="block text-xs font-black text-slate-600 uppercase mb-2 text-center">Guichet</label>
                           <input type="text" maxLength={5} value={form.code_guichet} onChange={e => setForm(f => ({ ...f, code_guichet: e.target.value.replace(/\D/g, '') }))} className="w-full text-center py-3 bg-white border border-slate-100 rounded-xl font-mono font-black text-blue-600 text-lg shadow-sm" placeholder="00000" />
                         </div>
                         <div className="col-span-1">
-                          <label className="block text-[9px] font-black text-slate-400 uppercase mb-2 text-center">Compte</label>
+                          <label className="block text-xs font-black text-slate-600 uppercase mb-2 text-center">Compte</label>
                           <input type="text" maxLength={11} value={form.compte_num} onChange={e => setForm(f => ({ ...f, compte_num: e.target.value.toUpperCase() }))} className="w-full text-center py-3 bg-white border border-slate-100 rounded-xl font-mono font-black text-blue-600 text-lg shadow-sm" placeholder="XXXXXXXXXXX" />
                         </div>
                         <div className="col-span-1">
-                          <label className="block text-[9px] font-black text-slate-400 uppercase mb-2 text-center">Clé</label>
+                          <label className="block text-xs font-black text-slate-600 uppercase mb-2 text-center">Clé</label>
                           <input type="text" readOnly value={form.cle_rib} className="w-full text-center py-3 bg-blue-600 border-none rounded-xl font-mono font-black text-white text-lg shadow-lg shadow-blue-200" placeholder="00" />
                         </div>
                       </div>
@@ -1599,7 +1599,7 @@ export default function Workers() {
 
             {/* Footer */}
             <div className="p-8 bg-white border-t border-slate-100 flex items-center justify-between sticky bottom-0 z-50 rounded-b-4xl">
-              <button onClick={() => setOpenModal(false)} className="px-8 py-3 text-slate-400 font-bold hover:text-slate-600 transition-all uppercase tracking-widest text-xs">
+              <button onClick={() => setOpenModal(false)} className="px-8 py-3 text-slate-600 font-bold hover:text-slate-600 transition-all uppercase tracking-widest text-xs">
                 Annuler
               </button>
               <div className="flex gap-4">
@@ -2108,3 +2108,5 @@ export default function Workers() {
     </div>
   );
 }
+
+
