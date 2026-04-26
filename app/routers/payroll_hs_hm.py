@@ -22,6 +22,7 @@ from ..utils.hs_hm_calculations import calculate_hs_hm_amounts
 from fastapi.responses import StreamingResponse
 from ..security import PAYROLL_WRITE_ROLES, READ_PAYROLL_ROLES, can_access_employer, require_roles
 from ..services.organizational_filters import apply_worker_hierarchy_filters
+from ..services.payroll_period_service import ensure_payroll_period_open, payroll_period_write_guard
 
 router = APIRouter(prefix="/payroll-hs-hm", tags=["Payroll HS/HM"])
 logger = logging.getLogger(__name__)
@@ -174,6 +175,7 @@ def get_hs_hm_template(
 
 
 @router.post("/{payroll_run_id}/link-manual/{worker_id}", response_model=PayrollHsHmOut)
+@payroll_period_write_guard
 def link_manual_hs_calculation(
     payroll_run_id: int,
     worker_id: int,
@@ -191,6 +193,7 @@ def link_manual_hs_calculation(
         raise HTTPException(status_code=404, detail="Payroll run not found")
     if not can_access_employer(db, user, payroll_run.employer_id):
         raise HTTPException(status_code=403, detail="Forbidden")
+    ensure_payroll_period_open(db, payroll_run.employer_id, period=payroll_run.period)
     
     # Verify worker exists
     worker = db.query(Worker).filter(Worker.id == worker_id).first()
@@ -250,6 +253,7 @@ def link_manual_hs_calculation(
 
 
 @router.post("/{payroll_run_id}/import-excel", response_model=ExcelImportSummary)
+@payroll_period_write_guard
 async def import_hs_hm_from_excel(
     payroll_run_id: int,
     file: UploadFile = File(...),
@@ -271,6 +275,7 @@ async def import_hs_hm_from_excel(
         raise HTTPException(status_code=404, detail="Payroll run not found")
     if not can_access_employer(db, user, payroll_run.employer_id):
         raise HTTPException(status_code=403, detail="Forbidden")
+    ensure_payroll_period_open(db, payroll_run.employer_id, period=payroll_run.period)
     
     # Read Excel file
     try:
@@ -661,6 +666,7 @@ def get_all_hs_hm_for_payroll(
 
 
 @router.put("/{payroll_run_id}/{worker_id}", response_model=PayrollHsHmOut)
+@payroll_period_write_guard
 def update_worker_hs_hm(
     payroll_run_id: int,
     worker_id: int,
@@ -681,6 +687,7 @@ def update_worker_hs_hm(
         raise HTTPException(status_code=404, detail="Payroll run not found")
     if not can_access_employer(db, user, payroll_run.employer_id):
         raise HTTPException(status_code=403, detail="Forbidden")
+    ensure_payroll_period_open(db, payroll_run.employer_id, period=payroll_run.period)
     if worker.employer_id != payroll_run.employer_id:
         raise HTTPException(status_code=400, detail="Worker/employer mismatch for payroll run")
     
@@ -808,6 +815,7 @@ def update_worker_hs_hm(
     return out_dict 
 
 @router.delete("/{payroll_run_id}/{worker_id}", status_code=204)
+@payroll_period_write_guard
 def delete_worker_hs_hm(
     payroll_run_id: int,
     worker_id: int,
@@ -824,6 +832,7 @@ def delete_worker_hs_hm(
         raise HTTPException(status_code=404, detail="Payroll run not found")
     if not can_access_employer(db, user, payroll_run.employer_id):
         raise HTTPException(status_code=403, detail="Forbidden")
+    ensure_payroll_period_open(db, payroll_run.employer_id, period=payroll_run.period)
     worker = db.query(Worker).filter(Worker.id == worker_id).first()
     if worker and worker.employer_id != payroll_run.employer_id:
         raise HTTPException(status_code=400, detail="Worker/employer mismatch for payroll run")
@@ -870,6 +879,7 @@ def delete_worker_hs_hm(
     return None
 
 @router.post("/{payroll_run_id}/reset-bulk", status_code=204)
+@payroll_period_write_guard
 def reset_bulk_hs_hm(
     payroll_run_id: int,
     worker_ids: List[int],
@@ -885,6 +895,7 @@ def reset_bulk_hs_hm(
         raise HTTPException(status_code=404, detail="Payroll run not found")
     if not can_access_employer(db, user, payroll_run.employer_id):
         raise HTTPException(status_code=403, detail="Forbidden")
+    ensure_payroll_period_open(db, payroll_run.employer_id, period=payroll_run.period)
     if worker_ids:
         allowed_rows = db.query(Worker.id).filter(
             Worker.id.in_(worker_ids),

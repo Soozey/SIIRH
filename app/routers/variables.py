@@ -4,11 +4,13 @@ from sqlalchemy.orm import Session
 from .. import models, schemas
 from ..config.config import get_db
 from ..security import PAYROLL_WRITE_ROLES, can_access_worker, require_roles
+from ..services.payroll_period_service import ensure_payroll_period_open, payroll_period_write_guard
 
 router = APIRouter(prefix="/variables", tags=["variables"])
 
 
 @router.post("/upsert", response_model=schemas.PayVarOut, summary="Upsert Variables")
+@payroll_period_write_guard
 def upsert_variables(
     payload: schemas.PayVarIn,
     db: Session = Depends(get_db),
@@ -19,6 +21,7 @@ def upsert_variables(
         raise HTTPException(status_code=404, detail="Worker not found")
     if not can_access_worker(db, user, worker):
         raise HTTPException(status_code=403, detail="Forbidden")
+    ensure_payroll_period_open(db, worker.employer_id, period=payload.period)
 
     var = (
         db.query(models.PayVar)

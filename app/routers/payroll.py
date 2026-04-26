@@ -9,6 +9,14 @@ from ..payroll_logic import compute_preview
 from ..leave_logic import get_leave_summary_for_period, get_permission_summary_for_period
 from ..security import READ_PAYROLL_ROLES, can_access_worker, require_roles, user_has_any_role
 from ..services.organizational_filters import apply_worker_hierarchy_filters
+from ..services.payroll_period_service import (
+    close_payroll_period,
+    ensure_payroll_period_open,
+    format_period,
+    get_or_create_payroll_period,
+    payroll_period_write_guard,
+    reopen_payroll_period,
+)
 from datetime import datetime, date
 
 router = APIRouter(prefix="/payroll", tags=["payroll"])
@@ -124,6 +132,7 @@ def _filter_runs_for_user(query, db: Session, user: models.AppUser):
     return query.filter(models.PayrollRun.id == -1)
 
 @router.post("/get-or-create-run", response_model=models_schemas.PayrollRunOut)
+@payroll_period_write_guard
 def get_or_create_payroll_run_endpoint(
     period: str = Query(...),
     employer_id: int = Query(...),
@@ -140,6 +149,7 @@ def get_or_create_payroll_run_endpoint(
         manager_worker = db.query(models.Worker).filter(models.Worker.id == user.worker_id).first()
         if not manager_worker or manager_worker.employer_id != employer_id:
             raise HTTPException(status_code=403, detail="Forbidden")
+    ensure_payroll_period_open(db, employer_id, period=period)
 
     run = db.query(models.PayrollRun).filter(
         models.PayrollRun.employer_id == employer_id,
@@ -158,6 +168,65 @@ def get_or_create_payroll_run_endpoint(
         db.refresh(run)
         
     return run
+
+
+@router.get("/periods/{employer_id}/{year}/{month}", response_model=models_schemas.PayrollPeriodOut)
+def get_payroll_period_status(
+    employer_id: int,
+    year: int,
+    month: int,
+    db: Session = Depends(get_db),
+    user: models.AppUser = Depends(require_roles(*PAYROLL_BULK_ROLES)),
+):
+    if user_has_any_role(db, user, "employeur") and user.employer_id != employer_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    return get_or_create_payroll_period(db, employer_id, month, year)
+
+
+@router.post("/periods/{employer_id}/{year}/{month}/close", response_model=models_schemas.PayrollPeriodCloseOut)
+def close_payroll_period_endpoint(
+    employer_id: int,
+    year: int,
+    month: int,
+    db: Session = Depends(get_db),
+    user: models.AppUser = Depends(require_roles("admin", "drh", "rh", "comptable", "employeur")),
+):
+    if user_has_any_role(db, user, "employeur") and user.employer_id != employer_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    period, archived_count = close_payroll_period(db, employer_id, month, year, closed_by_user_id=user.id)
+    return models_schemas.PayrollPeriodCloseOut(period=period, archived_count=archived_count)
+
+
+@router.post("/periods/{employer_id}/{year}/{month}/reopen", response_model=models_schemas.PayrollPeriodOut)
+def reopen_payroll_period_endpoint(
+    employer_id: int,
+    year: int,
+    month: int,
+    db: Session = Depends(get_db),
+    user: models.AppUser = Depends(require_roles("admin", "drh", "rh")),
+):
+    if user_has_any_role(db, user, "employeur") and user.employer_id != employer_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    return reopen_payroll_period(db, employer_id, month, year, reopened_by_user_id=user.id)
+
+
+@router.get("/archives/{employer_id}/{year}/{month}", response_model=list[models_schemas.PayrollArchiveOut])
+def get_payroll_archives(
+    employer_id: int,
+    year: int,
+    month: int,
+    db: Session = Depends(get_db),
+    user: models.AppUser = Depends(require_roles(*READ_PAYROLL_ROLES)),
+):
+    if user_has_any_role(db, user, "employeur") and user.employer_id != employer_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    period_text = format_period(month, year)
+    return (
+        db.query(models.PayrollArchive)
+        .filter(models.PayrollArchive.employer_id == employer_id, models.PayrollArchive.period == period_text)
+        .order_by(models.PayrollArchive.worker_matricule.asc(), models.PayrollArchive.id.asc())
+        .all()
+    )
 
 @router.get("/runs", response_model=list[models_schemas.PayrollRunOut])
 def get_all_payroll_runs(

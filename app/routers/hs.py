@@ -15,6 +15,7 @@ from .. import models
 from ..models import HSCalculationHS, PayrollHsHm, PayrollRun, CalendarDay
 from ..schemas import HSCalculationReadHS
 from ..security import PAYROLL_WRITE_ROLES, READ_PAYROLL_ROLES, can_access_worker, require_roles
+from ..services.payroll_period_service import ensure_payroll_period_open, payroll_period_write_guard
 
 
 router = APIRouter(
@@ -897,6 +898,7 @@ class HSExportTauxHS(BaseModel):
 
 
 @router.post("/{hs_id}/export-to-payroll")
+@payroll_period_write_guard
 def export_hs_to_payroll(
     hs_id: int,
     payroll_run_id: int,
@@ -920,6 +922,7 @@ def export_hs_to_payroll(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Payroll run id={payroll_run_id} introuvable.",
         )
+    ensure_payroll_period_open(db, payroll_run.employer_id, period=payroll_run.period)
 
     salaire_horaire = float(worker.salaire_horaire or 0.0)
     rates = taux or HSExportTauxHS()

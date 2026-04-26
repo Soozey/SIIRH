@@ -513,6 +513,63 @@ class PayrollRun(Base):
     generated_at = Column(Date)
 
 
+class PayrollPeriod(Base):
+    __tablename__ = "payroll_periods"
+
+    id = Column(Integer, primary_key=True, index=True)
+    employer_id = Column(Integer, ForeignKey("employers.id"), nullable=False, index=True)
+    month = Column(Integer, nullable=False, index=True)
+    year = Column(Integer, nullable=False, index=True)
+    is_closed = Column(Boolean, nullable=False, default=False, index=True)
+    closed_at = Column(DateTime, nullable=True)
+    reopened_at = Column(DateTime, nullable=True)
+    closed_by_user_id = Column(Integer, ForeignKey("app_users.id"), nullable=True)
+    reopened_by_user_id = Column(Integer, ForeignKey("app_users.id"), nullable=True)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+    employer = relationship("Employer")
+    closed_by = relationship("AppUser", foreign_keys=[closed_by_user_id])
+    reopened_by = relationship("AppUser", foreign_keys=[reopened_by_user_id])
+
+    __table_args__ = (
+        UniqueConstraint("employer_id", "month", "year", name="uq_payroll_period_employer_month_year"),
+        CheckConstraint("month >= 1 AND month <= 12", name="chk_payroll_period_month"),
+        Index("ix_payroll_periods_employer_year_month", "employer_id", "year", "month"),
+    )
+
+
+class PayrollArchive(Base):
+    __tablename__ = "payroll_archives"
+
+    id = Column(Integer, primary_key=True, index=True)
+    payroll_period_id = Column(Integer, ForeignKey("payroll_periods.id", ondelete="CASCADE"), nullable=False, index=True)
+    employer_id = Column(Integer, ForeignKey("employers.id"), nullable=False, index=True)
+    worker_id = Column(Integer, ForeignKey("workers.id"), nullable=False, index=True)
+    period = Column(String(7), nullable=False, index=True)
+    month = Column(Integer, nullable=False, index=True)
+    year = Column(Integer, nullable=False, index=True)
+    worker_matricule = Column(String(100), nullable=True)
+    worker_full_name = Column(String(255), nullable=True)
+    brut = Column(Float, nullable=False, default=0.0)
+    cotisations_salariales = Column(Float, nullable=False, default=0.0)
+    cotisations_patronales = Column(Float, nullable=False, default=0.0)
+    irsa = Column(Float, nullable=False, default=0.0)
+    net = Column(Float, nullable=False, default=0.0)
+    totals_json = Column(Text, nullable=False, default="{}")
+    lines_json = Column(Text, nullable=False, default="[]")
+    archived_at = Column(DateTime, default=utcnow, nullable=False, index=True)
+
+    payroll_period = relationship("PayrollPeriod")
+    employer = relationship("Employer")
+    worker = relationship("Worker")
+
+    __table_args__ = (
+        UniqueConstraint("payroll_period_id", "worker_id", name="uq_payroll_archive_period_worker"),
+        Index("ix_payroll_archives_employer_period", "employer_id", "period"),
+    )
+
+
 class HSCalculationHS(Base):
     """
     Résumé mensuel des heures supplémentaires pour un salarié.

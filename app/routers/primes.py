@@ -18,6 +18,7 @@ from ..security import (
 )
 from ..services.audit_service import record_audit
 from ..services.organizational_filters import apply_worker_hierarchy_filters
+from ..services.payroll_period_service import ensure_payroll_period_open, payroll_period_write_guard
 from ..services.tabular_io import (
     build_column_mapping,
     dataframe_to_csv_bytes,
@@ -965,6 +966,7 @@ def get_prime_values(payroll_run_id: int, db: Session = Depends(get_db)):
 
 
 @router.put("/values/{payroll_run_id}/{worker_id}")
+@payroll_period_write_guard
 def update_prime_values(
     payroll_run_id: int,
     worker_id: int,
@@ -974,6 +976,7 @@ def update_prime_values(
     run = db.query(models.PayrollRun).filter(models.PayrollRun.id == payroll_run_id).first()
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
+    ensure_payroll_period_open(db, run.employer_id, period=run.period)
 
     period = run.period
     employer = db.query(models.Employer).filter(models.Employer.id == run.employer_id).first()
@@ -1010,6 +1013,7 @@ def update_prime_values(
 
 
 @router.post("/values/{payroll_run_id}/reset-bulk")
+@payroll_period_write_guard
 def reset_bulk_prime_values(
     payroll_run_id: int,
     worker_ids: List[int],
@@ -1018,6 +1022,7 @@ def reset_bulk_prime_values(
     run = db.query(models.PayrollRun).filter(models.PayrollRun.id == payroll_run_id).first()
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
+    ensure_payroll_period_open(db, run.employer_id, period=run.period)
 
     period = run.period
     db.query(models.PayVar).filter(

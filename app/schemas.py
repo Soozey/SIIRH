@@ -629,6 +629,45 @@ class PayrollRunOut(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+
+class PayrollPeriodOut(BaseModel):
+    id: int
+    employer_id: int
+    month: int
+    year: int
+    is_closed: bool
+    closed_at: Optional[datetime] = None
+    reopened_at: Optional[datetime] = None
+    closed_by_user_id: Optional[int] = None
+    reopened_by_user_id: Optional[int] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class PayrollArchiveOut(BaseModel):
+    id: int
+    payroll_period_id: int
+    employer_id: int
+    worker_id: int
+    period: str
+    month: int
+    year: int
+    worker_matricule: Optional[str] = None
+    worker_full_name: Optional[str] = None
+    brut: float = 0.0
+    cotisations_salariales: float = 0.0
+    cotisations_patronales: float = 0.0
+    irsa: float = 0.0
+    net: float = 0.0
+    archived_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class PayrollPeriodCloseOut(BaseModel):
+    period: PayrollPeriodOut
+    archived_count: int
+
 class HSJourReadHS(HSJourBaseHS):
     """
     SchÃ©ma de lecture d'une ligne hs_jours_HS.
