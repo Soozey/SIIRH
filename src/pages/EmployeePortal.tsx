@@ -2,7 +2,9 @@ import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Navigate } from "react-router-dom";
 import {
+  BanknotesIcon,
   ChatBubbleLeftRightIcon,
+  DocumentTextIcon,
   IdentificationIcon,
   InboxStackIcon,
   ShieldCheckIcon,
@@ -37,6 +39,41 @@ interface PortalDashboard {
   notifications: Array<{ type: string; label: string; status: string; case_number?: string }>;
 }
 
+interface PayrollArchive {
+  id: number;
+  employer_id: number;
+  worker_id: number;
+  period: string;
+  month: number;
+  year: number;
+  worker_matricule?: string | null;
+  worker_full_name?: string | null;
+  brut: number;
+  cotisations_salariales: number;
+  cotisations_patronales: number;
+  irsa: number;
+  net: number;
+  archived_at: string;
+}
+
+interface HrDossierDocument {
+  id: string;
+  title: string;
+  document_type: string;
+  section_code: string;
+  status: string;
+  document_date?: string | null;
+  expiration_date?: string | null;
+  download_url?: string | null;
+}
+
+interface HrDossier {
+  access_scope: string;
+  worker: Record<string, unknown>;
+  documents: HrDossierDocument[];
+  sections: Record<string, { title: string }>;
+}
+
 interface WorkerFlow {
   worker: Record<string, unknown>;
   candidate: Record<string, unknown>;
@@ -69,6 +106,8 @@ const cardClassName =
 const inputClassName =
   "w-full rounded-2xl border border-white/10 bg-slate-900/80 px-4 py-3 text-sm text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-cyan-300/50";
 const labelClassName = "mb-2 block text-xs font-semibold uppercase tracking-[0.22em] text-slate-400";
+
+const moneyFormat = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 });
 
 const requestTypeLabels: Record<string, string> = {
   document_request: "Demande de document",
@@ -188,6 +227,18 @@ export default function EmployeePortal() {
     queryFn: async () => (await api.get<WorkerFlow>(`/employee-portal/worker-flow/${effectiveWorkerId}`)).data,
   });
 
+  const { data: hrDossier, isLoading: hrDossierLoading, isError: hrDossierError } = useQuery({
+    queryKey: ["employee-portal", "my-hr-dossier"],
+    enabled: isEmployeeScoped && !isInspectorScoped,
+    queryFn: async () => (await api.get<HrDossier>("/employee-portal/me/hr-dossier")).data,
+  });
+
+  const { data: payslips = [], isLoading: payslipsLoading, isError: payslipsError } = useQuery({
+    queryKey: ["employee-portal", "my-payslips"],
+    enabled: isEmployeeScoped && !isInspectorScoped,
+    queryFn: async () => (await api.get<PayrollArchive[]>("/employee-portal/me/payslips")).data,
+  });
+
   const { data: cases = [] } = useQuery({
     queryKey: ["employee-portal", "cases", effectiveWorkerId, effectiveEmployerId],
     enabled: !isInspectorScoped && (effectiveWorkerId !== null || effectiveEmployerId !== null),
@@ -221,6 +272,18 @@ export default function EmployeePortal() {
       queryClient.invalidateQueries({ queryKey: ["employee-portal", "messages"] }),
       queryClient.invalidateQueries({ queryKey: ["employee-portal", "flow"] }),
     ]);
+  };
+
+  const downloadProtectedFile = async (url: string, filename: string) => {
+    const response = await api.get<Blob>(url, { responseType: "blob" });
+    const objectUrl = URL.createObjectURL(response.data);
+    const anchor = document.createElement("a");
+    anchor.href = objectUrl;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+    URL.revokeObjectURL(objectUrl);
   };
 
   const createRequestMutation = useMutation({
@@ -396,6 +459,98 @@ export default function EmployeePortal() {
           </div>
         </div>
       </section>
+
+      {isEmployeeScoped ? (
+        <section className="grid gap-6 xl:grid-cols-[1fr_1fr]">
+          <div className={cardClassName}>
+            <div className="flex items-center gap-3">
+              <DocumentTextIcon className="h-6 w-6 text-cyan-300" />
+              <div>
+                <h2 className="text-xl font-semibold text-white">Mon dossier permanent RH</h2>
+                <p className="text-sm text-slate-400">Documents et informations issus de votre dossier salarié réel.</p>
+              </div>
+            </div>
+            {hrDossierLoading ? (
+              <div className="mt-6 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-slate-300">Chargement du dossier permanent...</div>
+            ) : hrDossierError ? (
+              <div className="mt-6 rounded-2xl border border-red-300/30 bg-red-500/10 p-4 text-sm text-red-100">Dossier permanent indisponible ou non autorisé.</div>
+            ) : (
+              <div className="mt-6 space-y-4">
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm">
+                    <div className="text-xs uppercase tracking-[0.22em] text-slate-500">Matricule</div>
+                    <div className="mt-2 font-semibold text-white">{String(hrDossier?.worker?.matricule ?? flowWorker.matricule ?? "-")}</div>
+                  </div>
+                  <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm">
+                    <div className="text-xs uppercase tracking-[0.22em] text-slate-500">Poste</div>
+                    <div className="mt-2 font-semibold text-white">{String(hrDossier?.worker?.poste ?? flowWorker.poste ?? "-")}</div>
+                  </div>
+                </div>
+                {(hrDossier?.documents ?? []).length ? (
+                  <div className="space-y-3">
+                    {(hrDossier?.documents ?? []).slice(0, 8).map((document) => (
+                      <div key={document.id} className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-slate-300">
+                        <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                          <div>
+                            <div className="font-semibold text-white">{document.title}</div>
+                            <div className="mt-1 text-xs text-slate-400">
+                              {document.document_type} - {hrDossier?.sections?.[document.section_code]?.title ?? document.section_code} - {document.status}
+                            </div>
+                            <div className="mt-1 text-xs text-slate-500">
+                              Date: {document.document_date || "-"} | Expiration: {document.expiration_date || "-"}
+                            </div>
+                          </div>
+                          {document.download_url ? (
+                            <button type="button" className="rounded-xl border border-cyan-300/30 px-3 py-2 text-xs font-semibold text-cyan-100" onClick={() => downloadProtectedFile(document.download_url || "", `${document.title}.bin`)}>
+                              Télécharger
+                            </button>
+                          ) : null}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="rounded-2xl border border-dashed border-white/10 bg-white/5 p-5 text-sm text-slate-400">Aucun document personnel disponible dans le dossier permanent.</div>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className={cardClassName}>
+            <div className="flex items-center gap-3">
+              <BanknotesIcon className="h-6 w-6 text-cyan-300" />
+              <div>
+                <h2 className="text-xl font-semibold text-white">Mes bulletins de paie</h2>
+                <p className="text-sm text-slate-400">Archives de paie clôturées rattachées uniquement à votre compte.</p>
+              </div>
+            </div>
+            {payslipsLoading ? (
+              <div className="mt-6 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-slate-300">Chargement des bulletins...</div>
+            ) : payslipsError ? (
+              <div className="mt-6 rounded-2xl border border-red-300/30 bg-red-500/10 p-4 text-sm text-red-100">Bulletins indisponibles ou non autorisés.</div>
+            ) : payslips.length ? (
+              <div className="mt-6 space-y-3">
+                {payslips.slice(0, 8).map((payslip) => (
+                  <div key={payslip.id} className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-slate-300">
+                    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                      <div>
+                        <div className="font-semibold text-white">Bulletin {payslip.period}</div>
+                        <div className="mt-1 text-xs text-slate-400">Net à payer: {moneyFormat.format(payslip.net)} Ar | Brut: {moneyFormat.format(payslip.brut)} Ar</div>
+                        <div className="mt-1 text-xs text-slate-500">Archivé le {new Date(payslip.archived_at).toLocaleDateString("fr-FR")}</div>
+                      </div>
+                      <button type="button" className="rounded-xl border border-cyan-300/30 px-3 py-2 text-xs font-semibold text-cyan-100" onClick={() => downloadProtectedFile(`/employee-portal/me/payslips/${payslip.id}/download`, `bulletin_${payslip.period}.pdf`)}>
+                        Voir / télécharger
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="mt-6 rounded-2xl border border-dashed border-white/10 bg-white/5 p-5 text-sm text-slate-400">Aucun bulletin disponible.</div>
+            )}
+          </div>
+        </section>
+      ) : null}
 
       <section className="grid gap-6 xl:grid-cols-[0.9fr_1.05fr_1.05fr]">
         <div className={cardClassName}>

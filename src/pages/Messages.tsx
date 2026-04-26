@@ -41,6 +41,25 @@ interface MessageEntry {
   receipt_status?: string | null;
 }
 
+interface ChannelMember {
+  id: number;
+  user_id: number;
+  member_role: string;
+  is_active: boolean;
+  last_read_at?: string | null;
+  user?: AppUserLight | null;
+}
+
+interface ReadReceipt {
+  id: number;
+  message_id: number;
+  user_id: number;
+  status: string;
+  read_at?: string | null;
+  acknowledged_at?: string | null;
+  user?: AppUserLight | null;
+}
+
 interface Notice {
   id: number;
   title: string;
@@ -65,6 +84,19 @@ const inputClassName =
   "w-full rounded-2xl border border-white/10 bg-slate-900/80 px-4 py-3 text-sm text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-cyan-300/50";
 const labelClassName = "mb-2 block text-xs font-semibold uppercase tracking-[0.22em] text-slate-400";
 
+const channelTypeLabels: Record<string, string> = {
+  team: "Canal d'equipe",
+  broadcast: "Diffusion",
+  coordination: "Coordination",
+  service_note: "Note de service",
+  mandatory_notice: "Affichage obligatoire",
+  hr_internal: "RH interne",
+  management: "Management",
+  group: "Canal d'equipe",
+  direct: "Echange direct",
+  announcement: "Diffusion interne",
+};
+
 
 export default function Messages() {
   const { session } = useAuth();
@@ -78,13 +110,13 @@ export default function Messages() {
   const [channelForm, setChannelForm] = useState({
     title: "",
     description: "",
-    channel_type: "group",
+    channel_type: "team",
   });
   const isSelfScoped = sessionHasRole(session, ["employe", "manager"]);
   const isInspector = sessionHasRole(session, ["inspecteur"]);
   const canWriteMessages = hasModulePermission(session, "messages", "write");
 
-  const { data: employers = [] } = useQuery({
+  const { data: employers = [], isLoading: employersLoading, isError: employersError } = useQuery({
     queryKey: ["messages", "employers"],
     enabled: !isSelfScoped && !isInspector,
     queryFn: async () => (await api.get<Employer[]>("/employers")).data,
@@ -140,6 +172,18 @@ export default function Messages() {
     queryFn: async () => (await api.get<MessageEntry[]>(`/messages/channels/${effectiveChannelId}/messages`)).data,
   });
 
+  const { data: members = [] } = useQuery({
+    queryKey: ["messages", "channel-members", effectiveChannelId],
+    enabled: effectiveChannelId !== null && !isInspector,
+    queryFn: async () => (await api.get<ChannelMember[]>(`/messages/channels/${effectiveChannelId}/members`)).data,
+  });
+
+  const { data: readReceipts = [] } = useQuery({
+    queryKey: ["messages", "read-receipts", effectiveChannelId],
+    enabled: effectiveChannelId !== null && !isInspector && canWriteMessages,
+    queryFn: async () => (await api.get<ReadReceipt[]>(`/messages/channels/${effectiveChannelId}/read-receipts`)).data,
+  });
+
   const refreshMessages = async () => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ["messages", "dashboard"] }),
@@ -152,20 +196,27 @@ export default function Messages() {
       if (effectiveEmployerId === null) {
         throw new Error("Aucun employeur disponible.");
       }
+      const title = channelForm.title.trim();
+      if (!title) {
+        throw new Error("Le nom du canal est obligatoire.");
+      }
+      if (selectedMembers.length === 0) {
+        throw new Error("Selectionnez au moins un participant.");
+      }
       return (
         await api.post<Channel>("/messages/channels", {
           employer_id: effectiveEmployerId,
-          title: channelForm.title,
-          description: channelForm.description,
+          title,
+          description: channelForm.description.trim(),
           channel_type: channelForm.channel_type,
           visibility: "internal",
-          ack_required: false,
+          ack_required: ["mandatory_notice", "service_note", "broadcast"].includes(channelForm.channel_type),
           member_user_ids: selectedMembers,
         })
       ).data;
     },
     onSuccess: async (channel) => {
-      setChannelForm({ title: "", description: "", channel_type: "group" });
+      setChannelForm({ title: "", description: "", channel_type: "team" });
       setSelectedMembers([]);
       setSelectedChannelId(channel.id);
       toast.success("Canal cree", "Le module de messagerie interne est actif.");
@@ -181,9 +232,12 @@ export default function Messages() {
       if (!effectiveChannelId) {
         throw new Error("Selectionnez un canal.");
       }
+      if (!messageBody.trim()) {
+        throw new Error("Le message est obligatoire.");
+      }
       if (messageFiles && messageFiles.length > 0) {
         const formData = new FormData();
-        formData.append("body", messageBody);
+        formData.append("body", messageBody.trim());
         formData.append("message_type", "message");
         Array.from(messageFiles).forEach((file) => formData.append("attachments", file));
         return (await api.post(`/messages/channels/${effectiveChannelId}/messages/upload`, formData)).data;
@@ -191,7 +245,7 @@ export default function Messages() {
       return (
         await api.post(`/messages/channels/${effectiveChannelId}/messages`, {
           message_type: "message",
-          body: messageBody,
+          body: messageBody.trim(),
           attachments: [],
         })
       ).data;
@@ -277,10 +331,14 @@ export default function Messages() {
             <div className="mt-6">
               <label className={labelClassName}>Employeur</label>
               <select value={effectiveEmployerId ?? ""} onChange={(event) => setSelectedEmployerId(Number(event.target.value))} className={inputClassName}>
+                <option value="">{employersLoading ? "Chargement des employeurs..." : employersError ? "Erreur de chargement" : "Selectionner un employeur"}</option>
                 {employers.map((item) => (
                   <option key={item.id} value={item.id}>{item.raison_sociale}</option>
                 ))}
               </select>
+              {!employersLoading && !employers.length ? (
+                <div className="mt-2 text-xs text-amber-200">Aucun employeur disponible pour votre perimetre.</div>
+              ) : null}
             </div>
           ) : null}
 
@@ -288,9 +346,13 @@ export default function Messages() {
             <input className={inputClassName} placeholder={isInspector ? "Ex: Plaintes employeurs / Karibo" : "Nom du canal"} value={channelForm.title} onChange={(event) => setChannelForm((current) => ({ ...current, title: event.target.value }))} />
             <textarea className={`${inputClassName} min-h-[120px]`} placeholder={isInspector ? "Expliquez en une phrase a quoi sert cette boite." : "Description du canal"} value={channelForm.description} onChange={(event) => setChannelForm((current) => ({ ...current, description: event.target.value }))} />
             <select className={inputClassName} value={channelForm.channel_type} onChange={(event) => setChannelForm((current) => ({ ...current, channel_type: event.target.value }))}>
-              <option value="group">{isInspector ? "Boite de suivi" : "Canal d'equipe"}</option>
-              <option value="direct">{isInspector ? "Conversation directe" : "Echange direct"}</option>
-              <option value="announcement">{isInspector ? "Diffusion / consigne" : "Diffusion interne"}</option>
+              <option value="team">Canal d'equipe</option>
+              <option value="broadcast">Diffusion</option>
+              <option value="coordination">Coordination</option>
+              <option value="service_note">Note de service</option>
+              <option value="mandatory_notice">Affichage obligatoire</option>
+              <option value="hr_internal">RH interne</option>
+              <option value="management">Management</option>
             </select>
             <div>
               <label className={labelClassName}>Participants</label>
@@ -342,8 +404,9 @@ export default function Messages() {
                 >
                   <div className="text-sm font-semibold text-white">{channel.title}</div>
                   <div className="mt-1 text-xs uppercase tracking-[0.2em] text-cyan-300">
-                    {channel.channel_type === "group" ? (isInspector ? "boite de suivi" : "canal d'equipe") : channel.channel_type === "direct" ? (isInspector ? "conversation directe" : "echange direct") : (isInspector ? "diffusion / consigne" : "diffusion interne")}
+                    {channelTypeLabels[channel.channel_type] ?? channel.channel_type}
                   </div>
+                  {channel.description ? <div className="mt-2 text-xs leading-5 text-slate-300">{channel.description}</div> : null}
                   <div className="mt-2 text-xs text-slate-400">{channel.member_count} membre(s) • {channel.unread_count} non lu(s)</div>
                 </button>
               )) : <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-slate-500">{isInspector ? "Aucune boite disponible." : "Aucun canal disponible."}</div>}
@@ -352,11 +415,17 @@ export default function Messages() {
             <div className="space-y-4">
               <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-4">
                 <div className="text-sm font-semibold text-white">{selectedChannelLabel}</div>
+                {members.length ? (
+                  <div className="mt-2 text-xs text-slate-300">
+                    Participants: {members.filter((item) => item.is_active).map((item) => item.user?.full_name || item.user?.username || `Utilisateur #${item.user_id}`).join(", ")}
+                  </div>
+                ) : null}
                 <div className="mt-3 max-h-[20rem] space-y-3 overflow-y-auto pr-1">
                   {messages.length ? messages.map((item) => (
                     <div key={item.id} className="rounded-2xl border border-white/10 bg-slate-950/50 p-4 text-sm text-slate-300">
                       <div className="font-semibold text-white">{item.author?.full_name || item.author?.username || "Utilisateur"}</div>
                       <div className="mt-1">{item.body}</div>
+                      <div className="mt-2 text-xs text-slate-500">{new Date(item.created_at).toLocaleString("fr-FR")}</div>
                       {(item.attachments ?? []).length ? (
                         <div className="mt-2 text-xs text-cyan-200">
                           Pieces jointes: {(item.attachments ?? []).map((attachment) => attachment.name || attachment.path).join(", ")}
@@ -366,6 +435,20 @@ export default function Messages() {
                   )) : <div className="text-sm text-slate-500">Aucun message sur ce canal.</div>}
                 </div>
               </div>
+
+              {canWriteMessages && readReceipts.length ? (
+                <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-4">
+                  <div className="text-sm font-semibold text-white">Traces de lecture</div>
+                  <div className="mt-3 space-y-2 text-xs text-slate-300">
+                    {readReceipts.slice(0, 8).map((receipt) => (
+                      <div key={receipt.id}>
+                        {receipt.user?.full_name || receipt.user?.username || `Utilisateur #${receipt.user_id}`} - {receipt.status}
+                        {receipt.read_at ? ` - ${new Date(receipt.read_at).toLocaleString("fr-FR")}` : ""}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
 
               <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-4">
                 <textarea className={`${inputClassName} min-h-[120px]`} value={messageBody} onChange={(event) => setMessageBody(event.target.value)} placeholder={isInspector ? "Ecrire une reponse, une demande de precision ou une consigne..." : "Votre message interne..."} />
