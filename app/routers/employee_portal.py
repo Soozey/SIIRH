@@ -30,6 +30,7 @@ from ..services.inspection_vault_service import (
     store_inspection_upload,
 )
 from ..services.pdf_generation_service import build_labour_pv_pdf
+from ..services.pdf_generation_service import build_payslip_pdf
 
 
 router = APIRouter(prefix="/employee-portal", tags=["employee-portal"])
@@ -762,6 +763,79 @@ def get_worker_flow(
     worker = _get_worker_or_404(db, worker_id)
     _assert_worker_scope(db, user, worker)
     return build_employee_flow(db, worker)
+
+
+@router.get("/me/hr-dossier", response_model=schemas.HrDossierViewOut)
+def get_my_hr_dossier(
+    db: Session = Depends(get_db),
+    user: models.AppUser = Depends(require_roles(*READ_ROLES)),
+):
+    if not user.worker_id:
+        raise HTTPException(status_code=404, detail="No worker linked to this account")
+    worker = _get_worker_or_404(db, user.worker_id)
+    _assert_worker_scope(db, user, worker)
+    try:
+        from ..services.hr_dossier_service import build_hr_dossier_view
+
+        return build_hr_dossier_view(db, worker=worker, user=user)
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="Forbidden") from None
+
+
+@router.get("/me/payslips", response_model=list[schemas.PayrollArchiveOut])
+def get_my_payslips(
+    db: Session = Depends(get_db),
+    user: models.AppUser = Depends(require_roles(*READ_ROLES)),
+):
+    if not user.worker_id:
+        raise HTTPException(status_code=404, detail="No worker linked to this account")
+    worker = _get_worker_or_404(db, user.worker_id)
+    _assert_worker_scope(db, user, worker)
+    return (
+        db.query(models.PayrollArchive)
+        .filter(models.PayrollArchive.worker_id == worker.id)
+        .order_by(models.PayrollArchive.year.desc(), models.PayrollArchive.month.desc(), models.PayrollArchive.id.desc())
+        .all()
+    )
+
+
+@router.get("/me/payslips/{archive_id}/download")
+def download_my_payslip(
+    archive_id: int,
+    db: Session = Depends(get_db),
+    user: models.AppUser = Depends(require_roles(*READ_ROLES)),
+):
+    if not user.worker_id:
+        raise HTTPException(status_code=404, detail="No worker linked to this account")
+    archive = (
+        db.query(models.PayrollArchive)
+        .filter(models.PayrollArchive.id == archive_id, models.PayrollArchive.worker_id == user.worker_id)
+        .first()
+    )
+    if not archive:
+        raise HTTPException(status_code=404, detail="Payslip archive not found")
+    worker = _get_worker_or_404(db, archive.worker_id)
+    _assert_worker_scope(db, user, worker)
+    preview = {
+        "lines": json_load(archive.lines_json, []),
+        "totaux": json_load(
+            archive.totals_json,
+            {
+                "brut": archive.brut,
+                "cotisations_salariales": archive.cotisations_salariales,
+                "cotisations_patronales": archive.cotisations_patronales,
+                "irsa": archive.irsa,
+                "net": archive.net,
+            },
+        ),
+    }
+    worker_name = archive.worker_full_name or f"{worker.prenom or ''} {worker.nom or ''}".strip() or f"Travailleur {worker.id}"
+    pdf_bytes = build_payslip_pdf(preview, worker_name, archive.period)
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="bulletin_{archive.worker_matricule or worker.id}_{archive.period}.pdf"'},
+    )
 
 
 @router.get("/requests", response_model=list[schemas.EmployeePortalRequestOut])

@@ -139,6 +139,18 @@ def _serialize_message(db: Session, user: models.AppUser, item: models.InternalM
     )
 
 
+def _serialize_receipt(item: models.InternalMessageReceipt) -> dict:
+    return {
+        "id": item.id,
+        "message_id": item.message_id,
+        "user_id": item.user_id,
+        "status": item.status,
+        "read_at": item.read_at,
+        "acknowledged_at": item.acknowledged_at,
+        "user": _serialize_user(item.user).model_dump() if item.user else None,
+    }
+
+
 def _serialize_notice(db: Session, user: models.AppUser, item: models.InternalNotice) -> schemas.InternalNoticeOut:
     ack = (
         db.query(models.InternalNoticeAcknowledgement)
@@ -225,14 +237,28 @@ def create_channel(
     db: Session = Depends(get_db),
     user: models.AppUser = Depends(require_roles(*MESSAGE_ROLES)),
 ):
+    if not payload.title or not payload.title.strip():
+        raise HTTPException(status_code=422, detail="Channel title is required")
     _assert_employer_scope(db, user, payload.employer_id)
+    normalized_title = payload.title.strip()
+    duplicate = (
+        db.query(models.InternalMessageChannel.id)
+        .filter(
+            models.InternalMessageChannel.employer_id == payload.employer_id,
+            models.InternalMessageChannel.status == "active",
+            models.InternalMessageChannel.title == normalized_title,
+        )
+        .first()
+    )
+    if duplicate:
+        raise HTTPException(status_code=409, detail="A channel with this name already exists for this employer")
     channel = models.InternalMessageChannel(
         channel_code=next_internal_channel_code(db, payload.employer_id),
         employer_id=payload.employer_id,
         created_by_user_id=user.id,
         channel_type=payload.channel_type,
-        title=payload.title,
-        description=payload.description,
+        title=normalized_title,
+        description=payload.description.strip() if payload.description else None,
         visibility=payload.visibility,
         ack_required=payload.ack_required,
         status="active",
@@ -414,6 +440,60 @@ def list_channel_messages(
     return [_serialize_message(db, user, item) for item in items]
 
 
+@router.post("/channels/{channel_id}/read")
+def mark_channel_read(
+    channel_id: int,
+    db: Session = Depends(get_db),
+    user: models.AppUser = Depends(require_roles(*MESSAGE_ROLES)),
+):
+    channel = _get_channel_or_404(db, channel_id)
+    _assert_channel_access(db, user, channel)
+    items = (
+        db.query(models.InternalMessage)
+        .filter(
+            models.InternalMessage.channel_id == channel_id,
+            models.InternalMessage.author_user_id != user.id,
+        )
+        .all()
+    )
+    now = datetime.now(timezone.utc)
+    for item in items:
+        receipt = (
+            db.query(models.InternalMessageReceipt)
+            .filter(
+                models.InternalMessageReceipt.message_id == item.id,
+                models.InternalMessageReceipt.user_id == user.id,
+            )
+            .first()
+        )
+        if not receipt:
+            db.add(models.InternalMessageReceipt(message_id=item.id, user_id=user.id, status="read", read_at=now))
+        elif not receipt.read_at:
+            receipt.status = "read"
+            receipt.read_at = now
+    _touch_membership_read_state(db, user, channel_id)
+    db.commit()
+    return {"ok": True, "channel_id": channel_id}
+
+
+@router.get("/channels/{channel_id}/read-receipts")
+def list_channel_read_receipts(
+    channel_id: int,
+    db: Session = Depends(get_db),
+    user: models.AppUser = Depends(require_roles("admin", "rh", "employeur", "direction", "juridique", "audit", "recrutement")),
+):
+    channel = _get_channel_or_404(db, channel_id)
+    _assert_employer_scope(db, user, channel.employer_id)
+    receipts = (
+        db.query(models.InternalMessageReceipt)
+        .join(models.InternalMessage, models.InternalMessage.id == models.InternalMessageReceipt.message_id)
+        .filter(models.InternalMessage.channel_id == channel_id)
+        .order_by(models.InternalMessageReceipt.read_at.desc().nullslast(), models.InternalMessageReceipt.id.desc())
+        .all()
+    )
+    return [_serialize_receipt(item) for item in receipts]
+
+
 @router.post("/channels/{channel_id}/messages", response_model=schemas.InternalMessageOut)
 def create_channel_message(
     channel_id: int,
@@ -423,13 +503,15 @@ def create_channel_message(
 ):
     channel = _get_channel_or_404(db, channel_id)
     _assert_channel_access(db, user, channel)
+    if not payload.body or not payload.body.strip():
+        raise HTTPException(status_code=422, detail="Message body is required")
 
     item = models.InternalMessage(
         channel_id=channel.id,
         employer_id=channel.employer_id,
         author_user_id=user.id,
         message_type=payload.message_type,
-        body=payload.body,
+        body=payload.body.strip(),
         attachments_json=json_dump(payload.attachments),
         status="sent",
     )
