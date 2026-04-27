@@ -107,6 +107,20 @@ const isJournalNumericColumn = (columnId: string) =>
   columnId.includes("13ème") ||
   columnId.includes("Avantage");
 
+const isJournalSummableColumn = (columnId: string) => {
+  const normalized = columnId.toLowerCase();
+  if (
+    normalized.includes("cin") ||
+    normalized.includes("cnaps_num") ||
+    normalized.includes("numero_cnaps") ||
+    normalized.includes("numéro cnaps") ||
+    normalized.includes("n° cnaps")
+  ) {
+    return false;
+  }
+  return isJournalNumericColumn(columnId);
+};
+
 const isNumericLikeValue = (value: unknown) => {
   if (value === null || value === undefined || value === "") return false;
   if (typeof value === "number") return Number.isFinite(value);
@@ -451,12 +465,11 @@ export default function PayrollRun() {
   };
 
   const getJournalColumnTotal = (columnId: string) => {
+    if (!isJournalSummableColumn(columnId)) return null;
     const values = journalData
       .map((row) => row[columnId])
       .filter((value) => value !== null && value !== undefined && value !== "");
     const hasNumericValues = values.some(isNumericLikeValue);
-    const hasOnlyNumericValues = values.length > 0 && values.every(isNumericLikeValue);
-    if (!isJournalNumericColumn(columnId) && !hasOnlyNumericValues) return null;
     if (!hasNumericValues) return null;
     return journalData.reduce((sum, row) => sum + toJournalNumber(row[columnId]), 0);
   };
@@ -1032,10 +1045,13 @@ export default function PayrollRun() {
               <div className="min-w-full inline-block align-middle">
                 <div className="overflow-hidden border border-slate-200 rounded-2xl shadow-sm">
                   <table className="min-w-full divide-y divide-slate-200">
-                    <thead className="bg-slate-50 sticky top-0">
+                    <thead>
                       <tr>
                         {journalColumns.map((columnId) => (
-                          <th key={columnId} className="px-4 py-3 text-left text-[12px] font-bold text-slate-800 uppercase tracking-wide whitespace-nowrap">
+                          <th
+                            key={columnId}
+                            className="sticky top-0 z-20 bg-slate-50 px-4 py-3 text-left text-[12px] font-bold text-slate-800 uppercase tracking-wide whitespace-nowrap shadow-[inset_0_-1px_0_rgb(226,232,240)]"
+                          >
                             {formatColumnName(columnId)}
                           </th>
                         ))}
