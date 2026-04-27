@@ -1,0 +1,41 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: siirh
+      POSTGRES_USER: siirh
+      POSTGRES_PASSWORD: siirh
+    ports:
+      - "5432:5432"
+    volumes:
+      - siirh_pgdata:/var/lib/postgresql/data
+
+  backend:
+    image: python:3.12-slim
+    working_dir: /app
+    command: sh -c "pip install -r requirements.txt && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    volumes:
+      - ./apps/backend:/app
+    environment:
+      DATABASE_URL: postgresql://siirh:siirh@db:5432/siirh
+      CORS_ORIGINS: http://localhost:5173
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+
+  frontend:
+    image: node:20-alpine
+    working_dir: /app
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
+    volumes:
+      - ./apps/frontend:/app
+    environment:
+      VITE_API_BASE_URL: http://localhost:8000
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+
+volumes:
+  siirh_pgdata:
