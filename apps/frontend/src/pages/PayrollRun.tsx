@@ -114,17 +114,18 @@ const isJournalSummableColumn = (columnId: string) => {
     .toLowerCase()
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "");
-  const identifierTokens = [
-    "matricule",
-    "cin",
-    "cnaps_num",
-    "numero cnaps",
-    "n cnaps",
-    "n° cnaps",
-    "num cnaps",
-    "numero cna",
-  ];
-  if (identifierTokens.some((token) => normalized.includes(token))) {
+  const compact = normalized.replace(/[°#._-]/g, " ").replace(/\s+/g, " ").trim();
+  if (
+    compact === "matricule" ||
+    compact === "cin" ||
+    compact === "cnaps num" ||
+    compact === "numero cnaps" ||
+    compact === "num cnaps" ||
+    compact === "n cnaps" ||
+    compact.startsWith("numero cnaps ") ||
+    compact.startsWith("num cnaps ") ||
+    compact.startsWith("n cnaps ")
+  ) {
     return false;
   }
   return isJournalNumericColumn(columnId);
