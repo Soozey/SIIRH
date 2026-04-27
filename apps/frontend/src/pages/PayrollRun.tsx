@@ -474,6 +474,24 @@ export default function PayrollRun() {
     }
   };
 
+  const getJournalFrozenColumnClass = (index: number, section: "head" | "body" | "foot") => {
+    if (index > 1) return "";
+    const surfaceClass = section === "head"
+      ? "bg-slate-50"
+      : section === "foot"
+        ? "bg-slate-900"
+        : "bg-white group-hover:bg-slate-50";
+    const zIndexClass = section === "head"
+      ? "z-40"
+      : section === "foot"
+        ? "z-30"
+        : "z-20";
+    const positionClass = index === 0
+      ? "left-0 min-w-32 w-32"
+      : "left-32 min-w-[28rem] w-[28rem]";
+    return `sticky ${positionClass} ${surfaceClass} ${zIndexClass} shadow-[2px_0_0_rgb(226,232,240)]`;
+  };
+
   const getJournalColumnTotal = (columnId: string) => {
     if (!isJournalSummableColumn(columnId)) return null;
     const values = journalData
@@ -1057,10 +1075,10 @@ export default function PayrollRun() {
                   <table className="min-w-full divide-y divide-slate-200">
                     <thead>
                       <tr>
-                        {journalColumns.map((columnId) => (
+                        {journalColumns.map((columnId, index) => (
                           <th
                             key={columnId}
-                            className="sticky top-0 z-20 bg-slate-50 px-4 py-3 text-left text-[12px] font-bold text-slate-800 uppercase tracking-wide whitespace-nowrap shadow-[inset_0_-1px_0_rgb(226,232,240)]"
+                            className={`sticky top-0 z-30 bg-slate-50 px-4 py-3 text-left text-[12px] font-bold text-slate-800 uppercase tracking-wide whitespace-nowrap shadow-[inset_0_-1px_0_rgb(226,232,240)] ${getJournalFrozenColumnClass(index, "head")}`}
                           >
                             {formatColumnName(columnId)}
                           </th>
@@ -1070,9 +1088,9 @@ export default function PayrollRun() {
                     <tbody className="bg-white divide-y divide-slate-100">
                       {journalData.length > 0 ? (
                         journalData.map((row, idx) => (
-                          <tr key={idx} className="hover:bg-slate-50 transition-colors">
-                            {journalColumns.map((columnId) => (
-                              <td key={columnId} className={getCellStyle(columnId)}>
+                          <tr key={idx} className="group hover:bg-slate-50 transition-colors">
+                            {journalColumns.map((columnId, index) => (
+                              <td key={columnId} className={`${getCellStyle(columnId)} ${getJournalFrozenColumnClass(index, "body")}`}>
                                 {formatCellValue(row[columnId], columnId, row)}
                               </td>
                             ))}
@@ -1092,7 +1110,7 @@ export default function PayrollRun() {
                           {journalColumns.map((columnId, index) => {
                             const total = getJournalColumnTotal(columnId);
                             return (
-                              <td key={columnId} className={`px-4 py-3 whitespace-nowrap text-[13px] font-bold ${total !== null ? "text-right" : "text-left"}`}>
+                              <td key={columnId} className={`px-4 py-3 whitespace-nowrap text-[13px] font-bold ${total !== null ? "text-right" : "text-left"} ${getJournalFrozenColumnClass(index, "foot")}`}>
                                 {total !== null ? formatJournalAmount(total) : index === 0 ? `TOTAL (${journalData.length})` : ""}
                               </td>
                             );
