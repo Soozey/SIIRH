@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Navigate } from "react-router-dom";
+import { Link, Navigate } from "react-router-dom";
 import {
   BanknotesIcon,
   ChatBubbleLeftRightIcon,
@@ -439,6 +439,11 @@ export default function EmployeePortal() {
               Canal formel entre salarié, employeur et inspecteur du travail, avec traçabilité, historique et statut.
             </p>
           </div>
+          {isEmployeeScoped ? (
+            <Link to="/leaves" className="rounded-2xl bg-cyan-400 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300">
+              Demander un congé
+            </Link>
+          ) : null}
           <div className="grid gap-3 sm:grid-cols-4">
             <div className="rounded-[1.5rem] border border-white/10 bg-slate-950/30 px-5 py-4">
               <div className="text-xs uppercase tracking-[0.24em] text-cyan-100/70">Demandes</div>

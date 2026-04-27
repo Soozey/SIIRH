@@ -82,6 +82,9 @@ export function hasModulePermission(
       return true;
     }
   }
+  if ((roles.has("employe") || roles.has("employee") || roles.has("agent")) && action === "read" && ["time_absence", "messages", "employee_portal"].includes(module)) {
+    return true;
+  }
   return false;
 }
 

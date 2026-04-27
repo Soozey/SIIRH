@@ -3,7 +3,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { BellAlertIcon, ChatBubbleLeftRightIcon, UserGroupIcon } from "@heroicons/react/24/outline";
 
 import { api } from "../api";
-import InspectorPortalWorkspace from "../components/inspection/InspectorPortalWorkspace";
 import { useToast } from "../components/ui/useToast";
 import { useAuth } from "../contexts/useAuth";
 import { hasModulePermission, sessionHasRole } from "../rbac";
@@ -114,12 +113,17 @@ export default function Messages() {
   });
   const isSelfScoped = sessionHasRole(session, ["employe", "manager"]);
   const isInspector = sessionHasRole(session, ["inspecteur"]);
-  const canWriteMessages = hasModulePermission(session, "messages", "write");
+  const canWriteMessages = hasModulePermission(session, "messages", "write") || isInspector;
 
   const { data: employers = [], isLoading: employersLoading, isError: employersError } = useQuery({
     queryKey: ["messages", "employers"],
-    enabled: !isSelfScoped && !isInspector,
-    queryFn: async () => (await api.get<Employer[]>("/employers")).data,
+    enabled: !isSelfScoped,
+    queryFn: async () => {
+      if (isInspector) {
+        return (await api.get<Employer[]>("/compliance/inspector-employers")).data;
+      }
+      return (await api.get<Employer[]>("/employers")).data;
+    },
   });
 
   const effectiveEmployerId = useMemo(() => {
@@ -134,7 +138,7 @@ export default function Messages() {
 
   const { data: dashboard } = useQuery({
     queryKey: ["messages", "dashboard", effectiveEmployerId],
-    enabled: effectiveEmployerId !== null && !isInspector,
+    enabled: effectiveEmployerId !== null,
     queryFn: async () => (
       await api.get<MessagesDashboard>("/messages/dashboard", {
         params: { employer_id: effectiveEmployerId },
@@ -158,7 +162,7 @@ export default function Messages() {
 
   const { data: users = [] } = useQuery({
     queryKey: ["messages", "available-users", effectiveEmployerId],
-    enabled: effectiveEmployerId !== null && !isInspector,
+    enabled: effectiveEmployerId !== null,
     queryFn: async () => (
       await api.get<AppUserLight[]>("/messages/available-users", {
         params: { employer_id: effectiveEmployerId },
@@ -168,19 +172,19 @@ export default function Messages() {
 
   const { data: messages = [] } = useQuery({
     queryKey: ["messages", "channel", effectiveChannelId],
-    enabled: effectiveChannelId !== null && !isInspector,
+    enabled: effectiveChannelId !== null,
     queryFn: async () => (await api.get<MessageEntry[]>(`/messages/channels/${effectiveChannelId}/messages`)).data,
   });
 
   const { data: members = [] } = useQuery({
     queryKey: ["messages", "channel-members", effectiveChannelId],
-    enabled: effectiveChannelId !== null && !isInspector,
+    enabled: effectiveChannelId !== null,
     queryFn: async () => (await api.get<ChannelMember[]>(`/messages/channels/${effectiveChannelId}/members`)).data,
   });
 
   const { data: readReceipts = [] } = useQuery({
     queryKey: ["messages", "read-receipts", effectiveChannelId],
-    enabled: effectiveChannelId !== null && !isInspector && canWriteMessages,
+    enabled: effectiveChannelId !== null && canWriteMessages,
     queryFn: async () => (await api.get<ReadReceipt[]>(`/messages/channels/${effectiveChannelId}/read-receipts`)).data,
   });
 
@@ -273,10 +277,6 @@ export default function Messages() {
     const selected = channels.find((item) => item.id === effectiveChannelId);
     return selected?.title ?? "Aucun canal";
   }, [channels, effectiveChannelId]);
-
-  if (isInspector) {
-    return <InspectorPortalWorkspace initialTab="messages" />;
-  }
 
   return (
     <div className="space-y-8">
