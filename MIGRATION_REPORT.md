@@ -12,9 +12,10 @@ Branche cible : `monorepo-siirh-migration`
 
 ## Branches sources retenues
 
-- Backend : `activate-leave-requests-inspector-agent-messaging`
-- Frontend : `activate-leave-requests-inspector-agent-messaging`
-- Workspace SIIRH2 : `activate-leave-requests-inspector-agent-messaging`
+- Backend : `activate-leave-requests-inspector-agent-messaging`, commit `c906b51`.
+- Frontend : `activate-leave-requests-inspector-agent-messaging`, commit `da75e04`.
+- Workspace SIIRH2 : `activate-leave-requests-inspector-agent-messaging`, commit `4c4936c`.
+- siirh-web : `main`, commit `4d46de2`.
 
 ## Choix techniques
 
@@ -23,7 +24,19 @@ Branche cible : `monorepo-siirh-migration`
 - Historique Git backend/frontend préservé via `git subtree`.
 - Les anciens sous-modules de `SIIRH2` ne sont pas conservés comme sous-modules.
 - Documentation utile de `SIIRH2` reprise sous `docs/legacy-siirh2`.
-- `siirh-web` conservé en référence uniquement sous `docs/legacy-siirh-web` si nécessaire, car il est distinct du front actif.
+- `siirh-web` conservé en référence documentaire sous `docs/legacy-siirh-web` (`README.md` et manifeste), car il est distinct du front actif et ne doit pas remplacer `apps/frontend`.
+
+## Fichiers migrés
+
+- `apps/backend` : contenu suivi par Git de `Soozey/siirh-backend`, hors fichiers locaux non suivis.
+- `apps/frontend` : contenu suivi par Git de `Soozey/siirh-frontend_Paie`, hors fichiers locaux non suivis.
+- `docs/legacy-siirh2` : documentation Markdown et anciens dossiers `docs` de `SIIRH2`.
+- `docs/legacy-siirh-web` : README et manifeste de fichiers pour audit ultérieur.
+
+## Éléments non migrés comme application active
+
+- `siirh-web` : ancien frontend séparé. Il contient des composants React utiles comme référence, mais le frontend actif est `siirh-frontend_Paie`.
+- Sous-modules SIIRH2 : convertis en vrais dossiers via `apps/backend` et `apps/frontend`; aucun `.gitmodules` cible n'est conservé.
 
 ## Fichiers exclus
 
