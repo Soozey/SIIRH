@@ -94,8 +94,10 @@ const JOURNAL_NUMERIC_COLUMNS = [
   "Heures Majorées Nuit Hab. 30%", "Heures Majorées Nuit Occ. 50%",
   "Heures Majorées Dimanche 40%", "Heures Majorées Jours Fériés 50%",
   "Avantage en nature véhicule", "Avantage en nature logement", "Avantage en nature téléphone",
-  "Cotisation CNaPS", "CNaPS Patronal", "Total CNaPS",
+  "Cotisation CNaPS", "CNaPS Sal.", "CNaPS Salarial", "CNaPS Patronal", "Total CNaPS",
+  "cnaps_salarial", "cotisation_cnaps", "cotisation_cnaps_salariale",
   "Cotisation SMIE", "SMIE Patronal", "Total SMIE",
+  "FMFP", "FMFP Patronal", "Cotisation FMFP", "fmfp", "fmfp_patronal", "cotisation_fmfp",
   "Charges salariales", "Charges patronales",
   "IRSA", "Avance sur salaire", "Avance sur salaire (quinzaine)", "Autres Déductions",
   "net_a_payer", "cout_total_employeur"
