@@ -108,14 +108,21 @@ const isJournalNumericColumn = (columnId: string) =>
   columnId.includes("Avantage");
 
 const isJournalSummableColumn = (columnId: string) => {
-  const normalized = columnId.toLowerCase();
-  if (
-    normalized.includes("cin") ||
-    normalized.includes("cnaps_num") ||
-    normalized.includes("numero_cnaps") ||
-    normalized.includes("numéro cnaps") ||
-    normalized.includes("n° cnaps")
-  ) {
+  const normalized = columnId
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+  const identifierTokens = [
+    "matricule",
+    "cin",
+    "cnaps_num",
+    "numero cnaps",
+    "n cnaps",
+    "n° cnaps",
+    "num cnaps",
+    "numero cna",
+  ];
+  if (identifierTokens.some((token) => normalized.includes(token))) {
     return false;
   }
   return isJournalNumericColumn(columnId);
@@ -1043,7 +1050,7 @@ export default function PayrollRun() {
                 </div>
               ) : null}
               <div className="min-w-full inline-block align-middle">
-                <div className="overflow-hidden border border-slate-200 rounded-2xl shadow-sm">
+                <div className="overflow-auto border border-slate-200 rounded-2xl shadow-sm max-h-[58vh]">
                   <table className="min-w-full divide-y divide-slate-200">
                     <thead>
                       <tr>
