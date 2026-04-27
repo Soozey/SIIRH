@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from .. import models, schemas
 from ..config.config import get_db
-from ..security import require_roles, user_has_any_role
+from ..security import can_access_employer, require_roles, user_has_any_role
 from ..services.audit_service import record_audit
 from ..services.employee_portal_service import json_dump, json_load
 from ..services.file_storage import sanitize_filename_part, save_upload_file
@@ -16,12 +16,14 @@ from ..services.messages_service import build_messages_dashboard, channel_query_
 
 router = APIRouter(prefix="/messages", tags=["messages"])
 
-MESSAGE_ROLES = ("admin", "rh", "employeur", "manager", "employe", "juridique", "direction", "recrutement", "audit")
+MESSAGE_ROLES = ("admin", "rh", "employeur", "manager", "employe", "inspecteur", "juridique", "direction", "recrutement", "audit")
 BROADCAST_ROLES = {"admin", "rh", "direction", "juridique", "audit", "employeur", "recrutement"}
 
 
 def _assert_employer_scope(db: Session, user: models.AppUser, employer_id: int) -> None:
     if user_has_any_role(db, user, "admin", "rh", "direction", "juridique", "audit", "recrutement"):
+        return
+    if user_has_any_role(db, user, "inspecteur") and can_access_employer(db, user, employer_id):
         return
     if user_has_any_role(db, user, "employeur") and user.employer_id == employer_id:
         return
@@ -336,7 +338,7 @@ def add_channel_member(
     channel_id: int,
     payload: schemas.InternalMessageChannelMemberCreate,
     db: Session = Depends(get_db),
-    user: models.AppUser = Depends(require_roles("admin", "rh", "employeur", "direction", "juridique", "recrutement")),
+    user: models.AppUser = Depends(require_roles("admin", "rh", "employeur", "inspecteur", "direction", "juridique", "recrutement")),
 ):
     channel = _get_channel_or_404(db, channel_id)
     _assert_employer_scope(db, user, channel.employer_id)
@@ -480,10 +482,10 @@ def mark_channel_read(
 def list_channel_read_receipts(
     channel_id: int,
     db: Session = Depends(get_db),
-    user: models.AppUser = Depends(require_roles("admin", "rh", "employeur", "direction", "juridique", "audit", "recrutement")),
+    user: models.AppUser = Depends(require_roles("admin", "rh", "employeur", "inspecteur", "direction", "juridique", "audit", "recrutement")),
 ):
     channel = _get_channel_or_404(db, channel_id)
-    _assert_employer_scope(db, user, channel.employer_id)
+    _assert_channel_access(db, user, channel)
     receipts = (
         db.query(models.InternalMessageReceipt)
         .join(models.InternalMessage, models.InternalMessage.id == models.InternalMessageReceipt.message_id)
